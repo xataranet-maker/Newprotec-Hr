@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Default Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation Helpers
+    function isValidUser(data) {
+      return data.keys().hasAll(['username', 'fullName', 'role']) &&
+             data.username is string && data.username.size() >= 2 && data.username.size() <= 64 &&
+             data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 128 &&
+             data.role is string && data.role.size() <= 32;
+    }
+
+    function isValidStaff(data) {
+      return data.keys().hasAll(['employeeId', 'fullName']) &&
+             data.employeeId is string && data.employeeId.size() <= 32 &&
+             data.fullName is string && data.fullName.size() <= 128;
+    }
+
+    function isValidNetData(data) {
+      return data.keys().hasAll(['model', 'code']) &&
+             data.model is string && data.model.size() <= 128 &&
+             data.code is string && data.code.size() <= 128;
+    }
+
+    function isValidImportRecord(data) {
+      return data.keys().hasAll(['model', 'code', 'lotNo', 'quantity']) &&
+             data.model is string && data.model.size() <= 128 &&
+             data.code is string && data.code.size() <= 128 &&
+             data.lotNo is string && data.lotNo.size() <= 128 &&
+             data.quantity is number;
+    }
+
+    function isValidProductionHistory(data) {
+      return data.keys().hasAll(['model', 'code', 'lotNo']) &&
+             data.model is string && data.model.size() <= 128 &&
+             data.code is string && data.code.size() <= 128 &&
+             data.lotNo is string && data.lotNo.size() <= 128;
+    }
+
+    // 2. Collection Rules
+
+    // Connection Test Document
+    match /test/connection {
+      allow read, write: if true;
+    }
+
+    // Factory State Synchronization Document
+    match /app_state/{docId} {
+      allow read, write: if true;
+    }
+
+    // User Accounts
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update, delete: if true;
+    }
+
+    // Staff Records
+    match /staff/{staffId} {
+      allow read: if true;
+      allow create, update, delete: if true;
+    }
+
+    // Net Data
+    match /net_data/{dataId} {
+      allow read: if true;
+      allow create, update, delete: if true;
+    }
+
+    // Import Records
+    match /imported_records/{recordId} {
+      allow read: if true;
+      allow create, update, delete: if true;
+    }
+
+    // Production History
+    match /production_history/{historyId} {
+      allow read: if true;
+      allow create, update, delete: if true;
+    }
+  }
+}

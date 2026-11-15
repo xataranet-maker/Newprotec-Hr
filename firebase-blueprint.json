@@ -1,0 +1,119 @@
+{
+  "entities": {
+    "AppState": {
+      "title": "AppState",
+      "description": "Aggregated manufacturing ERP state document",
+      "type": "object",
+      "properties": {
+        "userAccounts": { "type": "array" },
+        "importedRecords": { "type": "array" },
+        "exportedRecords": { "type": "array" },
+        "netDataRecords": { "type": "array" },
+        "staffRecords": { "type": "array" },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      }
+    },
+    "User": {
+      "title": "User",
+      "description": "User account for authentication and role-based access control",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 128 },
+        "role": { "type": "string", "maxLength": 32 },
+        "department": { "type": "string", "maxLength": 64 },
+        "employeeId": { "type": "string", "maxLength": 32 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["username", "fullName", "role"]
+    },
+    "Staff": {
+      "title": "Staff",
+      "description": "Employee profiles across factory departments",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string", "maxLength": 32 },
+        "fullName": { "type": "string", "maxLength": 128 },
+        "position": { "type": "string", "maxLength": 64 },
+        "department": { "type": "string", "maxLength": 64 },
+        "shift": { "type": "string", "maxLength": 16 },
+        "attendance": { "type": "string", "maxLength": 32 },
+        "lateMinutes": { "type": "number" },
+        "lateIn": { "type": "string", "maxLength": 16 },
+        "earlyMinutes": { "type": "number" },
+        "earlyOut": { "type": "string", "maxLength": 16 },
+        "phone": { "type": "string", "maxLength": 32 }
+      },
+      "required": ["employeeId", "fullName"]
+    },
+    "NetData": {
+      "title": "NetData",
+      "description": "Product specification and Net Data definitions",
+      "type": "object",
+      "properties": {
+        "model": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 128 },
+        "customer": { "type": "string", "maxLength": 128 },
+        "stage": { "type": "string", "maxLength": 64 },
+        "department": { "type": "string", "maxLength": 64 },
+        "pitchDistance": { "type": "number" }
+      },
+      "required": ["model", "code"]
+    },
+    "ImportRecord": {
+      "title": "ImportRecord",
+      "description": "Warehouse production import records",
+      "type": "object",
+      "properties": {
+        "model": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 128 },
+        "lotNo": { "type": "string", "maxLength": 128 },
+        "quantity": { "type": "number" },
+        "department": { "type": "string", "maxLength": 64 },
+        "date": { "type": "string", "maxLength": 32 },
+        "shift": { "type": "string", "maxLength": 16 }
+      },
+      "required": ["model", "code", "lotNo", "quantity"]
+    },
+    "ProductionHistory": {
+      "title": "ProductionHistory",
+      "description": "Completed manufacturing history records",
+      "type": "object",
+      "properties": {
+        "model": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 128 },
+        "lotNo": { "type": "string", "maxLength": 128 },
+        "quantity": { "type": "number" },
+        "department": { "type": "string", "maxLength": 64 },
+        "completedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["model", "code", "lotNo"]
+    }
+  },
+  "firestore": {
+    "/app_state/{docId}": {
+      "schema": "AppState",
+      "description": "Global application state synchronization document"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Registered app users and permissions"
+    },
+    "/staff/{staffId}": {
+      "schema": "Staff",
+      "description": "Factory employee profiles"
+    },
+    "/net_data/{dataId}": {
+      "schema": "NetData",
+      "description": "Product specification master list"
+    },
+    "/imported_records/{recordId}": {
+      "schema": "ImportRecord",
+      "description": "Material & Finished goods import logs"
+    },
+    "/production_history/{historyId}": {
+      "schema": "ProductionHistory",
+      "description": "Completed manufacturing logs"
+    }
+  }
+}

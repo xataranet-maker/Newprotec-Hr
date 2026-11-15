@@ -1,0 +1,8 @@
+{
+  "name": "Remix Newprotec Vina V2.1 - Hệ Thống Quản Lý Sản Xuất \u0026 Vận Hành",
+  "description": "Hệ thống quản lý sản xuất MES/ERP Newprotec Vina V2.0 với đầy đủ các phân hệ Multi Auto, Stiff, Dập Tự Động, Khuôn \u0026 Jig, Thiết Bị, Hành Chính Nhân Sự và Quản Trị.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
