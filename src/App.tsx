@@ -335,79 +335,190 @@ export default function App() {
       return null;
   }, [currentTab, activeItem]);
 
-  // --- SYNC ENGINE (FIREBASE FIRESTORE & CLIENT-RESILIENT) ---
+  const hasPulledInitial = useRef(false);
+  const skipNextAutoPush = useRef(false);
+  const isSyncingRef = useRef(false);
+
+  const buildCurrentState = useCallback(() => ({
+    userAccounts, importedRecords, exportedRecords, accessoriesRecords, accessoriesUsage, netDataRecords, accessoryParams, machineStatuses, staffRecords, multiHistory, machineActivityLogs, attendanceHistory, attendanceConfirmations, approvalHistory, stiffImportRecords, stiffExportRecords, stiffNetData, stiffMachines, stiffStaff, stiffHistory, moldImportRecords, moldExportRecords, moldNetData, moldMachines, moldStaff, moldHistory, moldScrapRecords, stampingImportRecords, stampingExportRecords, stampingNetData, stampingMachines, stampingStaff, stampingHistory, equipmentStaff, qualityStaff, hrStaff, warehouseStaff, officeStaff, qualitySolutions, toolRecords, spareParts, repairHistory, faultRecords, contracts, overtimeRecords, payrollRecords, salarySlipRecords, timekeepingRecords, announcements, hrAssets, trainingRecords, documentRecords, attendanceRequests, productReturns, accessoryReturns, productionPlans, deptTargets, language
+  }), [
+    userAccounts, importedRecords, exportedRecords, accessoriesRecords, accessoriesUsage, netDataRecords, accessoryParams, machineStatuses, staffRecords, multiHistory, machineActivityLogs, attendanceHistory, attendanceConfirmations, approvalHistory, stiffImportRecords, stiffExportRecords, stiffNetData, stiffMachines, stiffStaff, stiffHistory, moldImportRecords, moldExportRecords, moldNetData, moldMachines, moldStaff, moldHistory, moldScrapRecords, stampingImportRecords, stampingExportRecords, stampingNetData, stampingMachines, stampingStaff, stampingHistory, equipmentStaff, qualityStaff, hrStaff, warehouseStaff, officeStaff, qualitySolutions, toolRecords, spareParts, repairHistory, faultRecords, contracts, overtimeRecords, payrollRecords, salarySlipRecords, timekeepingRecords, announcements, hrAssets, trainingRecords, documentRecords, attendanceRequests, productReturns, accessoryReturns, productionPlans, deptTargets, language
+  ]);
+
+  const latestStateRef = useRef(buildCurrentState());
+  useEffect(() => {
+    latestStateRef.current = buildCurrentState();
+  }, [buildCurrentState]);
+
+  const applySyncedState = useCallback((s: Record<string, any>) => {
+    if (!s || typeof s !== 'object') return;
+    skipNextAutoPush.current = true;
+    if (Array.isArray(s.userAccounts) && s.userAccounts.length > 0) setUserAccounts(s.userAccounts);
+    if (s.language) setLanguage(s.language);
+    if (s.deptTargets && typeof s.deptTargets === 'object') setDeptTargets(s.deptTargets);
+    if (Array.isArray(s.importedRecords)) setImportedRecords(s.importedRecords);
+    if (Array.isArray(s.exportedRecords)) setExportedRecords(s.exportedRecords);
+    if (Array.isArray(s.accessoriesRecords)) setAccessoriesRecords(s.accessoriesRecords);
+    if (Array.isArray(s.accessoriesUsage)) setAccessoriesUsage(s.accessoriesUsage);
+    if (Array.isArray(s.netDataRecords)) setNetDataRecords(s.netDataRecords);
+    if (Array.isArray(s.accessoryParams)) setAccessoryParams(s.accessoryParams);
+    if (Array.isArray(s.machineStatuses)) setMachineStatuses(s.machineStatuses);
+    if (Array.isArray(s.staffRecords)) setStaffRecords(s.staffRecords);
+    if (Array.isArray(s.multiHistory)) setMultiHistory(s.multiHistory);
+    if (Array.isArray(s.machineActivityLogs)) setMachineActivityLogs(s.machineActivityLogs);
+    if (Array.isArray(s.attendanceHistory)) setAttendanceHistory(s.attendanceHistory);
+    if (Array.isArray(s.attendanceConfirmations)) setAttendanceConfirmations(s.attendanceConfirmations);
+    if (Array.isArray(s.approvalHistory)) setApprovalHistory(s.approvalHistory);
+
+    if (Array.isArray(s.stiffImportRecords)) setStiffImportRecords(s.stiffImportRecords);
+    if (Array.isArray(s.stiffExportRecords)) setStiffExportRecords(s.stiffExportRecords);
+    if (Array.isArray(s.stiffNetData)) setStiffNetData(s.stiffNetData);
+    if (Array.isArray(s.stiffMachines)) setStiffMachines(s.stiffMachines);
+    if (Array.isArray(s.stiffStaff)) setStiffStaff(s.stiffStaff);
+    if (Array.isArray(s.stiffHistory)) setStiffHistory(s.stiffHistory);
+
+    if (Array.isArray(s.moldImportRecords)) setMoldImportRecords(s.moldImportRecords);
+    if (Array.isArray(s.moldExportRecords)) setMoldExportRecords(s.moldExportRecords);
+    if (Array.isArray(s.moldNetData)) setMoldNetData(s.moldNetData);
+    if (Array.isArray(s.moldMachines)) setMoldMachines(s.moldMachines);
+    if (Array.isArray(s.moldStaff)) setMoldStaff(s.moldStaff);
+    if (Array.isArray(s.moldHistory)) setMoldHistory(s.moldHistory);
+    if (Array.isArray(s.moldScrapRecords)) setMoldScrapRecords(s.moldScrapRecords);
+
+    if (Array.isArray(s.stampingImportRecords)) setStampingImportRecords(s.stampingImportRecords);
+    if (Array.isArray(s.stampingExportRecords)) setStampingExportRecords(s.stampingExportRecords);
+    if (Array.isArray(s.stampingNetData)) setStampingNetData(s.stampingNetData);
+    if (Array.isArray(s.stampingMachines)) setStampingMachines(s.stampingMachines);
+    if (Array.isArray(s.stampingStaff)) setStampingStaff(s.stampingStaff);
+    if (Array.isArray(s.stampingHistory)) setStampingHistory(s.stampingHistory);
+
+    if (Array.isArray(s.equipmentStaff)) setEquipmentStaff(s.equipmentStaff);
+    if (Array.isArray(s.qualityStaff)) setQualityStaff(s.qualityStaff);
+    if (Array.isArray(s.hrStaff)) setHrStaff(s.hrStaff);
+    if (Array.isArray(s.warehouseStaff)) setWarehouseStaff(s.warehouseStaff);
+    if (Array.isArray(s.officeStaff)) setOfficeStaff(s.officeStaff);
+    if (Array.isArray(s.qualitySolutions)) setQualitySolutions(s.qualitySolutions);
+    if (Array.isArray(s.toolRecords)) setToolRecords(s.toolRecords);
+    if (Array.isArray(s.spareParts)) setSpareParts(s.spareParts);
+    if (Array.isArray(s.repairHistory)) setRepairHistory(s.repairHistory);
+    if (Array.isArray(s.faultRecords)) setFaultRecords(s.faultRecords);
+    if (Array.isArray(s.contracts)) setContracts(s.contracts);
+    if (Array.isArray(s.overtimeRecords)) setOvertimeRecords(s.overtimeRecords);
+    if (Array.isArray(s.payrollRecords)) setPayrollRecords(s.payrollRecords);
+    if (Array.isArray(s.salarySlipRecords)) setSalarySlipRecords(s.salarySlipRecords);
+    if (Array.isArray(s.timekeepingRecords)) setTimekeepingRecords(s.timekeepingRecords);
+    if (Array.isArray(s.announcements)) setAnnouncements(s.announcements);
+    if (Array.isArray(s.hrAssets)) setHrAssets(s.hrAssets);
+    if (Array.isArray(s.trainingRecords)) setTrainingRecords(s.trainingRecords);
+    if (Array.isArray(s.documentRecords)) setDocumentRecords(s.documentRecords);
+    if (Array.isArray(s.attendanceRequests)) setAttendanceRequests(s.attendanceRequests);
+    if (Array.isArray(s.productReturns)) setProductReturns(s.productReturns);
+    if (Array.isArray(s.accessoryReturns)) setAccessoryReturns(s.accessoryReturns);
+    if (Array.isArray(s.productionPlans)) setProductionPlans(s.productionPlans);
+  }, []);
+
+  // --- SYNC ENGINE (VERCEL TURSO PRIMARY + FIRESTORE SECONDARY FALLBACK) ---
   const performSync = useCallback(async (isPush: boolean) => {
-    if (isSyncing) return;
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
     setIsSyncing(true);
     try {
-        const state = {
-            userAccounts, importedRecords, exportedRecords, accessoriesRecords, accessoriesUsage, netDataRecords, accessoryParams, machineStatuses, staffRecords, multiHistory, machineActivityLogs, attendanceHistory, attendanceConfirmations, approvalHistory, stiffImportRecords, stiffExportRecords, stiffNetData, stiffMachines, stiffStaff, stiffHistory, moldImportRecords, moldExportRecords, moldNetData, moldMachines, moldStaff, moldHistory, moldScrapRecords, stampingImportRecords, stampingExportRecords, stampingNetData, stampingMachines, stampingStaff, stampingHistory, equipmentStaff, qualityStaff, hrStaff, warehouseStaff, officeStaff, qualitySolutions, toolRecords, spareParts, repairHistory, faultRecords, contracts, overtimeRecords, payrollRecords, salarySlipRecords, timekeepingRecords, announcements, hrAssets, trainingRecords, documentRecords, attendanceRequests, productReturns, accessoryReturns, productionPlans, deptTargets, language
-        };
+      const state = latestStateRef.current;
+      const actor = currentUser?.fullName || currentUser?.username || 'system';
+      let tursoSynced = false;
 
-        // 1. Firebase Firestore Sync
+      // 1. Primary Vercel Turso Database Sync (/api/sync)
+      try {
+        const res = await fetch(SYNC_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: isPush ? 'PUSH' : 'PULL',
+            actor,
+            data: isPush ? state : undefined,
+          }),
+        });
+
+        if (res.ok) {
+          const result = await res.json();
+          if (result.success) {
+            tursoSynced = true;
+            if (!isPush) {
+              if (!result.empty && result.data && Object.keys(result.data).length > 0) {
+                applySyncedState(result.data);
+              } else if (result.empty) {
+                // Seed brand-new empty Turso database with initial factory state
+                await fetch(SYNC_API_URL, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'PUSH',
+                    actor: 'initial-seed',
+                    data: state,
+                  }),
+                }).catch(() => null);
+              }
+            }
+          }
+        }
+      } catch (tursoErr) {
+        console.warn('Turso API sync fallback:', tursoErr);
+      }
+
+      // 2. Secondary Firebase Firestore Sync (Fallback / Mirror)
+      if (!tursoSynced) {
         const docRef = doc(db, 'app_state', 'factory_data');
         if (isPush) {
-            try {
-                await setDoc(docRef, { ...state, updatedAt: new Date().toISOString() });
-            } catch (fsErr) {
-                console.warn("Firestore write fallback", fsErr);
-            }
+          try {
+            await setDoc(docRef, { ...state, updatedAt: new Date().toISOString() });
+          } catch (fsErr) {
+            console.warn('Firestore write fallback', fsErr);
+          }
         } else {
-            try {
-                const docSnap = await getDoc(docRef);
-                if (docSnap && docSnap.exists()) {
-                    const s = docSnap.data();
-                    if (s.userAccounts) setUserAccounts(s.userAccounts);
-                    if (s.importedRecords) setImportedRecords(s.importedRecords);
-                    if (s.exportedRecords) setExportedRecords(s.exportedRecords);
-                    if (s.accessoriesRecords) setAccessoriesRecords(s.accessoriesRecords);
-                    if (s.accessoriesUsage) setAccessoriesUsage(s.accessoriesUsage);
-                    if (s.netDataRecords) setNetDataRecords(s.netDataRecords);
-                    if (s.accessoryParams) setAccessoryParams(s.accessoryParams);
-                    if (s.machineStatuses) setMachineStatuses(s.machineStatuses);
-                    if (s.staffRecords) setStaffRecords(s.staffRecords);
-                    if (s.multiHistory) setMultiHistory(s.multiHistory);
-                    if (s.stiffImportRecords) setStiffImportRecords(s.stiffImportRecords);
-                    if (s.moldNetData) setMoldNetData(s.moldNetData);
-                    if (s.stampingImportRecords) setStampingImportRecords(s.stampingImportRecords);
-                }
-            } catch (fsErr) {
-                console.warn("Firestore get fallback", fsErr);
+          try {
+            const docSnap = await getDoc(docRef);
+            if (docSnap && docSnap.exists()) {
+              applySyncedState(docSnap.data());
             }
+          } catch (fsErr) {
+            console.warn('Firestore get fallback', fsErr);
+          }
         }
+      }
 
-        // 2. Secondary API Fallback Sync
-        const res = await fetch(SYNC_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: isPush ? 'PUSH' : 'PULL', data: isPush ? state : undefined })
-        }).catch(() => null);
-        
-        if (res && res.ok) {
-            const result = await res.json().catch(() => ({ success: false }));
-            if (result.success && !isPush && result.data) {
-                const s = result.data;
-                if (s.userAccounts) setUserAccounts(s.userAccounts);
-                if (s.importedRecords) setImportedRecords(s.importedRecords);
-                if (s.exportedRecords) setExportedRecords(s.exportedRecords);
-            }
-        }
-        setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+      setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
     } catch (e) {
-        console.warn("Sync offline fallback active", e);
+      console.warn('Sync offline fallback active', e);
     } finally {
-        setIsSyncing(false);
+      if (!isPush) {
+        hasPulledInitial.current = true;
+      }
+      isSyncingRef.current = false;
+      setIsSyncing(false);
     }
-  }, [
-      userAccounts, importedRecords, exportedRecords, accessoriesRecords, accessoriesUsage, netDataRecords, accessoryParams, machineStatuses, staffRecords, multiHistory, machineActivityLogs, attendanceHistory, attendanceConfirmations, approvalHistory, stiffImportRecords, stiffExportRecords, stiffNetData, stiffMachines, stiffStaff, stiffHistory, moldImportRecords, moldExportRecords, moldNetData, moldMachines, moldStaff, moldHistory, moldScrapRecords, stampingImportRecords, stampingExportRecords, stampingNetData, stampingMachines, stampingStaff, stampingHistory, equipmentStaff, qualityStaff, hrStaff, warehouseStaff, officeStaff, qualitySolutions, toolRecords, spareParts, repairHistory, faultRecords, contracts, overtimeRecords, payrollRecords, salarySlipRecords, timekeepingRecords, announcements, hrAssets, trainingRecords, documentRecords, attendanceRequests, productReturns, accessoryReturns, productionPlans, deptTargets, language, isSyncing
-  ]);
+  }, [applySyncedState, currentUser]);
 
   useEffect(() => {
     if (!isInitialized.current) {
-        performSync(false);
-        isInitialized.current = true;
+      isInitialized.current = true;
+      performSync(false);
     }
-  }, []);
+  }, [performSync]);
+
+  // Debounced auto-sync to Vercel Turso after local mutations
+  useEffect(() => {
+    if (!hasPulledInitial.current || !currentUser) return;
+    if (skipNextAutoPush.current) {
+      skipNextAutoPush.current = false;
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      performSync(true);
+    }, 2500);
+
+    return () => window.clearTimeout(timer);
+  }, [buildCurrentState, currentUser, performSync]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

@@ -101,7 +101,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           onClick={onSync}
           disabled={isSyncing}
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60 text-slate-300 hover:text-cyan-300 transition-colors cursor-pointer"
-          title="Đồng bộ dữ liệu với máy chủ / đám mây"
+          title="Đồng bộ dữ liệu với Vercel Turso Database (database-newprotec)"
         >
           {isSyncing ? (
             <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
