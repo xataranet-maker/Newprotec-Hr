@@ -48,6 +48,7 @@ import {
   OvertimeRecord,
   PayrollRecord,
   SalarySlipRecord,
+  EmployeeSalaryConfig,
   HRAnnouncement,
   TimekeepingRecord,
   AssetRecord,
@@ -116,6 +117,9 @@ export default function App() {
   const [salarySlipRecords, setSalarySlipRecords] = useState<SalarySlipRecord[]>(() =>
     loadFromStorage('app_salary_slips', [])
   );
+  const [salaryConfigs, setSalaryConfigs] = useState<EmployeeSalaryConfig[]>(() =>
+    loadFromStorage('app_salary_configs', [])
+  );
   const [timekeepingRecords, setTimekeepingRecords] = useState<TimekeepingRecord[]>(() =>
     loadFromStorage('app_timekeeping_records', [])
   );
@@ -155,6 +159,7 @@ export default function App() {
     localStorage.setItem('app_overtime_records', JSON.stringify(overtimeRecords));
     localStorage.setItem('app_payroll_records', JSON.stringify(payrollRecords));
     localStorage.setItem('app_salary_slips', JSON.stringify(salarySlipRecords));
+    localStorage.setItem('app_salary_configs', JSON.stringify(salaryConfigs));
     localStorage.setItem('app_timekeeping_records', JSON.stringify(timekeepingRecords));
     localStorage.setItem('app_announcements', JSON.stringify(announcements));
     localStorage.setItem('app_hr_assets', JSON.stringify(hrAssets));
@@ -173,6 +178,7 @@ export default function App() {
     overtimeRecords,
     payrollRecords,
     salarySlipRecords,
+    salaryConfigs,
     timekeepingRecords,
     announcements,
     hrAssets,
@@ -246,6 +252,7 @@ export default function App() {
       overtimeRecords,
       payrollRecords,
       salarySlipRecords,
+      salaryConfigs,
       timekeepingRecords,
       announcements,
       hrAssets,
@@ -266,6 +273,7 @@ export default function App() {
       overtimeRecords,
       payrollRecords,
       salarySlipRecords,
+      salaryConfigs,
       timekeepingRecords,
       announcements,
       hrAssets,
@@ -296,6 +304,7 @@ export default function App() {
     if (Array.isArray(s.overtimeRecords)) setOvertimeRecords(s.overtimeRecords);
     if (Array.isArray(s.payrollRecords)) setPayrollRecords(s.payrollRecords);
     if (Array.isArray(s.salarySlipRecords)) setSalarySlipRecords(s.salarySlipRecords);
+    if (Array.isArray(s.salaryConfigs)) setSalaryConfigs(s.salaryConfigs);
     if (Array.isArray(s.timekeepingRecords)) setTimekeepingRecords(s.timekeepingRecords);
     if (Array.isArray(s.announcements)) setAnnouncements(s.announcements);
     if (Array.isArray(s.hrAssets)) setHrAssets(s.hrAssets);
@@ -505,6 +514,7 @@ export default function App() {
           onRequestCorrection={(req) => setAttendanceRequests([req, ...attendanceRequests])}
           attendanceConfirmations={attendanceConfirmations}
           onUpdateAttendanceConfirmation={setAttendanceConfirmations}
+          salaryConfigs={salaryConfigs}
           onUpdateStaffInfo={handleUpdateStaffInfo}
           onUpdateAvatar={handleUpdateAvatar}
         />
@@ -542,6 +552,7 @@ export default function App() {
             onRequestCorrection={(req) => setAttendanceRequests([req, ...attendanceRequests])}
             attendanceConfirmations={attendanceConfirmations}
             onUpdateAttendanceConfirmation={setAttendanceConfirmations}
+            salaryConfigs={salaryConfigs}
             onUpdateStaffInfo={handleUpdateStaffInfo}
             onUpdateAvatar={handleUpdateAvatar}
           />
@@ -664,6 +675,9 @@ export default function App() {
             allStaff={allStaff}
             attendanceConfirmations={attendanceConfirmations}
             onUpdateAttendanceConfirmation={setAttendanceConfirmations}
+            salarySlips={salarySlipRecords}
+            onUpdateSalarySlips={setSalarySlipRecords}
+            salaryConfigs={salaryConfigs}
             onViewProfile={setViewingProfileStaff}
             userRole={currentUser?.role}
           />
@@ -692,6 +706,9 @@ export default function App() {
             salarySlips={salarySlipRecords}
             setSalarySlips={setSalarySlipRecords}
             allStaff={allStaff}
+            salaryConfigs={salaryConfigs}
+            setSalaryConfigs={setSalaryConfigs}
+            attendanceConfirmations={attendanceConfirmations}
           />
         );
       case 'hr_assets':
@@ -709,6 +726,7 @@ export default function App() {
               HR_CONTRACTS: { data: contracts, setter: setContracts },
               HR_PAYROLLS: { data: payrollRecords, setter: setPayrollRecords },
               HR_SLIPS: { data: salarySlipRecords, setter: setSalarySlipRecords },
+              HR_SALARY_CONFIGS: { data: salaryConfigs, setter: setSalaryConfigs },
               HR_ANN_GRP: { data: announcements, setter: setAnnouncements },
               HR_ASSETS: { data: hrAssets, setter: setHrAssets },
               HR_TRAINING: { data: trainingRecords, setter: setTrainingRecords },
@@ -823,6 +841,7 @@ export default function App() {
             onRequestCorrection={(req) => setAttendanceRequests([req, ...attendanceRequests])}
             attendanceConfirmations={attendanceConfirmations}
             onUpdateAttendanceConfirmation={setAttendanceConfirmations}
+            salaryConfigs={salaryConfigs}
             onUpdateStaffInfo={handleUpdateStaffInfo}
             onUpdateAvatar={(newUrl) => handleUpdateStaffInfo({ ...resolvedStaff, avatarUrl: newUrl })}
           />

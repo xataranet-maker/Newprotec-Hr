@@ -10,11 +10,22 @@ import {
   TimekeepingRecord,
   AttendanceCorrectionRequest,
   AttendanceConfirmationRecord,
+  EmployeeSalaryConfig,
 } from '../../types';
 import {
   MATRIX_UPDATED_EVENT,
   getEmployeeProfileMatrixData,
 } from '../../lib/matrixTimekeeping';
+import {
+  SALARY_NUMERIC_FIELDS,
+  formatVnd,
+  ComputedSalarySlipData,
+  computeMonthlySalarySlipDetails,
+  createEmptySalaryConfig,
+  loadOvtFormulaFields,
+  recomputeSalaryConfig,
+} from '../../lib/salaryConfig';
+import { SalarySlipModal } from './SalarySlipModal';
 import {
   Briefcase,
   Phone,
@@ -60,6 +71,7 @@ export interface EmployeeProfileProps {
   onRequestCorrection: (req: AttendanceCorrectionRequest) => void;
   attendanceConfirmations: AttendanceConfirmationRecord[];
   onUpdateAttendanceConfirmation: (conf: AttendanceConfirmationRecord[]) => void;
+  salaryConfigs?: EmployeeSalaryConfig[];
   onUpdateStaffInfo: (st: StaffRecord) => void;
   onUpdateAvatar?: (url: string) => void;
   isModal?: boolean;
@@ -89,6 +101,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   onRequestCorrection,
   attendanceConfirmations,
   onUpdateAttendanceConfirmation,
+  salaryConfigs = [],
   onUpdateStaffInfo,
   isModal = false,
   onClose,
@@ -97,6 +110,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth() + 1);
+  const [viewingSlipModal, setViewingSlipModal] = useState<ComputedSalarySlipData | null>(null);
 
   // Edit info state
   const [isEditingInfo, setIsEditingInfo] = useState(false);
@@ -350,15 +364,52 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const myTimekeeping = timekeepingRecords.filter((t) => t.employeeId === empId);
   const myOvertime = overtimeRecords.filter((o) => o.employeeId === empId);
   const myMatrixOvertimeDays = useMemo(() => dayRows.filter((r) => r.totalOtDayRow > 0), [dayRows]);
-  const mySalarySlips = salarySlips.filter((s) => s.employeeId === empId);
-  const myContracts = contracts.filter((c) => c.employeeId === empId);
-  const myRequests = attendanceRequests.filter((r) => r.employeeId === empId);
   const monthKey = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
   const normalizedEmpId = empId.trim().toLowerCase();
+  const mySalarySlips = salarySlips.filter(
+    (s) => s.employeeId.trim().toLowerCase() === normalizedEmpId
+  );
+  const mySalaryConfig = salaryConfigs.find(
+    (c) => c.employeeId.trim().toLowerCase() === normalizedEmpId
+  );
+  const openOfficialSlipModal = (slipMonthStr: string, slipConfig?: EmployeeSalaryConfig, summary?: SalarySlipRecord['attendanceSummary']) => {
+    const [yStr, mStr] = slipMonthStr.split('-');
+    const slipYear = Number(yStr) || selectedYear;
+    const slipMonth = Number(mStr) || selectedMonth;
+    const { days } = getEmployeeProfileMatrixData(
+      empId,
+      empDept || 'MULTI',
+      slipYear,
+      slipMonth,
+      staffInfo
+    );
+    const baseCfg =
+      slipConfig ||
+      mySalaryConfig ||
+      createEmptySalaryConfig({ employeeId: empId, fullName: empName });
+    const computed = computeMonthlySalarySlipDetails({
+      staff: {
+        employeeId: empId,
+        fullName: empName,
+        department: empDept,
+        shift: staffInfo?.shift || 'DAY',
+        lateMinutes: staffInfo?.lateMinutes,
+        earlyMinutes: staffInfo?.earlyMinutes,
+      },
+      salaryConfig: recomputeSalaryConfig(baseCfg, loadOvtFormulaFields()),
+      year: slipYear,
+      month: slipMonth,
+      matrixDays: days,
+      attendanceSummary: summary,
+    });
+    setViewingSlipModal(computed);
+  };
   const isMonthConfirmed = attendanceConfirmations.some(
     (c) => c.employeeId.trim().toLowerCase() === normalizedEmpId && c.month === monthKey && c.isConfirmed
   );
 
+  const myContracts = contracts.filter((c) => c.employeeId === empId);
+  const myRequests = attendanceRequests.filter((r) => r.employeeId === empId);
   const handleConfirmMonthAttendance = () => {
     const existingIdx = attendanceConfirmations.findIndex(
       (c) => c.employeeId.trim().toLowerCase() === normalizedEmpId && c.month === monthKey
@@ -1072,23 +1123,153 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     Chưa có phiếu lương nào được phát hành cho mã nhân viên {empId}.
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {mySalarySlips.map((s) => (
-                      <div key={s.id} className="p-3 rounded-lg bg-slate-950 border border-slate-800 flex justify-between items-center">
-                        <div>
-                          <div className="font-bold text-white">Phiếu lương tháng {s.month}</div>
-                          <div className="text-[11px] text-slate-400 font-mono">
-                            {s.fileName} · Cập nhật: {s.uploadDate}
+                      <div key={s.id} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                        <div className="flex flex-wrap justify-between items-center gap-2">
+                          <div>
+                            <div className="font-bold text-white text-xs sm:text-sm">Phiếu lương tháng {s.month}</div>
+                            <div className="text-[11px] text-slate-400 font-mono">
+                              {s.fileName} · Cập nhật: {s.uploadDate}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openOfficialSlipModal(s.month, s.salaryConfig, s.attendanceSummary)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold cursor-pointer transition-colors"
+                            >
+                              <FileText className="w-3 h-3" />
+                              <span>Xem phiếu lương</span>
+                            </button>
+                            <span className="px-2.5 py-1 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-700/40 font-mono text-[11px] font-semibold">
+                              Đã phát hành
+                            </span>
                           </div>
                         </div>
-                        <span className="px-2.5 py-1 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-700/40 font-mono">
-                          Đã phát hành
-                        </span>
+
+                        {s.attendanceSummary && (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 pt-2 border-t border-slate-800/80 font-mono text-[11px]">
+                            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+                              <span className="text-[10px] text-slate-400 block font-sans">Tổng ngày công</span>
+                              <span className="font-bold text-white">{s.attendanceSummary.workDaysCount} ngày</span>
+                            </div>
+                            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+                              <span className="text-[10px] text-emerald-300 block font-sans">Công ngày / đêm</span>
+                              <span className="font-bold text-emerald-400">
+                                {s.attendanceSummary.regularDayHours}h / {s.attendanceSummary.regularNightHours}h
+                              </span>
+                            </div>
+                            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+                              <span className="text-[10px] text-amber-300 block font-sans">TC Ngày / Đêm</span>
+                              <span className="font-bold text-amber-400">
+                                {s.attendanceSummary.otDayHours}h / {s.attendanceSummary.otNightHours}h
+                              </span>
+                            </div>
+                            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+                              <span className="text-[10px] text-pink-300 block font-sans">CN Ngày / Đêm</span>
+                              <span className="font-bold text-pink-400">
+                                {s.attendanceSummary.otSundayDayHours}h / {s.attendanceSummary.otSundayNightHours}h
+                              </span>
+                            </div>
+                            <div className="p-2 rounded bg-slate-900/90 border border-slate-800">
+                              <span className="text-[10px] text-red-300 block font-sans">Lễ Ngày / Đêm</span>
+                              <span className="font-bold text-red-400">
+                                {s.attendanceSummary.otHolidayDayHours}h / {s.attendanceSummary.otHolidayNightHours}h
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        {s.salaryConfig && (
+                          <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                            <div className="text-[11px] font-bold text-emerald-300 uppercase">
+                              Chi Tiết Lương &amp; Phụ Cấp
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 text-[11px]">
+                              {SALARY_NUMERIC_FIELDS.map((f) => (
+                                <div
+                                  key={f.key}
+                                  className="flex items-center justify-between px-2.5 py-1.5 rounded bg-slate-900/90 border border-slate-800"
+                                >
+                                  <span className="text-slate-400">{f.label}</span>
+                                  <span className="font-mono font-semibold text-white">
+                                    {formatVnd(Number(s.salaryConfig?.[f.key]) || 0)} ₫
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                              <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-950/30 border border-amber-700/50">
+                                <span className="text-amber-300 font-semibold text-[11px]">
+                                  Tổng lương tính OVT &amp; BH
+                                </span>
+                                <span className="font-mono font-bold text-amber-300">
+                                  {formatVnd(s.salaryConfig.ovtInsuranceBase)} ₫
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-950/40 border border-emerald-700/50">
+                                <span className="text-emerald-300 font-bold text-[11px]">
+                                  Tổng lương
+                                </span>
+                                <span className="font-mono font-bold text-emerald-300">
+                                  {formatVnd(s.salaryConfig.totalSalary)} ₫
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
               </div>
+
+              {mySalaryConfig && (
+                <div className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                    <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                      <Banknote className="w-4 h-4 text-cyan-400" />
+                      <span>Cấu Hình Lương &amp; Phụ Cấp Hiện Tại</span>
+                    </h3>
+                    {mySalaryConfig.updatedAt && (
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Cập nhật: {mySalaryConfig.updatedAt}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-[11px]">
+                    {SALARY_NUMERIC_FIELDS.map((f) => (
+                      <div
+                        key={f.key}
+                        className="flex items-center justify-between px-2.5 py-1.5 rounded bg-slate-950 border border-slate-800"
+                      >
+                        <span className="text-slate-400">{f.label}</span>
+                        <span className="font-mono font-semibold text-white">
+                          {formatVnd(Number(mySalaryConfig[f.key]) || 0)} ₫
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-950/30 border border-amber-700/50">
+                      <span className="text-amber-300 font-semibold text-[11px]">
+                        Tổng lương tính OVT &amp; BH
+                      </span>
+                      <span className="font-mono font-bold text-amber-300">
+                        {formatVnd(mySalaryConfig.ovtInsuranceBase)} ₫
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-950/40 border border-emerald-700/50">
+                      <span className="text-emerald-300 font-bold text-[11px]">
+                        Tổng lương
+                      </span>
+                      <span className="font-mono font-bold text-emerald-300">
+                        {formatVnd(mySalaryConfig.totalSalary)} ₫
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-3">
                 <h3 className="font-bold text-sm text-white pb-2 border-b border-slate-800">
@@ -1411,6 +1592,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {viewingSlipModal && (
+        <SalarySlipModal
+          data={viewingSlipModal}
+          onClose={() => setViewingSlipModal(null)}
+        />
       )}
     </div>
   );

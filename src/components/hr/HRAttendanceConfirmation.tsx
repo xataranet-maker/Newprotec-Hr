@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   AttendanceConfirmationRecord,
+  EmployeeSalaryConfig,
+  SalarySlipRecord,
   StaffRecord,
   UserRole,
 } from '../../types';
@@ -16,17 +18,27 @@ import {
   AlertCircle,
   Eye,
   RotateCcw,
+  Send,
+  Check,
+  Lock,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
   MATRIX_UPDATED_EVENT,
   getEmployeeProfileMatrixData,
 } from '../../lib/matrixTimekeeping';
+import {
+  loadOvtFormulaFields,
+  recomputeSalaryConfig,
+} from '../../lib/salaryConfig';
 
 interface HRAttendanceConfirmationProps {
   allStaff: StaffRecord[];
   attendanceConfirmations: AttendanceConfirmationRecord[];
   onUpdateAttendanceConfirmation: (list: AttendanceConfirmationRecord[]) => void;
+  salarySlips: SalarySlipRecord[];
+  onUpdateSalarySlips: (slips: SalarySlipRecord[]) => void;
+  salaryConfigs?: EmployeeSalaryConfig[];
   onViewProfile?: (staff: StaffRecord) => void;
   userRole?: UserRole;
 }
@@ -44,6 +56,7 @@ interface EmployeeConfirmationSummaryRow {
   otHolidayNightHours: number;
   confirmation?: AttendanceConfirmationRecord;
   isConfirmed: boolean;
+  salarySlip?: SalarySlipRecord;
 }
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
@@ -52,6 +65,9 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
   allStaff,
   attendanceConfirmations,
   onUpdateAttendanceConfirmation,
+  salarySlips,
+  onUpdateSalarySlips,
+  salaryConfigs = [],
   onViewProfile,
   userRole,
 }) => {
@@ -62,6 +78,14 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
   const [filterDept, setFilterDept] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'CONFIRMED' | 'UNCONFIRMED'>('ALL');
   const [matrixTick, setMatrixTick] = useState<number>(0);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    window.setTimeout(() => {
+      setToastMsg((prev) => (prev === msg ? null : prev));
+    }, 3200);
+  };
 
   // Listen for live updates from MultiAuto / HC&NS Timekeeping Matrix
   useEffect(() => {
@@ -176,6 +200,11 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
           c.employeeId.trim().toLowerCase() === normalizedEmpId &&
           c.isConfirmed
       );
+      const salarySlip = salarySlips.find(
+        (s) =>
+          s.month === monthKey &&
+          s.employeeId.trim().toLowerCase() === normalizedEmpId
+      );
 
       return {
         staff,
@@ -190,9 +219,10 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
         otHolidayNightHours: round1(otHolidayNightHours),
         confirmation,
         isConfirmed: Boolean(confirmation?.isConfirmed),
+        salarySlip,
       };
     });
-  }, [allStaff, attendanceConfirmations, selectedYear, selectedMonth, daysInMonth, monthKey, matrixTick]);
+  }, [allStaff, attendanceConfirmations, salarySlips, selectedYear, selectedMonth, daysInMonth, monthKey, matrixTick]);
 
   const filteredRows = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -214,6 +244,7 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
 
   const totals = useMemo(() => {
     let confirmedCount = 0;
+    let sentSlipCount = 0;
     let workDays = 0;
     let regDay = 0;
     let regNight = 0;
@@ -226,6 +257,7 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
 
     filteredRows.forEach((r) => {
       if (r.isConfirmed) confirmedCount += 1;
+      if (r.salarySlip) sentSlipCount += 1;
       workDays += r.workDaysCount;
       regDay += r.regularDayHours;
       regNight += r.regularNightHours;
@@ -240,6 +272,7 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
     return {
       confirmedCount,
       unconfirmedCount: filteredRows.length - confirmedCount,
+      sentSlipCount,
       workDays,
       regDay: round1(regDay),
       regNight: round1(regNight),
@@ -264,6 +297,57 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
     onUpdateAttendanceConfirmation(next);
   };
 
+  const handleSendSalarySlip = (row: EmployeeConfirmationSummaryRow) => {
+    if (!row.isConfirmed) return;
+    const target = row.staff.employeeId.trim().toLowerCase();
+    const existing = salarySlips.find(
+      (s) => s.month === monthKey && s.employeeId.trim().toLowerCase() === target
+    );
+
+    const rawSalaryConfig = salaryConfigs.find(
+      (c) => c.employeeId.trim().toLowerCase() === target
+    );
+    const resolvedSalaryConfig = rawSalaryConfig
+      ? recomputeSalaryConfig(rawSalaryConfig, loadOvtFormulaFields())
+      : undefined;
+
+    const newSlip: SalarySlipRecord = {
+      id: existing?.id || Date.now(),
+      employeeId: row.staff.employeeId,
+      month: monthKey,
+      fileName: `Phieu_Luong_${row.staff.employeeId}_${monthKey}.pdf`,
+      uploadDate: new Date().toLocaleString('vi-VN'),
+      isShared: true,
+      sharedWith: [row.staff.employeeId],
+      attendanceSummary: {
+        fullName: row.staff.fullName,
+        department: row.staff.department || 'MULTI',
+        workDaysCount: row.workDaysCount,
+        regularDayHours: row.regularDayHours,
+        regularNightHours: row.regularNightHours,
+        otDayHours: row.otDayHours,
+        otNightHours: row.otNightHours,
+        otSundayDayHours: row.otSundayDayHours,
+        otSundayNightHours: row.otSundayNightHours,
+        otHolidayDayHours: row.otHolidayDayHours,
+        otHolidayNightHours: row.otHolidayNightHours,
+        isConfirmed: row.isConfirmed,
+      },
+      salaryConfig: resolvedSalaryConfig,
+    };
+
+    const next = existing
+      ? salarySlips.map((s) =>
+          s.month === monthKey && s.employeeId.trim().toLowerCase() === target ? newSlip : s
+        )
+      : [newSlip, ...salarySlips];
+
+    onUpdateSalarySlips(next);
+    showToast(
+      `Đã gửi phiếu lương tháng ${selectedMonth}/${selectedYear} vào hồ sơ của ${row.staff.fullName}!`
+    );
+  };
+
   const handleExportExcel = () => {
     const wb = XLSX.utils.book_new();
     const headers = [
@@ -282,6 +366,7 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
       'Tổng Tăng Ca Ngày Lễ (h)',
       'Tổng Tăng Ca Đêm Lễ (h)',
       'Trạng Thái Xác Nhận',
+      'Trạng Thái Phiếu Lương',
       'Thời Gian Xác Nhận',
     ];
 
@@ -301,6 +386,7 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
       r.otHolidayDayHours,
       r.otHolidayNightHours,
       r.isConfirmed ? 'Đã xác nhận đủ công' : 'Chưa xác nhận',
+      r.salarySlip ? 'Đã gửi phiếu lương' : 'Chưa gửi',
       r.confirmation?.confirmedAt || '',
     ]);
 
@@ -320,6 +406,7 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
       totals.otHolDay,
       totals.otHolNight,
       `${totals.confirmedCount}/${filteredRows.length} đã xác nhận`,
+      `${totals.sentSlipCount}/${filteredRows.length} đã gửi`,
       '',
     ];
 
@@ -425,6 +512,13 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
         </div>
       </div>
 
+      {toastMsg && (
+        <div className="bg-emerald-950/90 border border-emerald-500/60 text-emerald-200 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-lg">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
       {/* 4 Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-xl">
@@ -488,7 +582,7 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
       {/* Main Confirmation Table */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
         <div className="w-full overflow-x-auto overflow-y-auto custom-scrollbar max-h-[68vh]">
-          <table className="w-full min-w-[1280px] text-left text-xs border-collapse">
+          <table className="w-full min-w-[1440px] text-left text-xs border-collapse">
             <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider sticky top-0 z-20 shadow-md">
               <tr className="border-b border-slate-800">
                 <th className="py-3 px-2.5 text-center border-r border-slate-800 w-[46px] sm:sticky sm:left-0 sm:z-30 bg-slate-950">
@@ -524,8 +618,11 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
                 <th className="py-3 px-2.5 text-center border-r border-slate-800 text-orange-400 font-bold whitespace-nowrap">
                   Tổng TC Đêm Lễ
                 </th>
-                <th className="py-3 px-3 text-center min-w-[195px] bg-slate-950 text-cyan-300 font-bold whitespace-nowrap">
+                <th className="py-3 px-3 text-center border-r border-slate-800 min-w-[195px] bg-slate-950 text-cyan-300 font-bold whitespace-nowrap">
                   Trạng Thái
+                </th>
+                <th className="py-3 px-3 text-center min-w-[175px] bg-slate-950 text-emerald-300 font-bold whitespace-nowrap">
+                  Phiếu Lương
                 </th>
               </tr>
             </thead>
@@ -533,7 +630,7 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
             <tbody className="divide-y divide-slate-800/70 text-slate-200">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-slate-500">
+                  <td colSpan={13} className="py-12 text-center text-slate-500">
                     Không có nhân viên phù hợp với bộ lọc hiện tại.
                   </td>
                 </tr>
@@ -617,7 +714,7 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
                       {row.otHolidayNightHours > 0 ? `${row.otHolidayNightHours}h` : '—'}
                     </td>
 
-                    <td className="py-2.5 px-3 text-center">
+                    <td className="py-2.5 px-3 text-center border-r border-slate-800">
                       {row.isConfirmed ? (
                         <div className="flex flex-col items-center gap-1">
                           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/75 text-emerald-300 border border-emerald-500/50 text-[11px] font-bold whitespace-nowrap">
@@ -646,6 +743,50 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
                           <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                           <span>Chưa xác nhận</span>
                         </span>
+                      )}
+                    </td>
+
+                    <td className="py-2.5 px-3 text-center">
+                      {!row.isConfirmed ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/70 text-slate-500 border border-slate-700/70 text-[11px] font-semibold cursor-not-allowed opacity-70 whitespace-nowrap"
+                          title="Nhân viên chưa xác nhận đủ công — nút gửi phiếu lương đang bị khóa"
+                        >
+                          <Lock className="w-3 h-3" />
+                          <span>Gửi phiếu lương</span>
+                        </button>
+                      ) : row.salarySlip ? (
+                        <div className="flex flex-col items-center gap-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-950/75 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold whitespace-nowrap">
+                              <Check className="w-3 h-3 text-emerald-400" />
+                              <span>Đã gửi phiếu</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleSendSalarySlip(row)}
+                              className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-cyan-700/70 text-cyan-300 hover:text-white border border-slate-700 text-[10px] font-semibold cursor-pointer transition-colors whitespace-nowrap"
+                              title="Cập nhật & gửi lại phiếu lương mới nhất vào hồ sơ nhân viên"
+                            >
+                              Gửi lại
+                            </button>
+                          </div>
+                          <span className="text-[9px] text-slate-400 font-mono">
+                            {row.salarySlip.uploadDate}
+                          </span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSendSalarySlip(row)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-sm cursor-pointer transition-colors whitespace-nowrap"
+                          title={`Gửi phiếu lương tháng ${selectedMonth}/${selectedYear} vào hồ sơ của ${row.staff.fullName}`}
+                        >
+                          <Send className="w-3 h-3" />
+                          <span>Gửi phiếu lương</span>
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -688,10 +829,15 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
                 <td className="py-2.5 px-2.5 text-center font-bold text-orange-400 border-r border-slate-800">
                   {totals.otHolNight}h
                 </td>
-                <td className="py-2.5 px-3 text-center font-sans text-[11px] font-bold">
+                <td className="py-2.5 px-3 text-center font-sans text-[11px] font-bold border-r border-slate-800">
                   <span className="text-emerald-400">{totals.confirmedCount} đã xác nhận</span>
                   <span className="text-slate-500 mx-1">·</span>
                   <span className="text-amber-400">{totals.unconfirmedCount} chưa XN</span>
+                </td>
+                <td className="py-2.5 px-3 text-center font-sans text-[11px] font-bold">
+                  <span className="text-emerald-300">
+                    {totals.sentSlipCount}/{filteredRows.length} đã gửi phiếu
+                  </span>
                 </td>
               </tr>
             </tfoot>

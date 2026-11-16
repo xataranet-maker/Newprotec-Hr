@@ -406,6 +406,30 @@ export interface PayrollRecord {
     feedback?: FeedbackItem[];
 }
 
+export interface EmployeeSalaryConfig {
+    employeeId: string;
+    fullName: string;
+    basicSalary: number;              // Mức lương cơ bản
+    housingAllowance: number;         // Phụ cấp nhà ở
+    livingAllowance: number;          // Phụ cấp đời sống
+    koreanAllowance: number;          // Phụ cấp ngôn ngữ
+    positionAllowance: number;        // Phụ cấp chức vụ
+    seniorityAllowance: number;       // Phụ cấp thâm niên
+    processAllowance: number;         // Trợ cấp công đoạn
+    attendanceAllowance: number;      // Trợ cấp chuyên cần
+    attractionAllowance: number;      // Trợ cấp thu hút
+    productivityBonus: number;        // Thưởng năng suất, cải tiến
+    cleanroomAllowance: number;       // Trợ cấp phòng sạch
+    bereavementWeddingAllowance: number; // Hiếu Hỷ
+    mealAllowance?: number;           // Phụ cấp tiền ăn
+    childcareAllowance: number;       // Trợ cấp con Nhỏ
+    phoneAllowance: number;           // Trợ cấp điện thoại
+    ovtInsuranceBase: number;         // Tổng lương tính OVT và BH
+    ovtInsuranceManual?: boolean;
+    totalSalary: number;              // Tổng lương
+    updatedAt?: string;
+}
+
 export interface SalarySlipRecord {
     id: number;
     employeeId: string;
@@ -416,6 +440,21 @@ export interface SalarySlipRecord {
     isShared: boolean;
     sharedWith: string[];
     feedback?: FeedbackItem[];
+    attendanceSummary?: {
+        fullName?: string;
+        department?: string;
+        workDaysCount: number;
+        regularDayHours: number;
+        regularNightHours: number;
+        otDayHours: number;
+        otNightHours: number;
+        otSundayDayHours: number;
+        otSundayNightHours: number;
+        otHolidayDayHours: number;
+        otHolidayNightHours: number;
+        isConfirmed?: boolean;
+    };
+    salaryConfig?: EmployeeSalaryConfig;
 }
 
 export interface HRAnnouncement {
