@@ -163,16 +163,15 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                 <label className="block text-slate-300 mb-1">Vai trò (Role)</label>
                 <select
                   value={role}
-                  onChange={e => setRole(e.target.value as UserRole)}
+                  onChange={e => {
+                    const nextRole = e.target.value as UserRole;
+                    setRole(nextRole);
+                    setDepartment(nextRole === 'multiauto' ? 'MULTI' : nextRole === 'hr' ? 'HR' : nextRole === 'admin' ? 'ADMIN' : 'MULTI');
+                  }}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200"
                 >
                   <option value="multiauto">Multi Auto</option>
-                  <option value="stiff">Stiff</option>
-                  <option value="stamping">Dập Tự Động</option>
-                  <option value="mold">Khuôn & Jig</option>
-                  <option value="equipment">Thiết Bị</option>
-                  <option value="hr">HC & NS</option>
-                  <option value="quality">Chất Lượng (QA/QC)</option>
+                  <option value="hr">HC &amp; NS</option>
                   <option value="admin">Quản Trị Viên (Admin)</option>
                   <option value="staff">Công Nhân / Nhân Viên</option>
                 </select>

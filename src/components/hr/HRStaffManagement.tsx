@@ -8,16 +8,8 @@ import {
 interface HRStaffManagementProps {
   multiStaff: StaffRecord[];
   setMultiStaff: (s: StaffRecord[]) => void;
-  stiffStaff: StaffRecord[];
-  setStiffStaff: (s: StaffRecord[]) => void;
-  moldStaff: StaffRecord[];
-  setMoldStaff: (s: StaffRecord[]) => void;
-  stampingStaff: StaffRecord[];
-  setStampingStaff: (s: StaffRecord[]) => void;
-  qualityStaff?: StaffRecord[];
-  setQualityStaff?: (s: StaffRecord[]) => void;
-  equipmentStaff: StaffRecord[];
-  setEquipmentStaff: (s: StaffRecord[]) => void;
+  hrStaff: StaffRecord[];
+  setHrStaff: (s: StaffRecord[]) => void;
   attendanceHistory?: AttendanceRecord[];
   onUpdateAttendanceHistory?: (att: AttendanceRecord[]) => void;
   overtimeRecords?: OvertimeRecord[];
@@ -31,19 +23,15 @@ interface HRStaffManagementProps {
   onRequestCorrection?: (r: any) => void;
   attendanceConfirmations?: any[];
   onUpdateAttendanceConfirmation?: (c: any) => void;
+  onViewProfile?: (staff: StaffRecord) => void;
 }
 
 export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
   multiStaff,
   setMultiStaff,
-  stiffStaff,
-  setStiffStaff,
-  moldStaff,
-  setMoldStaff,
-  stampingStaff,
-  setStampingStaff,
-  equipmentStaff,
-  setEquipmentStaff
+  hrStaff,
+  setHrStaff,
+  onViewProfile,
 }) => {
   const [filterDept, setFilterDept] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -52,10 +40,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
 
   const allStaff = [
     ...multiStaff.map(s => ({ ...s, dept: 'Multi Auto', deptKey: 'MULTI' })),
-    ...stiffStaff.map(s => ({ ...s, dept: 'Stiff', deptKey: 'STIFF' })),
-    ...stampingStaff.map(s => ({ ...s, dept: 'Dập Tự Động', deptKey: 'STAMPING' })),
-    ...moldStaff.map(s => ({ ...s, dept: 'Khuôn & Jig', deptKey: 'MOLD' })),
-    ...equipmentStaff.map(s => ({ ...s, dept: 'Thiết Bị', deptKey: 'EQUIPMENT' }))
+    ...hrStaff.map(s => ({ ...s, dept: 'HC & NS', deptKey: 'HR' })),
   ];
 
   const filtered = allStaff.filter(s => {
@@ -82,20 +67,14 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
     });
 
     if (deptKey === 'MULTI') setMultiStaff(updater(multiStaff));
-    else if (deptKey === 'STIFF') setStiffStaff(updater(stiffStaff));
-    else if (deptKey === 'STAMPING') setStampingStaff(updater(stampingStaff));
-    else if (deptKey === 'MOLD') setMoldStaff(updater(moldStaff));
-    else if (deptKey === 'EQUIPMENT') setEquipmentStaff(updater(equipmentStaff));
+    else if (deptKey === 'HR') setHrStaff(updater(hrStaff));
   };
 
   const handleUpdateLateEarly = (employeeId: string, deptKey: string, field: 'lateMinutes' | 'lateIn' | 'earlyMinutes' | 'earlyOut', val: any) => {
     const updater = (prev: StaffRecord[]) => prev.map(s => s.employeeId === employeeId ? { ...s, [field]: val } : s);
 
     if (deptKey === 'MULTI') setMultiStaff(updater(multiStaff));
-    else if (deptKey === 'STIFF') setStiffStaff(updater(stiffStaff));
-    else if (deptKey === 'STAMPING') setStampingStaff(updater(stampingStaff));
-    else if (deptKey === 'MOLD') setMoldStaff(updater(moldStaff));
-    else if (deptKey === 'EQUIPMENT') setEquipmentStaff(updater(equipmentStaff));
+    else if (deptKey === 'HR') setHrStaff(updater(hrStaff));
   };
 
   const onTimeCount = allStaff.filter(s => s.attendance === 'Đúng giờ' || s.attendance === 'PRESENT' || s.attendance === 'Đủ công').length;
@@ -155,10 +134,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
           >
             <option value="ALL">Tất cả phòng ban</option>
             <option value="Multi Auto">Multi Auto</option>
-            <option value="Stiff">Stiff</option>
-            <option value="Dập Tự Động">Dập Tự Động</option>
-            <option value="Khuôn & Jig">Khuôn & Jig</option>
-            <option value="Thiết Bị">Thiết Bị</option>
+            <option value="HC & NS">HC &amp; NS</option>
           </select>
 
           <select
@@ -228,8 +204,10 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
 
             return (
               <div 
-                key={`${s.deptKey}_${s.employeeId}`} 
-                className={`bg-slate-900/90 border rounded-xl p-4 text-xs space-y-2.5 transition-all ${
+                key={`${s.deptKey}_${s.employeeId}`}
+                onClick={() => onViewProfile?.(s)}
+                title="Nhấn để xem hồ sơ nhân viên"
+                className={`bg-slate-900/90 border rounded-xl p-4 text-xs space-y-2.5 transition-all cursor-pointer hover:border-cyan-500/50 ${
                   isLate
                     ? 'border-amber-700/60 shadow-xs'
                     : isEarly
@@ -243,7 +221,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                       {s.fullName.charAt(0)}
                     </div>
                     <div>
-                      <div className="font-bold text-white text-sm">{s.fullName}</div>
+                      <div className="font-bold text-white text-sm hover:text-cyan-300 transition-colors">{s.fullName}</div>
                       <div className="text-[10px] text-cyan-400 font-mono">Mã: {s.employeeId}</div>
                     </div>
                   </div>
@@ -267,7 +245,10 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                   </div>
 
                   {/* Attendance Selector */}
-                  <div className="flex justify-between items-center pt-1.5 border-t border-slate-800/60">
+                  <div
+                    onClick={e => e.stopPropagation()}
+                    className="flex justify-between items-center pt-1.5 border-t border-slate-800/60"
+                  >
                     <span className="text-slate-400 font-semibold">Điểm danh:</span>
                     <select
                       value={s.attendance}
@@ -293,7 +274,10 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
 
                   {/* CONDITIONAL: NẾU CHỌN ĐI MUỘN */}
                   {isLate && (
-                    <div className="mt-2 pt-2 border-t border-amber-800/50 bg-amber-950/40 p-2 rounded-lg space-y-1.5 animate-in fade-in">
+                    <div
+                      onClick={e => e.stopPropagation()}
+                      className="mt-2 pt-2 border-t border-amber-800/50 bg-amber-950/40 p-2 rounded-lg space-y-1.5 animate-in fade-in"
+                    >
                       <div className="flex items-center justify-between text-amber-300 font-semibold text-[11px]">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3.5 h-3.5 text-amber-400" />
@@ -332,7 +316,10 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
 
                   {/* CONDITIONAL: NẾU CHỌN VỀ SỚM */}
                   {isEarly && (
-                    <div className="mt-2 pt-2 border-t border-orange-800/50 bg-orange-950/40 p-2 rounded-lg space-y-1.5 animate-in fade-in">
+                    <div
+                      onClick={e => e.stopPropagation()}
+                      className="mt-2 pt-2 border-t border-orange-800/50 bg-orange-950/40 p-2 rounded-lg space-y-1.5 animate-in fade-in"
+                    >
                       <div className="flex items-center justify-between text-orange-300 font-semibold text-[11px]">
                         <span className="flex items-center gap-1">
                           <AlertTriangle className="w-3.5 h-3.5 text-orange-400" />
@@ -396,9 +383,14 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                   const isEarly = s.attendance === 'Về sớm';
 
                   return (
-                    <tr key={`${s.deptKey}_${s.employeeId}`} className="hover:bg-slate-800/40 transition-colors">
+                    <tr
+                      key={`${s.deptKey}_${s.employeeId}`}
+                      onClick={() => onViewProfile?.(s)}
+                      title="Nhấn để xem hồ sơ nhân viên"
+                      className="hover:bg-slate-800/40 transition-colors cursor-pointer"
+                    >
                       <td className="py-2.5 px-3 font-mono text-cyan-400 font-semibold">{s.employeeId}</td>
-                      <td className="py-2.5 px-3 font-bold text-white">{s.fullName}</td>
+                      <td className="py-2.5 px-3 font-bold text-white hover:text-cyan-300">{s.fullName}</td>
                       <td className="py-2.5 px-3">
                         <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300">
                           {s.dept}
@@ -410,7 +402,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           {s.shift === 'DAY' ? 'Ca Ngày' : 'Ca Đêm'}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>
                         <select
                           value={s.attendance}
                           onChange={e => handleUpdateStaffAttendance(s.employeeId, s.deptKey, e.target.value as AttendanceStatus)}
@@ -432,7 +424,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           <option value="Vắng mặt">Vắng mặt</option>
                         </select>
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>
                         {isLate ? (
                           <div className="flex items-center gap-1.5 bg-amber-950/40 border border-amber-800/40 px-2 py-1 rounded-md">
                             <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -457,7 +449,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           <span className="text-slate-600 text-xs italic">—</span>
                         )}
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>
                         {isEarly ? (
                           <div className="flex items-center gap-1.5 bg-orange-950/40 border border-orange-800/40 px-2 py-1 rounded-md">
                             <AlertTriangle className="w-3.5 h-3.5 text-orange-400 shrink-0" />

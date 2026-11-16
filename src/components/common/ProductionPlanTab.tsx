@@ -47,9 +47,7 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ plans, dep
           >
             <option value="ALL">Tất cả bộ phận</option>
             <option value="Multi Auto">Multi Auto</option>
-            <option value="Stiff">Stiff</option>
-            <option value="Dập Tự Động">Dập Tự Động</option>
-            <option value="Khuôn & Jig">Khuôn & Jig</option>
+            <option value="HC & NS">HC & NS</option>
           </select>
         </div>
       </div>

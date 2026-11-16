@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'multiauto' | 'stiff' | 'mold' | 'stamping' | 'hr' | 'equipment' | 'quality' | 'report_viewer' | 'user' | 'staff' | 'warehouse' | 'view_all';
+export type UserRole = 'admin' | 'multiauto' | 'hr' | 'report_viewer' | 'user' | 'staff' | 'view_all';
 
 export type Language = 'vi' | 'ko' | 'en';
 
@@ -581,7 +581,10 @@ export interface MatrixDayTimeEntry {
     regularHours: number;  // Giờ làm tiêu chuẩn (tối đa 8h)
     otDayHours: number;    // Tăng ca ngày (Thứ 2 - Thứ 7 ca ngày)
     otNightHours: number;  // Tăng ca đêm (sau 22h hoặc ca đêm)
-    otSundayHours: number; // Tăng ca Chủ Nhật
+    otSundayHours: number; // Giờ/TC ca ngày Chủ Nhật
+    otSundayNightHours?: number; // Giờ/TC ca đêm Chủ Nhật
+    otHolidayHours?: number;     // Toàn bộ công làm ngày lễ
+    isHoliday?: boolean;         // Đánh dấu ngày lễ
     status?: AttendanceStatus;
     note?: string;
 }
@@ -592,9 +595,13 @@ export interface MatrixEmployeeTimekeeping {
     department: string;
     position: string;
     shift: 'DAY' | 'NIGHT';
+    isLocked?: boolean;
     days: Record<number, MatrixDayTimeEntry>;
     totalWorkHours: number;
     totalDayOt: number;
     totalNightOt: number;
     totalSundayOt: number;
+    totalSundayDayHours?: number;
+    totalSundayNightHours?: number;
+    totalHolidayOt?: number;
 }

@@ -12,13 +12,15 @@ interface MultiAutoStaffProps {
   onUpdateAttendanceHistory?: (att: AttendanceRecord[]) => void;
   overtimeRecords?: OvertimeRecord[];
   onUpdateOvertime?: (ot: OvertimeRecord[]) => void;
+  onViewProfile?: (staff: StaffRecord) => void;
 }
 
 export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
   data,
   onUpdate,
   overtimeRecords = [],
-  onUpdateOvertime
+  onUpdateOvertime,
+  onViewProfile
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterShift, setFilterShift] = useState<'ALL' | 'DAY' | 'NIGHT'>('ALL');
@@ -270,7 +272,9 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
             return (
               <div
                 key={staff.id}
-                className={`bg-slate-900/90 border rounded-xl p-4 space-y-3 text-xs transition-all ${
+                onClick={() => onViewProfile?.(staff)}
+                title="Nhấn để xem hồ sơ nhân viên"
+                className={`bg-slate-900/90 border rounded-xl p-4 space-y-3 text-xs transition-all cursor-pointer hover:border-cyan-500/50 ${
                   isLate
                     ? 'border-amber-700/60 shadow-xs shadow-amber-950/30'
                     : isEarly
@@ -285,7 +289,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                       {staff.fullName.charAt(0)}
                     </div>
                     <div>
-                      <div className="font-bold text-white text-sm">{staff.fullName}</div>
+                      <div className="font-bold text-white text-sm hover:text-cyan-300 transition-colors">{staff.fullName}</div>
                       <div className="text-[10px] text-cyan-400 font-mono">Mã: {staff.employeeId}</div>
                     </div>
                   </div>
@@ -309,7 +313,10 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                   </div>
 
                   {/* Attendance Selector */}
-                  <div className="flex justify-between items-center pt-1 border-t border-slate-800/60">
+                  <div
+                    onClick={e => e.stopPropagation()}
+                    className="flex justify-between items-center pt-1 border-t border-slate-800/60"
+                  >
                     <span className="text-slate-400 font-semibold flex items-center gap-1">
                       <span>Điểm danh:</span>
                     </span>
@@ -337,7 +344,10 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
 
                   {/* CONDITIONAL: NẾU CHỌN ĐI MUỘN -> XUẤT HIỆN THỜI GIAN ĐI MUỘN */}
                   {isLate && (
-                    <div className="mt-2 pt-2 border-t border-amber-800/50 bg-amber-950/40 p-2.5 rounded-lg space-y-2 animate-in fade-in">
+                    <div
+                      onClick={e => e.stopPropagation()}
+                      className="mt-2 pt-2 border-t border-amber-800/50 bg-amber-950/40 p-2.5 rounded-lg space-y-2 animate-in fade-in"
+                    >
                       <div className="flex items-center justify-between text-amber-300 font-semibold text-[11px]">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3.5 h-3.5 text-amber-400" />
@@ -402,7 +412,10 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
 
                   {/* CONDITIONAL: NẾU CHỌN VỀ SỚM -> XUẤT HIỆN THỜI GIAN VỀ SỚM */}
                   {isEarly && (
-                    <div className="mt-2 pt-2 border-t border-orange-800/50 bg-orange-950/40 p-2.5 rounded-lg space-y-2 animate-in fade-in">
+                    <div
+                      onClick={e => e.stopPropagation()}
+                      className="mt-2 pt-2 border-t border-orange-800/50 bg-orange-950/40 p-2.5 rounded-lg space-y-2 animate-in fade-in"
+                    >
                       <div className="flex items-center justify-between text-orange-300 font-semibold text-[11px]">
                         <span className="flex items-center gap-1">
                           <AlertTriangle className="w-3.5 h-3.5 text-orange-400" />
@@ -468,7 +481,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                 </div>
 
                 <button
-                  onClick={() => { setSelectedStaff(staff); setShowOtModal(true); }}
+                  onClick={(e) => { e.stopPropagation(); setSelectedStaff(staff); setShowOtModal(true); }}
                   className="w-full py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-cyan-300 font-semibold cursor-pointer transition-colors"
                 >
                   + Đăng Ký Tăng Ca
@@ -500,16 +513,21 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                   const isEarly = staff.attendance === 'Về sớm';
 
                   return (
-                    <tr key={staff.id} className="hover:bg-slate-800/40 transition-colors">
+                    <tr
+                      key={staff.id}
+                      onClick={() => onViewProfile?.(staff)}
+                      title="Nhấn để xem hồ sơ nhân viên"
+                      className="hover:bg-slate-800/40 transition-colors cursor-pointer"
+                    >
                       <td className="py-2.5 px-3 font-mono text-cyan-400 font-semibold">{staff.employeeId}</td>
-                      <td className="py-2.5 px-3 font-bold text-white">{staff.fullName}</td>
+                      <td className="py-2.5 px-3 font-bold text-white hover:text-cyan-300">{staff.fullName}</td>
                       <td className="py-2.5 px-3 text-slate-300">{staff.position}</td>
                       <td className="py-2.5 px-3">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${staff.shift === 'DAY' ? 'bg-amber-950/60 text-amber-300' : 'bg-indigo-950/60 text-indigo-300'}`}>
                           {staff.shift === 'DAY' ? 'Ca Ngày' : 'Ca Đêm'}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>
                         <select
                           value={staff.attendance}
                           onChange={e => handleUpdateAttendance(staff.id, e.target.value as AttendanceStatus)}
@@ -531,7 +549,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                           <option value="Vắng mặt">Vắng mặt</option>
                         </select>
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>
                         {isLate ? (
                           <div className="flex items-center gap-1.5 bg-amber-950/40 border border-amber-800/40 px-2 py-1 rounded-md">
                             <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -556,7 +574,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                           <span className="text-slate-600 text-xs italic">—</span>
                         )}
                       </td>
-                      <td className="py-2.5 px-3">
+                      <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>
                         {isEarly ? (
                           <div className="flex items-center gap-1.5 bg-orange-950/40 border border-orange-800/40 px-2 py-1 rounded-md">
                             <AlertTriangle className="w-3.5 h-3.5 text-orange-400 shrink-0" />
@@ -581,7 +599,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                           <span className="text-slate-600 text-xs italic">—</span>
                         )}
                       </td>
-                      <td className="py-2.5 px-3 text-right">
+                      <td className="py-2.5 px-3 text-right" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => { setSelectedStaff(staff); setShowOtModal(true); }}
                           className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-medium transition-colors cursor-pointer"

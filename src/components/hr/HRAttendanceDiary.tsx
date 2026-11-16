@@ -149,10 +149,7 @@ export const HRAttendanceDiary: React.FC<{
           >
             <option value="ALL">Tất cả bộ phận</option>
             <option value="MULTI">Multi Auto</option>
-            <option value="STIFF">Stiff</option>
-            <option value="STAMPING">Dập Tự Động</option>
-            <option value="MOLD">Khuôn & Jig</option>
-            <option value="EQUIPMENT">Thiết Bị</option>
+            <option value="HR">HC &amp; NS</option>
           </select>
 
           <div className="relative">

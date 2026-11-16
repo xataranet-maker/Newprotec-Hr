@@ -5,27 +5,15 @@ import { UserPlus, CheckCircle } from 'lucide-react';
 interface HRAddStaffProps {
   multiStaff: StaffRecord[];
   setMultiStaff: (s: StaffRecord[]) => void;
-  stiffStaff: StaffRecord[];
-  setStiffStaff: (s: StaffRecord[]) => void;
-  moldStaff: StaffRecord[];
-  setMoldStaff: (s: StaffRecord[]) => void;
-  stampingStaff: StaffRecord[];
-  setStampingStaff: (s: StaffRecord[]) => void;
-  equipmentStaff: StaffRecord[];
-  setEquipmentStaff: (s: StaffRecord[]) => void;
+  hrStaff: StaffRecord[];
+  setHrStaff: (s: StaffRecord[]) => void;
 }
 
 export const HRAddStaff: React.FC<HRAddStaffProps> = ({
   multiStaff,
   setMultiStaff,
-  stiffStaff,
-  setStiffStaff,
-  moldStaff,
-  setMoldStaff,
-  stampingStaff,
-  setStampingStaff,
-  equipmentStaff,
-  setEquipmentStaff
+  hrStaff,
+  setHrStaff,
 }) => {
   const [fullName, setFullName] = useState('');
   const [employeeId, setEmployeeId] = useState('');
@@ -54,10 +42,7 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
     };
 
     if (department === 'MULTI') setMultiStaff([...multiStaff, newStaff]);
-    else if (department === 'STIFF') setStiffStaff([...stiffStaff, newStaff]);
-    else if (department === 'STAMPING') setStampingStaff([...stampingStaff, newStaff]);
-    else if (department === 'MOLD') setMoldStaff([...moldStaff, newStaff]);
-    else if (department === 'EQUIPMENT') setEquipmentStaff([...equipmentStaff, newStaff]);
+    else if (department === 'HR') setHrStaff([...hrStaff, newStaff]);
 
     setSuccess(true);
     setFullName('');
@@ -91,10 +76,7 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
             className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200"
           >
             <option value="MULTI">Multi Auto</option>
-            <option value="STIFF">Stiff (Dán Tấm Cứng)</option>
-            <option value="STAMPING">Dập Tự Động</option>
-            <option value="MOLD">Khuôn & Jig</option>
-            <option value="EQUIPMENT">Thiết Bị</option>
+            <option value="HR">HC &amp; NS</option>
           </select>
         </div>
 

@@ -28,7 +28,31 @@ export const Login: React.FC<LoginProps> = ({
     const trimmedUser = username.trim();
     const trimmedPass = password.trim();
 
-    // 1. Check user accounts
+    // 1. Check employee ID login (Tài khoản là mã nhân viên, mật khẩu là 123)
+    const foundStaff = allStaff.find(
+      s => s.employeeId.toLowerCase() === trimmedUser.toLowerCase()
+    );
+
+    if (foundStaff) {
+      const matchedAccount = users.find(
+        u => u.username.toLowerCase() === trimmedUser.toLowerCase() && u.role === 'staff'
+      );
+      const expectedPassword = matchedAccount?.password || '123';
+      if (trimmedPass === expectedPassword || trimmedPass === '123') {
+        onLogin({
+          username: foundStaff.employeeId,
+          fullName: foundStaff.fullName,
+          role: 'staff',
+          employeeId: foundStaff.employeeId,
+          department: foundStaff.department || 'MULTI'
+        });
+        return;
+      }
+      setError('Mật khẩu nhân viên không chính xác (Mật khẩu mặc định: 123).');
+      return;
+    }
+
+    // 2. Check manager / admin user accounts
     const foundUser = users.find(
       u => u.username.toLowerCase() === trimmedUser.toLowerCase()
     );
@@ -36,25 +60,6 @@ export const Login: React.FC<LoginProps> = ({
     if (foundUser) {
       if (!foundUser.password || foundUser.password === trimmedPass) {
         onLogin(foundUser);
-        return;
-      }
-    }
-
-    // 2. Check employee ID login
-    const foundStaff = allStaff.find(
-      s => s.employeeId.toLowerCase() === trimmedUser.toLowerCase()
-    );
-
-    if (foundStaff) {
-      // Default staff password can be employeeId or 123
-      if (trimmedPass === foundStaff.employeeId || trimmedPass === '123' || !trimmedPass) {
-        onLogin({
-          username: foundStaff.employeeId,
-          fullName: foundStaff.fullName,
-          role: 'staff',
-          employeeId: foundStaff.employeeId,
-          department: foundStaff.department || 'STAFF'
-        });
         return;
       }
     }
@@ -139,7 +144,7 @@ export const Login: React.FC<LoginProps> = ({
             Đăng Nhập Hệ Thống
           </h2>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            Hệ thống quản lý sản xuất Newprotec Vina V2.0. Đăng nhập bằng tài khoản quản lý hoặc Mã nhân viên.
+            Hệ thống quản lý sản xuất Newprotec Vina V2.0. Nhân viên đăng nhập bằng Mã nhân viên (mật khẩu: <span className="text-cyan-400 font-mono font-bold">123</span>).
           </p>
         </div>
 
@@ -252,11 +257,11 @@ export const Login: React.FC<LoginProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleQuickLogin({ username: 'stamping', password: '123', fullName: 'Trưởng Ca Dập', role: 'stamping', department: 'STAMPING' })}
+                onClick={() => handleQuickLogin({ username: 'hr', password: '123', fullName: 'Hành Chính Nhân Sự', role: 'hr', department: 'HR' })}
                 className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-left transition-colors cursor-pointer"
               >
-                <div className="font-semibold text-purple-300">Dập Tự Động</div>
-                <div className="text-[10px] text-slate-500 font-mono">Máy dập & Cuộn</div>
+                <div className="font-semibold text-purple-300">HC &amp; NS</div>
+                <div className="text-[10px] text-slate-500 font-mono">Nhân sự &amp; Bảng công</div>
               </button>
 
               <button
