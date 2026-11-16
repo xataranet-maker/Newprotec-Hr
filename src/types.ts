@@ -583,7 +583,8 @@ export interface MatrixDayTimeEntry {
     otNightHours: number;  // Tăng ca đêm (sau 22h hoặc ca đêm)
     otSundayHours: number; // Giờ/TC ca ngày Chủ Nhật
     otSundayNightHours?: number; // Giờ/TC ca đêm Chủ Nhật
-    otHolidayHours?: number;     // Toàn bộ công làm ngày lễ
+    otHolidayHours?: number;     // Giờ/TC ca ngày Ngày Lễ
+    otHolidayNightHours?: number; // Giờ/TC ca đêm Ngày Lễ
     isHoliday?: boolean;         // Đánh dấu ngày lễ
     status?: AttendanceStatus;
     note?: string;
@@ -603,5 +604,7 @@ export interface MatrixEmployeeTimekeeping {
     totalSundayOt: number;
     totalSundayDayHours?: number;
     totalSundayNightHours?: number;
+    totalHolidayDayHours?: number;
+    totalHolidayNightHours?: number;
     totalHolidayOt?: number;
 }

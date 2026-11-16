@@ -34,6 +34,7 @@ import { HRSalarySlip } from './components/hr/HRSalarySlip';
 import { HRAssets } from './components/hr/HRAssets';
 import { HRDocuments } from './components/hr/HRDocuments';
 import { HRTraining } from './components/hr/HRTraining';
+import { HRAttendanceConfirmation } from './components/hr/HRAttendanceConfirmation';
 
 // --- ADMIN ---
 import { AdminUserManagement } from './components/admin/AdminUserManagement';
@@ -657,6 +658,16 @@ export default function App() {
             onViewProfile={setViewingProfileStaff}
           />
         );
+      case 'hr_attendance_confirm':
+        return (
+          <HRAttendanceConfirmation
+            allStaff={allStaff}
+            attendanceConfirmations={attendanceConfirmations}
+            onUpdateAttendanceConfirmation={setAttendanceConfirmations}
+            onViewProfile={setViewingProfileStaff}
+            userRole={currentUser?.role}
+          />
+        );
       case 'hr_overtime':
         return (
           <HROvertime
@@ -723,7 +734,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-[#020617] overflow-hidden text-slate-100 relative">
+    <div className="flex h-dvh bg-[#020617] overflow-hidden text-slate-100 relative">
       <Sidebar
         tabs={visibleTabs}
         activeTabId={activeTab}
@@ -783,7 +794,7 @@ export default function App() {
           </div>
         )}
 
-        <main className="flex-1 overflow-y-auto relative bg-[#020617] custom-scrollbar">{renderContent()}</main>
+        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden relative bg-[#020617] custom-scrollbar">{renderContent()}</main>
       </div>
 
       {/* Modal Hồ Sơ Nhân Viên khi nhấn vào nhân viên bất kỳ */}

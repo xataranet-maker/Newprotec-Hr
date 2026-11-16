@@ -218,6 +218,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         totalSundayOt: 0,
         totalSundayDayHours: 0,
         totalSundayNightHours: 0,
+        totalHolidayDayHours: 0,
+        totalHolidayNightHours: 0,
         totalHolidayOt: 0,
       };
 
@@ -230,6 +232,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         otSundayHours: 0,
         otSundayNightHours: 0,
         otHolidayHours: 0,
+        otHolidayNightHours: 0,
         isHoliday: false,
         status: isSunday ? 'Nghỉ chủ nhật' : 'Đúng giờ',
       };
@@ -241,6 +244,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
       if (makeHoliday) {
         if (totalWorked > 0) {
+          const roundedWorked = Math.round(totalWorked * 10) / 10;
           updatedEntry = {
             ...existingEntry,
             isHoliday: true,
@@ -249,7 +253,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otNightHours: 0,
             otSundayHours: 0,
             otSundayNightHours: 0,
-            otHolidayHours: Math.round(totalWorked * 10) / 10,
+            otHolidayHours: shiftType === 'DAY' ? roundedWorked : 0,
+            otHolidayNightHours: shiftType === 'NIGHT' ? roundedWorked : 0,
             status:
               existingEntry.status === 'Nghỉ chủ nhật' || existingEntry.status === 'Nghỉ phép'
                 ? 'Đúng giờ'
@@ -265,6 +270,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otSundayHours: 0,
             otSundayNightHours: 0,
             otHolidayHours: 0,
+            otHolidayNightHours: 0,
             status: 'Nghỉ lễ',
           };
         }
@@ -281,6 +287,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               otSundayHours: shiftType === 'DAY' ? Math.round(totalWorked * 10) / 10 : 0,
               otSundayNightHours: shiftType === 'NIGHT' ? Math.round(totalWorked * 10) / 10 : 0,
               otHolidayHours: 0,
+              otHolidayNightHours: 0,
               status: existingEntry.status === 'Nghỉ lễ' ? 'Đúng giờ' : existingEntry.status || 'Đúng giờ',
             };
           } else {
@@ -295,6 +302,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               otSundayHours: 0,
               otSundayNightHours: 0,
               otHolidayHours: 0,
+              otHolidayNightHours: 0,
               status: existingEntry.status === 'Nghỉ lễ' ? 'Đúng giờ' : existingEntry.status || 'Đúng giờ',
             };
           }
@@ -308,6 +316,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otSundayHours: 0,
             otSundayNightHours: 0,
             otHolidayHours: 0,
+            otHolidayNightHours: 0,
             status: isSunday ? 'Nghỉ chủ nhật' : existingEntry.status === 'Nghỉ lễ' ? 'Nghỉ phép' : existingEntry.status || 'Đúng giờ',
           };
         }
@@ -328,7 +337,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     setDayTypeModal(null);
     showToast(
       makeHoliday
-        ? `Đã đặt Ngày ${day}/${selectedMonth}/${selectedYear} là NGÀY LỄ (toàn bộ giờ làm tính vào TC Ngày Lễ).`
+        ? `Đã đặt Ngày ${day}/${selectedMonth}/${selectedYear} là NGÀY LỄ (tự động phân loại Ngày Lễ / TC Đêm Lễ theo ca làm).`
         : `Đã đặt Ngày ${day}/${selectedMonth}/${selectedYear} là NGÀY THƯỜNG.`
     );
   };
@@ -368,6 +377,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         totalSundayOt: 0,
         totalSundayDayHours: 0,
         totalSundayNightHours: 0,
+        totalHolidayDayHours: 0,
+        totalHolidayNightHours: 0,
         totalHolidayOt: 0,
       };
 
@@ -386,7 +397,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otNightHours: 0,
             otSundayHours: 0,
             otSundayNightHours: 0,
-            otHolidayHours: 8,
+            otHolidayHours: staff.shift === 'DAY' ? 8 : 0,
+            otHolidayNightHours: staff.shift === 'NIGHT' ? 8 : 0,
             isHoliday: true,
             status: 'Đúng giờ',
           };
@@ -402,6 +414,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otSundayHours: 0,
             otSundayNightHours: 0,
             otHolidayHours: 0,
+            otHolidayNightHours: 0,
             isHoliday: false,
             status: 'Đúng giờ',
           };
@@ -417,6 +430,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otSundayHours: 0,
             otSundayNightHours: 0,
             otHolidayHours: 0,
+            otHolidayNightHours: 0,
             isHoliday: false,
             status: 'Nghỉ chủ nhật',
           };
@@ -453,6 +467,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       otSundayHours: 0,
       otSundayNightHours: 0,
       otHolidayHours: 0,
+      otHolidayNightHours: 0,
       isHoliday: meta.isHoliday,
       status: meta.isHoliday ? 'Nghỉ lễ' : meta.isSunday ? 'Nghỉ chủ nhật' : 'Đúng giờ',
     };
@@ -490,6 +505,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
     let nextEntry: MatrixDayTimeEntry;
     if (makeHoliday) {
+      const roundedTotal = Math.round(totalWorked * 10) / 10;
       nextEntry = {
         ...entry,
         isHoliday: true,
@@ -498,7 +514,10 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         otNightHours: 0,
         otSundayHours: 0,
         otSundayNightHours: 0,
-        otHolidayHours: totalWorked > 0 ? Math.round(totalWorked * 10) / 10 : entry.otHolidayHours || 0,
+        otHolidayHours:
+          shiftType === 'DAY' ? (totalWorked > 0 ? roundedTotal : entry.otHolidayHours || 0) : 0,
+        otHolidayNightHours:
+          shiftType === 'NIGHT' ? (totalWorked > 0 ? roundedTotal : entry.otHolidayNightHours || 0) : 0,
         status: totalWorked > 0 ? (entry.status === 'Nghỉ chủ nhật' ? 'Đúng giờ' : entry.status || 'Đúng giờ') : 'Nghỉ lễ',
       };
     } else {
@@ -513,6 +532,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otSundayHours: shiftType === 'DAY' ? Math.round(totalWorked * 10) / 10 : 0,
             otSundayNightHours: shiftType === 'NIGHT' ? Math.round(totalWorked * 10) / 10 : 0,
             otHolidayHours: 0,
+            otHolidayNightHours: 0,
             status: entry.status === 'Nghỉ lễ' ? 'Đúng giờ' : entry.status || 'Đúng giờ',
           };
         } else {
@@ -527,6 +547,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otSundayHours: 0,
             otSundayNightHours: 0,
             otHolidayHours: 0,
+            otHolidayNightHours: 0,
             status: entry.status === 'Nghỉ lễ' ? 'Đúng giờ' : entry.status || 'Đúng giờ',
           };
         }
@@ -540,6 +561,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
           otSundayHours: 0,
           otSundayNightHours: 0,
           otHolidayHours: 0,
+          otHolidayNightHours: 0,
           status: isSunday ? 'Nghỉ chủ nhật' : entry.status === 'Nghỉ lễ' ? 'Đúng giờ' : entry.status || 'Đúng giờ',
         };
       }
@@ -573,6 +595,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         const otherShift = otherEntry.shift || other.shift;
         let converted: MatrixDayTimeEntry;
         if (isHolidayTarget) {
+          const roundedOther = otherTotal > 0 ? Math.round(otherTotal * 10) / 10 : 0;
           converted = {
             ...otherEntry,
             isHoliday: true,
@@ -581,7 +604,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otNightHours: 0,
             otSundayHours: 0,
             otSundayNightHours: 0,
-            otHolidayHours: otherTotal > 0 ? Math.round(otherTotal * 10) / 10 : 0,
+            otHolidayHours: otherShift === 'DAY' ? roundedOther : 0,
+            otHolidayNightHours: otherShift === 'NIGHT' ? roundedOther : 0,
             status: otherTotal > 0 ? (otherEntry.status === 'Nghỉ chủ nhật' ? 'Đúng giờ' : otherEntry.status) : 'Nghỉ lễ',
           };
         } else {
@@ -596,6 +620,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                 otSundayHours: otherShift === 'DAY' ? otherTotal : 0,
                 otSundayNightHours: otherShift === 'NIGHT' ? otherTotal : 0,
                 otHolidayHours: 0,
+                otHolidayNightHours: 0,
                 status: otherEntry.status === 'Nghỉ lễ' ? 'Đúng giờ' : otherEntry.status,
               };
             } else {
@@ -610,6 +635,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                 otSundayHours: 0,
                 otSundayNightHours: 0,
                 otHolidayHours: 0,
+                otHolidayNightHours: 0,
                 status: otherEntry.status === 'Nghỉ lễ' ? 'Đúng giờ' : otherEntry.status,
               };
             }
@@ -618,6 +644,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               ...otherEntry,
               isHoliday: false,
               otHolidayHours: 0,
+              otHolidayNightHours: 0,
               status: isSunday ? 'Nghỉ chủ nhật' : otherEntry.status === 'Nghỉ lễ' ? 'Nghỉ phép' : otherEntry.status,
             };
           }
@@ -645,6 +672,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       totalSundayOt: 0,
       totalSundayDayHours: 0,
       totalSundayNightHours: 0,
+      totalHolidayDayHours: 0,
+      totalHolidayNightHours: 0,
       totalHolidayOt: 0,
     };
 
@@ -678,14 +707,15 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     });
   }, [targetStaff, searchTerm, filterShift]);
 
-  // Overall Department Totals (7 KPI Cards)
+  // Overall Department Totals (8 KPI Cards)
   const deptSummary = useMemo(() => {
     let grandWorkHours = 0;
     let grandDayOt = 0;
     let grandNightOt = 0;
     let grandSundayDayHours = 0;
     let grandSundayNightHours = 0;
-    let grandHolidayOt = 0;
+    let grandHolidayDayHours = 0;
+    let grandHolidayNightHours = 0;
 
     displayedStaff.forEach((s) => {
       const r = matrixData[s.employeeId];
@@ -695,7 +725,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         grandNightOt += r.totalNightOt || 0;
         grandSundayDayHours += r.totalSundayDayHours ?? r.totalSundayOt ?? 0;
         grandSundayNightHours += r.totalSundayNightHours || 0;
-        grandHolidayOt += r.totalHolidayOt || 0;
+        grandHolidayDayHours += r.totalHolidayDayHours ?? (r.shift === 'NIGHT' ? 0 : r.totalHolidayOt ?? 0);
+        grandHolidayNightHours += r.totalHolidayNightHours ?? (r.shift === 'NIGHT' ? r.totalHolidayOt ?? 0 : 0);
       }
     });
 
@@ -705,7 +736,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       grandNightOt: Math.round(grandNightOt * 10) / 10,
       grandSundayDayHours: Math.round(grandSundayDayHours * 10) / 10,
       grandSundayNightHours: Math.round(grandSundayNightHours * 10) / 10,
-      grandHolidayOt: Math.round(grandHolidayOt * 10) / 10,
+      grandHolidayDayHours: Math.round(grandHolidayDayHours * 10) / 10,
+      grandHolidayNightHours: Math.round(grandHolidayNightHours * 10) / 10,
     };
   }, [displayedStaff, matrixData]);
 
@@ -743,7 +775,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       'Tổng TC Đêm (h)',
       'Tổng Ngày CN (h)',
       'Tổng Đêm CN (h)',
-      'Tổng TC Ngày Lễ (h)',
+      'Tổng Ngày Lễ (h)',
+      'Tổng Đêm Lễ (h)',
       ...monthDaysMeta.flatMap((m) => {
         const dayTag = m.isHoliday ? `${m.dayOfWeek} - NGÀY LỄ` : m.dayOfWeek;
         return [`Ngày ${m.day} (${dayTag}) - Vào`, `Ngày ${m.day} - Ra`, `Ngày ${m.day} - Giờ/TC`];
@@ -760,8 +793,14 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         daysCols.push(d?.inTime || '');
         daysCols.push(d?.outTime || '');
         const total = getEntryTotalHours(d);
-        if (d?.otHolidayHours && d.otHolidayHours > 0) {
-          daysCols.push(`${d.otHolidayHours}h Lễ`);
+        const holDay = d?.otHolidayHours || 0;
+        const holNight = d?.otHolidayNightHours || 0;
+        if (holDay > 0 && holNight > 0) {
+          daysCols.push(`${holDay}h Ngày Lễ / ${holNight}h Đêm Lễ`);
+        } else if (holDay > 0) {
+          daysCols.push(`${holDay}h Ngày Lễ`);
+        } else if (holNight > 0) {
+          daysCols.push(`${holNight}h Đêm Lễ`);
         } else if (m.isSunday && ((d?.otSundayHours || 0) + (d?.otSundayNightHours || 0) > 0)) {
           daysCols.push(`${(d?.otSundayHours || 0) + (d?.otSundayNightHours || 0)}h CN`);
         } else if ((d?.otDayHours || 0) + (d?.otNightHours || 0) > 0) {
@@ -784,12 +823,13 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         record?.totalNightOt || 0,
         record?.totalSundayDayHours ?? record?.totalSundayOt ?? 0,
         record?.totalSundayNightHours || 0,
-        record?.totalHolidayOt || 0,
+        record?.totalHolidayDayHours ?? (staff.shift === 'NIGHT' ? 0 : record?.totalHolidayOt ?? 0),
+        record?.totalHolidayNightHours ?? (staff.shift === 'NIGHT' ? record?.totalHolidayOt ?? 0 : 0),
         ...daysCols,
       ];
     });
 
-    const summaryPrefix = ['', '', '', '', '', '', '', '', '', '', ''];
+    const summaryPrefix = ['', '', '', '', '', '', '', '', '', '', '', ''];
     const rowDayCount = [
       '',
       'SỐ NV ĐI LÀM CA NGÀY',
@@ -963,8 +1003,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         </div>
       )}
 
-      {/* 7 Aggregate KPI Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      {/* 8 Aggregate KPI Summary Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
         <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl">
           <div className="text-[10px] text-slate-400 uppercase font-semibold">Quân Số Đang Xem</div>
           <div className="text-xl font-bold font-mono text-white mt-1">
@@ -1020,11 +1060,20 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
         <div className="bg-red-950/30 border border-red-700/50 p-3 rounded-xl">
           <div className="text-[10px] text-red-300 uppercase font-semibold flex items-center justify-between">
-            <span>Tổng TC Ngày Lễ</span>
-            <Sparkles className="w-3.5 h-3.5 text-red-400 shrink-0" />
+            <span>Tổng Ngày Lễ</span>
+            <Sun className="w-3.5 h-3.5 text-red-400 shrink-0" />
           </div>
-          <div className="text-xl font-bold font-mono text-red-400 mt-1">{deptSummary.grandHolidayOt}h</div>
-          <div className="text-[10px] text-red-400/80 mt-0.5">Toàn bộ công làm ngày lễ</div>
+          <div className="text-xl font-bold font-mono text-red-400 mt-1">{deptSummary.grandHolidayDayHours}h</div>
+          <div className="text-[10px] text-red-400/80 mt-0.5">Ca ngày Ngày Lễ</div>
+        </div>
+
+        <div className="bg-orange-950/30 border border-orange-700/50 p-3 rounded-xl">
+          <div className="text-[10px] text-orange-300 uppercase font-semibold flex items-center justify-between">
+            <span>Tổng TC Đêm Lễ</span>
+            <Moon className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+          </div>
+          <div className="text-xl font-bold font-mono text-orange-400 mt-1">{deptSummary.grandHolidayNightHours}h</div>
+          <div className="text-[10px] text-orange-400/80 mt-0.5">Ca đêm Ngày Lễ</div>
         </div>
       </div>
 
@@ -1060,8 +1109,11 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                 <th className="py-2.5 px-2 bg-slate-950 text-center min-w-[68px] border-r border-slate-800 text-fuchsia-400 font-bold">
                   Đêm CN
                 </th>
-                <th className="py-2.5 px-2 bg-slate-950 text-center min-w-[72px] border-r border-slate-700 text-red-400 font-bold">
-                  TC Ngày Lễ
+                <th className="py-2.5 px-2 bg-slate-950 text-center min-w-[68px] border-r border-slate-800 text-red-400 font-bold">
+                  Ngày Lễ
+                </th>
+                <th className="py-2.5 px-2 bg-slate-950 text-center min-w-[72px] border-r border-slate-700 text-orange-400 font-bold">
+                  TC Đêm Lễ
                 </th>
 
                 {/* Day 1 to Day 30/31 Clickable Headers */}
@@ -1108,7 +1160,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                 <th colSpan={3} className="py-1 px-2.5 sticky left-0 z-40 bg-slate-950 border-r border-slate-800 text-slate-400">
                   THÔNG TIN NHÂN SỰ
                 </th>
-                <th colSpan={6} className="py-1 px-2 text-center border-r border-slate-700 bg-slate-950 text-cyan-300">
+                <th colSpan={7} className="py-1 px-2 text-center border-r border-slate-700 bg-slate-950 text-cyan-300">
                   TỔNG HỢP CÔNG & TĂNG CA CẢ THÁNG
                 </th>
                 {monthDaysMeta.map((m) => (
@@ -1146,6 +1198,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   totalSundayOt: 0,
                   totalSundayDayHours: 0,
                   totalSundayNightHours: 0,
+                  totalHolidayDayHours: 0,
+                  totalHolidayNightHours: 0,
                   totalHolidayOt: 0,
                 };
 
@@ -1243,9 +1297,18 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                       {(record.totalSundayNightHours || 0) > 0 ? `${record.totalSundayNightHours}h` : '—'}
                     </td>
 
-                    {/* TC Ngày Lễ */}
-                    <td className="py-2.5 px-2 text-center border-r border-slate-700 font-mono font-bold text-red-400 bg-red-950/20 text-xs">
-                      {(record.totalHolidayOt || 0) > 0 ? `${record.totalHolidayOt}h` : '—'}
+                    {/* Ngày Lễ */}
+                    <td className="py-2.5 px-2 text-center border-r border-slate-800 font-mono font-bold text-red-400 bg-red-950/20 text-xs">
+                      {(record.totalHolidayDayHours ?? (staff.shift === 'NIGHT' ? 0 : record.totalHolidayOt ?? 0)) > 0
+                        ? `${record.totalHolidayDayHours ?? record.totalHolidayOt}h`
+                        : '—'}
+                    </td>
+
+                    {/* TC Đêm Lễ */}
+                    <td className="py-2.5 px-2 text-center border-r border-slate-700 font-mono font-bold text-orange-400 bg-orange-950/20 text-xs">
+                      {(record.totalHolidayNightHours ?? (staff.shift === 'NIGHT' ? record.totalHolidayOt ?? 0 : 0)) > 0
+                        ? `${record.totalHolidayNightHours ?? record.totalHolidayOt}h`
+                        : '—'}
                     </td>
 
                     {/* Day Cells */}
@@ -1259,6 +1322,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         otSundayHours: 0,
                         otSundayNightHours: 0,
                         otHolidayHours: 0,
+                        otHolidayNightHours: 0,
                         isHoliday: m.isHoliday,
                         status: m.isHoliday ? 'Nghỉ lễ' : m.isSunday ? 'Nghỉ chủ nhật' : 'Đúng giờ',
                       };
@@ -1269,7 +1333,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                       const otNight = entry.otNightHours || 0;
                       const sunDay = entry.otSundayHours || 0;
                       const sunNight = entry.otSundayNightHours || 0;
-                      const holOt = entry.otHolidayHours || 0;
+                      const holDay = entry.otHolidayHours || 0;
+                      const holNight = entry.otHolidayNightHours || 0;
                       const totalHours = getEntryTotalHours(entry);
                       const isLeave =
                         entry.status === 'Nghỉ phép' ||
@@ -1333,11 +1398,20 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                               )}
 
                               {/* Bottom Tag */}
-                              <div className="flex items-center justify-center gap-1 font-mono text-[9px]">
-                                {isHolidayCell && holOt > 0 ? (
-                                  <span className="px-1.5 rounded font-bold bg-red-500/30 text-red-200 border border-red-500/50">
-                                    +{holOt}h Lễ
-                                  </span>
+                              <div className="flex items-center justify-center flex-wrap gap-1 font-mono text-[9px]">
+                                {holDay > 0 || holNight > 0 ? (
+                                  <>
+                                    {holDay > 0 && (
+                                      <span className="px-1.5 rounded font-bold bg-red-500/30 text-red-200 border border-red-500/50">
+                                        +{holDay}h Ngày Lễ
+                                      </span>
+                                    )}
+                                    {holNight > 0 && (
+                                      <span className="px-1.5 rounded font-bold bg-orange-500/30 text-orange-200 border border-orange-500/50">
+                                        +{holNight}h Đêm Lễ
+                                      </span>
+                                    )}
+                                  </>
                                 ) : entry.status === 'Đi muộn' && entry.inTime ? (
                                   <span className="px-1.5 rounded font-bold bg-amber-500/25 text-amber-300 border border-amber-500/40">
                                     Vào: {entry.inTime}
@@ -1407,7 +1481,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                     <span>Số NV Đi Làm Ca Ngày</span>
                   </div>
                 </td>
-                <td colSpan={6} className="py-2 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-slate-500">
+                <td colSpan={7} className="py-2 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-slate-500">
                   Ca Ngày / ngày
                 </td>
                 {monthDaysMeta.map((m) => {
@@ -1436,7 +1510,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                     <span>Số NV Đi Làm Ca Đêm</span>
                   </div>
                 </td>
-                <td colSpan={6} className="py-2 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-slate-500">
+                <td colSpan={7} className="py-2 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-slate-500">
                   Ca Đêm / ngày
                 </td>
                 {monthDaysMeta.map((m) => {
@@ -1465,7 +1539,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                     <span>Tổng NV Đi Làm Trong Ngày</span>
                   </div>
                 </td>
-                <td colSpan={6} className="py-2.5 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-teal-400/80 font-bold">
+                <td colSpan={7} className="py-2.5 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-teal-400/80 font-bold">
                   Tổng quân số
                 </td>
                 {monthDaysMeta.map((m) => {
@@ -1515,7 +1589,11 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
           </span>
           <span className="flex items-center gap-1.5 text-[11px]">
             <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-            <span className="text-red-300 font-medium">Làm Ngày Lễ (TC Ngày Lễ)</span>
+            <span className="text-red-300 font-medium">Ngày Lễ</span>
+          </span>
+          <span className="flex items-center gap-1.5 text-[11px]">
+            <span className="w-2.5 h-2.5 rounded-full bg-orange-400" />
+            <span className="text-orange-300 font-medium">TC Đêm Lễ</span>
           </span>
         </div>
 
@@ -1593,7 +1671,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   <span>Ngày Lễ</span>
                 </div>
                 <div className="text-[10px] text-slate-400 mt-1">
-                  Toàn bộ giờ đi làm trong ngày này tính vào <span className="text-red-300 font-semibold">TC Ngày Lễ</span>.
+                  Tự động phân loại ca ngày vào <span className="text-red-300 font-semibold">Ngày Lễ</span> &amp; ca đêm vào{' '}
+                  <span className="text-orange-300 font-semibold">TC Đêm Lễ</span>.
                 </div>
               </button>
             </div>
@@ -1770,7 +1849,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                 </div>
               </div>
 
-              {/* Breakdown Overtime Inputs: TC Ngày, TC Đêm, Ngày CN, Đêm CN, TC Ngày Lễ */}
+              {/* Breakdown Overtime Inputs: TC Ngày, TC Đêm, Ngày CN, Đêm CN, Ngày Lễ, TC Đêm Lễ */}
               <div className="p-3 bg-slate-950/80 border border-slate-800/80 rounded-lg space-y-2.5">
                 <div className="text-[11px] font-bold text-cyan-300 flex items-center justify-between">
                   <span>Phân Loại Giờ Tăng Ca / Chủ Nhật / Ngày Lễ:</span>
@@ -1781,7 +1860,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   )}
                 </div>
 
-                <div className="grid grid-cols-5 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                   <div>
                     <label className="text-[10px] text-amber-300 block mb-0.5">TC Ngày:</label>
                     <input
@@ -1859,7 +1938,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   </div>
 
                   <div>
-                    <label className="text-[10px] text-red-300 block mb-0.5 font-bold">TC Lễ:</label>
+                    <label className="text-[10px] text-red-300 block mb-0.5 font-bold">Ngày Lễ:</label>
                     <input
                       type="number"
                       min={0}
@@ -1874,6 +1953,25 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                       }
                       placeholder="0"
                       className="w-full bg-slate-900 border border-red-700/60 rounded p-1.5 text-xs text-red-200 font-mono text-center font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-orange-300 block mb-0.5 font-bold">Đêm Lễ:</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={24}
+                      step={0.5}
+                      value={editingCell.entry.otHolidayNightHours || ''}
+                      onChange={(e) =>
+                        setEditingCell({
+                          ...editingCell,
+                          entry: { ...editingCell.entry, otHolidayNightHours: Number(e.target.value) },
+                        })
+                      }
+                      placeholder="0"
+                      className="w-full bg-slate-900 border border-orange-700/60 rounded p-1.5 text-xs text-orange-200 font-mono text-center font-bold"
                     />
                   </div>
                 </div>
@@ -1897,6 +1995,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           otSundayHours: 0,
                           otSundayNightHours: 0,
                           otHolidayHours: 0,
+                          otHolidayNightHours: 0,
                           status: 'Đúng giờ',
                         },
                       })
@@ -1922,6 +2021,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           otSundayHours: 0,
                           otSundayNightHours: 0,
                           otHolidayHours: 0,
+                          otHolidayNightHours: 0,
                           status: 'Đúng giờ',
                         },
                       })
@@ -1948,6 +2048,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           otSundayHours: 0,
                           otSundayNightHours: 0,
                           otHolidayHours: 0,
+                          otHolidayNightHours: 0,
                           status: 'Đúng giờ',
                         },
                       })
@@ -1974,6 +2075,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           otSundayHours: 11,
                           otSundayNightHours: 0,
                           otHolidayHours: 0,
+                          otHolidayNightHours: 0,
                           status: 'Đúng giờ',
                         },
                       })
@@ -2000,6 +2102,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           otSundayHours: 0,
                           otSundayNightHours: 11,
                           otHolidayHours: 0,
+                          otHolidayNightHours: 0,
                           status: 'Đúng giờ',
                         },
                       })
@@ -2017,14 +2120,16 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         entry: {
                           ...editingCell.entry,
                           isHoliday: true,
-                          inTime: editingCell.staff.shift === 'NIGHT' ? '20:00' : '08:00',
-                          outTime: editingCell.staff.shift === 'NIGHT' ? '08:00' : '20:00',
+                          shift: 'DAY',
+                          inTime: '08:00',
+                          outTime: '20:00',
                           regularHours: 0,
                           otDayHours: 0,
                           otNightHours: 0,
                           otSundayHours: 0,
                           otSundayNightHours: 0,
                           otHolidayHours: 11,
+                          otHolidayNightHours: 0,
                           status: 'Đúng giờ',
                         },
                       })
@@ -2032,6 +2137,33 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                     className="px-1.5 py-0.5 rounded text-[9px] bg-red-950 hover:bg-red-900 text-red-300 border border-red-800/50 cursor-pointer"
                   >
                     +11h Ngày Lễ
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingCell({
+                        ...editingCell,
+                        entry: {
+                          ...editingCell.entry,
+                          isHoliday: true,
+                          shift: 'NIGHT',
+                          inTime: '20:00',
+                          outTime: '08:00',
+                          regularHours: 0,
+                          otDayHours: 0,
+                          otNightHours: 0,
+                          otSundayHours: 0,
+                          otSundayNightHours: 0,
+                          otHolidayHours: 0,
+                          otHolidayNightHours: 11,
+                          status: 'Đúng giờ',
+                        },
+                      })
+                    }
+                    className="px-1.5 py-0.5 rounded text-[9px] bg-orange-950 hover:bg-orange-900 text-orange-300 border border-orange-800/50 cursor-pointer"
+                  >
+                    +11h Đêm Lễ
                   </button>
 
                   <button
@@ -2049,6 +2181,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           otSundayHours: 0,
                           otSundayNightHours: 0,
                           otHolidayHours: 0,
+                          otHolidayNightHours: 0,
                           status: editingCell.entry.isHoliday
                             ? 'Nghỉ lễ'
                             : editingCell.dayOfWeek === 'CN'

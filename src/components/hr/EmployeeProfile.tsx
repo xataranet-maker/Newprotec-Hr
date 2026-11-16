@@ -231,7 +231,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     [selectedYear, selectedMonth]
   );
 
-  // Build day-by-day rows + 6 KPI aggregates
+  // Build day-by-day rows + 7 KPI aggregates
   const { dayRows, stats } = useMemo(() => {
     let workDaysCount = 0;
     let totalRegularHours = 0;
@@ -240,7 +240,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     let totalNightOt = 0;
     let totalSundayDay = 0;
     let totalSundayNight = 0;
-    let totalHolidayOt = 0;
+    let totalHolidayDay = 0;
+    let totalHolidayNight = 0;
 
     const rows = Array.from({ length: daysInMonth }, (_, i) => {
       const day = i + 1;
@@ -256,9 +257,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       const otSunDay = entry?.otSundayHours || 0;
       const otSunNight = entry?.otSundayNightHours || 0;
       const otHoliday = entry?.otHolidayHours || 0;
+      const otHolidayNight = entry?.otHolidayNightHours || 0;
 
-      const totalHrs = reg + otDay + otNight + otSunDay + otSunNight + otHoliday;
-      const totalOtDayRow = otDay + otNight + otSunDay + otSunNight + otHoliday;
+      const totalHrs = reg + otDay + otNight + otSunDay + otSunNight + otHoliday + otHolidayNight;
+      const totalOtDayRow = otDay + otNight + otSunDay + otSunNight + otHoliday + otHolidayNight;
 
       if (totalHrs > 0 || (entry?.inTime && entry?.outTime)) {
         workDaysCount += 1;
@@ -270,7 +272,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       totalNightOt += otNight;
       totalSundayDay += otSunDay;
       totalSundayNight += otSunNight;
-      totalHolidayOt += otHoliday;
+      totalHolidayDay += otHoliday;
+      totalHolidayNight += otHolidayNight;
 
       let statusLabel = 'Chưa chấm công';
       let statusTone: 'ot' | 'full' | 'late' | 'early' | 'leave' | 'sunday' | 'holiday' | 'empty' = 'empty';
@@ -314,13 +317,16 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         otSunDay,
         otSunNight,
         otHoliday,
+        otHolidayNight,
         statusLabel,
         statusTone,
       };
     });
 
     const round1 = (v: number) => Math.round(v * 10) / 10;
-    const sumOt = round1(totalDayOt + totalNightOt + totalSundayDay + totalSundayNight + totalHolidayOt);
+    const sumOt = round1(
+      totalDayOt + totalNightOt + totalSundayDay + totalSundayNight + totalHolidayDay + totalHolidayNight
+    );
 
     return {
       dayRows: rows,
@@ -332,7 +338,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         totalNightOt: round1(totalNightOt),
         totalSundayDay: round1(totalSundayDay),
         totalSundayNight: round1(totalSundayNight),
-        totalHolidayOt: round1(totalHolidayOt),
+        totalHolidayDay: round1(totalHolidayDay),
+        totalHolidayNight: round1(totalHolidayNight),
+        totalHolidayOt: round1(totalHolidayDay + totalHolidayNight),
         sumOt,
       },
     };
@@ -346,20 +354,21 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const myContracts = contracts.filter((c) => c.employeeId === empId);
   const myRequests = attendanceRequests.filter((r) => r.employeeId === empId);
   const monthKey = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
+  const normalizedEmpId = empId.trim().toLowerCase();
   const isMonthConfirmed = attendanceConfirmations.some(
-    (c) => c.employeeId === empId && c.month === monthKey && c.isConfirmed
+    (c) => c.employeeId.trim().toLowerCase() === normalizedEmpId && c.month === monthKey && c.isConfirmed
   );
 
   const handleConfirmMonthAttendance = () => {
     const existingIdx = attendanceConfirmations.findIndex(
-      (c) => c.employeeId === empId && c.month === monthKey
+      (c) => c.employeeId.trim().toLowerCase() === normalizedEmpId && c.month === monthKey
     );
     const confirmDays = dayRows.map((r) => ({
       day: r.day,
       n: r.regularHours,
       ot1: Math.round((r.otDay + r.otSunDay + r.otHoliday) * 10) / 10,
       d: r.inTime !== '--:--' ? `${r.inTime}-${r.outTime}` : r.statusLabel,
-      ot2: Math.round((r.otNight + r.otSunNight) * 10) / 10,
+      ot2: Math.round((r.otNight + r.otSunNight + r.otHolidayNight) * 10) / 10,
     }));
 
     const newRecord: AttendanceConfirmationRecord = {
@@ -382,7 +391,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     else next.unshift(newRecord);
 
     onUpdateAttendanceConfirmation(next);
-    showToast(`Đã xác nhận bảng công tháng ${selectedMonth}/${selectedYear} thành công!`);
+    showToast(`Đã xác nhận đủ công tháng ${selectedMonth}/${selectedYear} thành công!`);
   };
 
   const handleSendRequest = (e: React.FormEvent) => {
@@ -454,21 +463,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const monthLabel = `THÁNG ${selectedMonth}/${selectedYear}`;
 
   const profileBody = (
-    <div className="bg-[#060b16] text-slate-100 rounded-2xl border border-slate-800/90 shadow-2xl overflow-hidden flex flex-col lg:flex-row relative w-full h-full">
-      {/* Close button when modal */}
-      {isModal && onClose && (
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute top-3.5 right-3.5 z-30 w-8 h-8 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
-          title="Đóng hồ sơ (Esc)"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      )}
-
+    <div
+      className={`bg-[#060b16] text-slate-100 rounded-2xl border border-slate-800/90 shadow-2xl flex flex-col lg:flex-row relative w-full min-w-0 ${
+        isModal ? 'h-full overflow-y-auto overflow-x-hidden lg:overflow-hidden custom-scrollbar' : 'lg:overflow-hidden'
+      }`}
+    >
       {/* LEFT SIDEBAR: NEWPROTEC IDENTITY CARD */}
-      <aside className="w-full lg:w-[270px] shrink-0 bg-[#080f1e] border-b lg:border-b-0 lg:border-r border-slate-800/80 p-5 flex flex-col justify-between gap-5">
+      <aside className="w-full lg:w-[270px] shrink-0 bg-[#080f1e] border-b lg:border-b-0 lg:border-r border-slate-800/80 p-5 flex flex-col justify-between gap-5 lg:overflow-y-auto custom-scrollbar">
         <div className="space-y-4">
           {/* Avatar + Name + Position Pill */}
           <div className="flex flex-col items-center text-center pt-2">
@@ -555,10 +556,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       </aside>
 
       {/* RIGHT MAIN PANEL */}
-      <div className="flex-1 flex flex-col min-w-0 bg-[#050a14]">
+      <div className="flex-none lg:flex-1 flex flex-col min-w-0 lg:min-h-0 bg-[#050a14]">
         {/* Top Tab Navigation + Month Switcher */}
-        <div className="px-5 pt-3 pb-0 border-b border-slate-800/90 flex flex-wrap items-center justify-between gap-3 pr-14">
-          <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto custom-scrollbar">
+        <div className={`px-3 sm:px-5 pt-3 pb-2 lg:pb-0 border-b border-slate-800/90 flex flex-wrap items-center justify-between gap-2 sm:gap-3 ${isModal ? 'pr-12 sm:pr-14' : ''}`}>
+          <div className="w-full sm:w-auto max-w-full min-w-0 flex items-center gap-1 sm:gap-2 overflow-x-auto custom-scrollbar pb-1 lg:pb-0">
             {PROFILE_TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               return (
@@ -608,12 +609,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         )}
 
         {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
+        <div className="p-3 sm:p-5 space-y-5 min-w-0 lg:flex-1 lg:overflow-y-auto custom-scrollbar">
           {/* TAB 1: TỔNG QUAN */}
           {activeTab === 'overview' && (
             <>
-              {/* 6 KPI Summary Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+              {/* 7 KPI Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
                 <div className="rounded-xl bg-slate-900/75 border border-slate-700/70 p-3.5 text-center">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     TỔNG NGÀY CÔNG
@@ -664,10 +665,19 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
                 <div className="rounded-xl bg-red-950/25 border border-red-500/40 p-3.5 text-center">
                   <div className="text-[10px] font-bold uppercase tracking-wider text-red-400">
-                    TC NGÀY LỄ
+                    NGÀY LỄ
                   </div>
                   <div className="text-xl font-extrabold font-mono text-red-300 mt-1.5">
-                    {stats.totalHolidayOt}h
+                    {stats.totalHolidayDay}h
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-orange-950/25 border border-orange-500/40 p-3.5 text-center">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-orange-400">
+                    TC ĐÊM LỄ
+                  </div>
+                  <div className="text-xl font-extrabold font-mono text-orange-300 mt-1.5">
+                    {stats.totalHolidayNight}h
                   </div>
                 </div>
               </div>
@@ -696,9 +706,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   </div>
                 </div>
 
-                <div className="overflow-x-auto custom-scrollbar max-h-[52vh]">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-[#080f1d] text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800 sticky top-0 z-10">
+                <div className="w-full overflow-x-auto overflow-y-auto custom-scrollbar max-h-[58vh] sm:max-h-[52vh]">
+                  <table className="w-full min-w-[980px] text-left text-xs border-collapse">
+                    <thead className="bg-[#080f1d] text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800 sticky top-0 z-10 whitespace-nowrap">
                       <tr>
                         <th className="py-2.5 px-3">NGÀY</th>
                         <th className="py-2.5 px-3 text-center">GIỜ VÀO (IN)</th>
@@ -708,7 +718,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                         <th className="py-2.5 px-3 text-center text-purple-300">TC ĐÊM</th>
                         <th className="py-2.5 px-3 text-center text-rose-400">NGÀY CHỦ NHẬT</th>
                         <th className="py-2.5 px-3 text-center text-fuchsia-300">ĐÊM CHỦ NHẬT</th>
-                        <th className="py-2.5 px-3 text-center text-red-400">TC NGÀY LỄ</th>
+                        <th className="py-2.5 px-3 text-center text-red-400">NGÀY LỄ</th>
+                        <th className="py-2.5 px-3 text-center text-orange-400">TC ĐÊM LỄ</th>
                         <th className="py-2.5 px-3 text-center">TÌNH TRẠNG</th>
                         <th className="py-2.5 px-3 text-right">THAO TÁC</th>
                       </tr>
@@ -752,6 +763,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                           </td>
                           <td className="py-2.5 px-3 text-center text-red-400 font-bold">
                             {row.otHoliday > 0 ? `+${row.otHoliday}h` : '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-center text-orange-400 font-bold">
+                            {row.otHolidayNight > 0 ? `+${row.otHolidayNight}h` : '-'}
                           </td>
                           <td className="py-2.5 px-3 text-center font-sans">
                             <span
@@ -810,14 +824,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     <strong className="text-cyan-400">{stats.sumOt}h</strong>)
                   </p>
                   <p className="text-[10px] text-slate-400 font-mono mt-1">
-                    TC Ngày: {stats.totalDayOt}h · TC Đêm: {stats.totalNightOt}h · Ngày CN: {stats.totalSundayDay}h · Đêm CN: {stats.totalSundayNight}h · TC Lễ: {stats.totalHolidayOt}h
+                    TC Ngày: {stats.totalDayOt}h · TC Đêm: {stats.totalNightOt}h · Ngày CN: {stats.totalSundayDay}h · Đêm CN: {stats.totalSundayNight}h · Ngày Lễ: {stats.totalHolidayDay}h · Đêm Lễ: {stats.totalHolidayNight}h
                   </p>
                 </div>
 
                 {isMonthConfirmed ? (
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-950/60 border border-emerald-600/50 text-emerald-300 font-bold">
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Đã Xác Nhận Công Tháng {selectedMonth}/{selectedYear}</span>
+                    <span>Đã Xác Nhận Đủ Công Tháng {selectedMonth}/{selectedYear}</span>
                   </span>
                 ) : (
                   <button
@@ -825,7 +839,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     onClick={handleConfirmMonthAttendance}
                     className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold cursor-pointer transition-colors shrink-0"
                   >
-                    Xác Nhận Đúng Công Tháng {selectedMonth}/{selectedYear}
+                    Xác Nhận Đủ Công Tháng {selectedMonth}/{selectedYear}
                   </button>
                 )}
               </div>
@@ -1111,7 +1125,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
                 <div className="p-2.5 rounded-lg bg-slate-950 border border-amber-500/30 text-center">
                   <div className="text-[10px] text-amber-300">TC Ngày</div>
                   <div className="text-base font-bold font-mono text-amber-400 mt-0.5">{stats.totalDayOt}h</div>
@@ -1129,8 +1143,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   <div className="text-base font-bold font-mono text-fuchsia-300 mt-0.5">{stats.totalSundayNight}h</div>
                 </div>
                 <div className="p-2.5 rounded-lg bg-slate-950 border border-red-500/30 text-center">
-                  <div className="text-[10px] text-red-300">TC Lễ</div>
-                  <div className="text-base font-bold font-mono text-red-400 mt-0.5">{stats.totalHolidayOt}h</div>
+                  <div className="text-[10px] text-red-300">Ngày Lễ</div>
+                  <div className="text-base font-bold font-mono text-red-400 mt-0.5">{stats.totalHolidayDay}h</div>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-950 border border-orange-500/30 text-center">
+                  <div className="text-[10px] text-orange-300">TC Đêm Lễ</div>
+                  <div className="text-base font-bold font-mono text-orange-400 mt-0.5">{stats.totalHolidayNight}h</div>
                 </div>
               </div>
 
@@ -1144,9 +1162,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     Chưa có giờ tăng ca nào trong tháng {selectedMonth}/{selectedYear}.
                   </div>
                 ) : (
-                  <div className="overflow-x-auto custom-scrollbar max-h-64 rounded-lg border border-slate-800">
-                    <table className="w-full text-left border-collapse font-mono text-[11px]">
-                      <thead className="bg-slate-950 text-[10px] text-slate-400 uppercase border-b border-slate-800 sticky top-0">
+                  <div className="w-full overflow-x-auto overflow-y-auto custom-scrollbar max-h-72 rounded-lg border border-slate-800">
+                    <table className="w-full min-w-[780px] text-left border-collapse font-mono text-[11px]">
+                      <thead className="bg-slate-950 text-[10px] text-slate-400 uppercase border-b border-slate-800 sticky top-0 whitespace-nowrap">
                         <tr>
                           <th className="py-2 px-3">Ngày</th>
                           <th className="py-2 px-3 text-center">Vào - Ra</th>
@@ -1154,7 +1172,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                           <th className="py-2 px-3 text-center text-purple-300">TC Đêm</th>
                           <th className="py-2 px-3 text-center text-rose-400">Ngày CN</th>
                           <th className="py-2 px-3 text-center text-fuchsia-300">Đêm CN</th>
-                          <th className="py-2 px-3 text-center text-red-400">TC Lễ</th>
+                          <th className="py-2 px-3 text-center text-red-400">Ngày Lễ</th>
+                          <th className="py-2 px-3 text-center text-orange-400">TC Đêm Lễ</th>
                           <th className="py-2 px-3 text-right text-cyan-300">Tổng TC</th>
                         </tr>
                       </thead>
@@ -1183,6 +1202,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                             </td>
                             <td className="py-2 px-3 text-center text-red-400 font-bold">
                               {r.otHoliday > 0 ? `+${r.otHoliday}h` : '-'}
+                            </td>
+                            <td className="py-2 px-3 text-center text-orange-400 font-bold">
+                              {r.otHolidayNight > 0 ? `+${r.otHolidayNight}h` : '-'}
                             </td>
                             <td className="py-2 px-3 text-right text-cyan-300 font-bold">
                               +{r.totalOtDayRow}h
@@ -1276,7 +1298,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       {/* Sub-modal: Edit Employee Identity Info */}
       {isEditingInfo && (
         <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-5 space-y-4 text-xs shadow-2xl">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full max-h-[90dvh] overflow-y-auto custom-scrollbar p-5 space-y-4 text-xs shadow-2xl">
             <div className="flex items-center justify-between pb-2 border-b border-slate-800">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Edit3 className="w-4 h-4 text-cyan-400" />
@@ -1401,10 +1423,22 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           if (e.target === e.currentTarget && onClose) onClose();
         }}
       >
-        <div className="w-full max-w-[1280px] h-[90vh] max-h-[860px] flex">{profileBody}</div>
+        <div className="relative w-full max-w-[1280px] h-[92dvh] sm:h-[90vh] max-h-[860px] flex min-w-0 min-h-0">
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute top-3 right-3 z-40 w-8 h-8 rounded-full bg-slate-900/95 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer shadow-lg"
+              title="Đóng hồ sơ (Esc)"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          {profileBody}
+        </div>
       </div>
     );
   }
 
-  return <div className="p-3 sm:p-6 max-w-[1360px] mx-auto min-h-[calc(100vh-7rem)] flex">{profileBody}</div>;
+  return <div className="p-2 sm:p-6 max-w-[1360px] w-full min-w-0 mx-auto min-h-[calc(100dvh-7rem)] flex">{profileBody}</div>;
 };

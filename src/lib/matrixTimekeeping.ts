@@ -32,7 +32,8 @@ export function getMatrixEntryTotalHours(entry: MatrixDayTimeEntry | undefined):
     (entry.otNightHours || 0) +
     (entry.otSundayHours || 0) +
     (entry.otSundayNightHours || 0) +
-    (entry.otHolidayHours || 0)
+    (entry.otHolidayHours || 0) +
+    (entry.otHolidayNightHours || 0)
   );
 }
 
@@ -42,7 +43,8 @@ export function recalculateStaffTotals(days: Record<number, MatrixDayTimeEntry>)
   let totalNightOt = 0;
   let totalSundayDay = 0;
   let totalSundayNight = 0;
-  let totalHolidayOt = 0;
+  let totalHolidayDay = 0;
+  let totalHolidayNight = 0;
 
   Object.values(days).forEach((entry) => {
     const reg = entry.regularHours || 0;
@@ -50,14 +52,16 @@ export function recalculateStaffTotals(days: Record<number, MatrixDayTimeEntry>)
     const otNight = entry.otNightHours || 0;
     const otSunDay = entry.otSundayHours || 0;
     const otSunNight = entry.otSundayNightHours || 0;
-    const otHoliday = entry.otHolidayHours || 0;
+    const otHolDay = entry.otHolidayHours || 0;
+    const otHolNight = entry.otHolidayNightHours || 0;
 
-    totalWork += reg + otDay + otNight + otSunDay + otSunNight + otHoliday;
+    totalWork += reg + otDay + otNight + otSunDay + otSunNight + otHolDay + otHolNight;
     totalDayOt += otDay;
     totalNightOt += otNight;
     totalSundayDay += otSunDay;
     totalSundayNight += otSunNight;
-    totalHolidayOt += otHoliday;
+    totalHolidayDay += otHolDay;
+    totalHolidayNight += otHolNight;
   });
 
   return {
@@ -67,7 +71,9 @@ export function recalculateStaffTotals(days: Record<number, MatrixDayTimeEntry>)
     totalSundayDayHours: Math.round(totalSundayDay * 10) / 10,
     totalSundayNightHours: Math.round(totalSundayNight * 10) / 10,
     totalSundayOt: Math.round((totalSundayDay + totalSundayNight) * 10) / 10,
-    totalHolidayOt: Math.round(totalHolidayOt * 10) / 10,
+    totalHolidayDayHours: Math.round(totalHolidayDay * 10) / 10,
+    totalHolidayNightHours: Math.round(totalHolidayNight * 10) / 10,
+    totalHolidayOt: Math.round((totalHolidayDay + totalHolidayNight) * 10) / 10,
   };
 }
 
@@ -95,13 +101,14 @@ export function buildDefaultEmployeeMonthDays(
     let otSundayHours = 0;
     let otSundayNightHours = 0;
     let otHolidayHours = 0;
+    let otHolidayNightHours = 0;
     let status: AttendanceStatus = 'Đúng giờ';
 
     if (isHoliday) {
       if (staff.shift === 'NIGHT') {
         inTime = '20:00';
         outTime = '08:00';
-        otHolidayHours = 11;
+        otHolidayNightHours = 11;
       } else {
         inTime = '08:00';
         outTime = '20:00';
@@ -170,6 +177,7 @@ export function buildDefaultEmployeeMonthDays(
       otSundayHours,
       otSundayNightHours,
       otHolidayHours,
+      otHolidayNightHours,
       isHoliday,
       status,
     };
