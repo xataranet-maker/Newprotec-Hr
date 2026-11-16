@@ -20,6 +20,7 @@ import {
   UserCheck,
   HardDriveDownload,
   CalendarCheck2,
+  ShieldCheck,
 } from 'lucide-react';
 
 export const ribbonData: RibbonTab[] = [
@@ -106,6 +107,7 @@ export const ribbonData: RibbonTab[] = [
         label: 'HỆ THỐNG',
         items: [
           { id: 'users', label: 'TÀI KHOẢN', icon: Users, isLarge: true, color: 'text-blue-400' },
+          { id: 'admin_salary_security', label: 'BẢO MẬT LƯƠNG', icon: ShieldCheck, isLarge: true, color: 'text-emerald-400' },
         ],
       },
     ],

@@ -41,13 +41,13 @@ export const ProductionPlanningHub: React.FC<ProductionPlanningHubProps> = ({
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
-      <div className="pb-4 border-b border-slate-800">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <CalendarRange className="w-5 h-5 text-cyan-400" />
+      <div className="pb-4 border-b border-slate-800 px-7 sm:px-0 text-center sm:text-left">
+        <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center justify-center sm:justify-start gap-2">
+          <CalendarRange className="w-5 h-5 text-cyan-400 shrink-0" />
           <span>Trung Tâm Điều Phối Kế Hoạch</span>
         </h2>
-        <p className="text-xs text-slate-400">
-          Ban hành kế hoạch và chỉ thị công việc cho bộ phận Multi Auto và HC & NS.
+        <p className="text-xs text-slate-400 mt-1">
+          Ban hành kế hoạch và chỉ thị công việc cho bộ phận Multi Auto và HC &amp; NS.
         </p>
       </div>
 

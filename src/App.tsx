@@ -58,7 +58,13 @@ import {
   AttendanceCorrectionRequest,
   AttendanceConfirmationRecord,
   ProductionPlan,
+  SalarySecurityConfig,
 } from './types';
+import {
+  SALARY_SECURITY_STORAGE_KEY,
+  normalizeSalarySecurityConfig,
+  canUserAccessSalarySlip,
+} from './lib/salaryConfig';
 import { translations } from './data/locales';
 import { INITIAL_USERS, INITIAL_STAFF, INITIAL_ANNOUNCEMENTS } from './data/initialData';
 
@@ -139,6 +145,9 @@ export default function App() {
   const [productionPlans, setProductionPlans] = useState<ProductionPlan[]>(() =>
     loadFromStorage('app_production_plans', [])
   );
+  const [salarySecurity, setSalarySecurity] = useState<SalarySecurityConfig>(() =>
+    normalizeSalarySecurityConfig(loadFromStorage(SALARY_SECURITY_STORAGE_KEY, null))
+  );
   const [matrixVersion, setMatrixVersion] = useState(0);
 
   useEffect(() => {
@@ -167,6 +176,7 @@ export default function App() {
     localStorage.setItem('app_document_records', JSON.stringify(documentRecords));
     localStorage.setItem('app_attendance_requests', JSON.stringify(attendanceRequests));
     localStorage.setItem('app_production_plans', JSON.stringify(productionPlans));
+    localStorage.setItem(SALARY_SECURITY_STORAGE_KEY, JSON.stringify(salarySecurity));
   }, [
     userAccounts,
     language,
@@ -186,6 +196,7 @@ export default function App() {
     documentRecords,
     attendanceRequests,
     productionPlans,
+    salarySecurity,
   ]);
 
   const allStaff = useMemo(() => [...staffRecords, ...hrStaff], [staffRecords, hrStaff]);
@@ -260,6 +271,7 @@ export default function App() {
       documentRecords,
       attendanceRequests,
       productionPlans,
+      salarySecurity,
       matrixSnapshots: getAllStoredMatrixSnapshots(),
       language,
     }),
@@ -281,6 +293,7 @@ export default function App() {
       documentRecords,
       attendanceRequests,
       productionPlans,
+      salarySecurity,
       matrixVersion,
       language,
     ]
@@ -312,6 +325,9 @@ export default function App() {
     if (Array.isArray(s.documentRecords)) setDocumentRecords(s.documentRecords);
     if (Array.isArray(s.attendanceRequests)) setAttendanceRequests(s.attendanceRequests);
     if (Array.isArray(s.productionPlans)) setProductionPlans(s.productionPlans);
+    if (s.salarySecurity && typeof s.salarySecurity === 'object') {
+      setSalarySecurity(normalizeSalarySecurityConfig(s.salarySecurity));
+    }
     if (s.matrixSnapshots && typeof s.matrixSnapshots === 'object') {
       restoreStoredMatrixSnapshots(s.matrixSnapshots);
     }
@@ -709,6 +725,8 @@ export default function App() {
             salaryConfigs={salaryConfigs}
             setSalaryConfigs={setSalaryConfigs}
             attendanceConfirmations={attendanceConfirmations}
+            currentUser={currentUser}
+            salarySecurity={salarySecurity}
           />
         );
       case 'hr_assets':
@@ -740,7 +758,17 @@ export default function App() {
 
       // --- TAB ADMIN ---
       case 'users':
-        return <AdminUserManagement users={userAccounts} onUpdateUsers={setUserAccounts} />;
+      case 'admin_salary_security':
+        return (
+          <AdminUserManagement
+            users={userAccounts}
+            onUpdateUsers={setUserAccounts}
+            currentUser={currentUser}
+            salarySecurity={salarySecurity}
+            onUpdateSalarySecurity={setSalarySecurity}
+            initialTab={id === 'admin_salary_security' ? 'security' : 'users'}
+          />
+        );
 
       default:
         return (
@@ -786,29 +814,31 @@ export default function App() {
 
         {/* Horizontal Quick Sub-Nav Ribbon */}
         {currentTab && currentTab.groups.length > 0 && (
-          <div className="h-10 bg-slate-950/80 border-b border-slate-800/80 px-4 flex items-center gap-1.5 overflow-x-auto custom-scrollbar shrink-0 select-none">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1 hidden sm:inline">
-              {translations[language][currentTab.label] || currentTab.label}:
-            </span>
-            {currentTab.groups
-              .flatMap((g) => g.items)
-              .map((item) => {
-                const isItemActive = item.id === activeItem;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => setActiveItem(item.id)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium shrink-0 transition-colors cursor-pointer ${
-                      isItemActive
-                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs font-semibold'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent'
-                    }`}
-                    title={translations[language][item.label] || item.label}
-                  >
-                    <span className="truncate">{translations[language][item.label] || item.label}</span>
-                  </button>
-                );
-              })}
+          <div className="h-10 bg-slate-950/80 border-b border-slate-800/80 px-4 flex items-center overflow-x-auto custom-scrollbar shrink-0 select-none">
+            <div className="flex items-center gap-1.5 mx-auto">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1 hidden sm:inline">
+                {translations[language][currentTab.label] || currentTab.label}:
+              </span>
+              {currentTab.groups
+                .flatMap((g) => g.items)
+                .map((item) => {
+                  const isItemActive = item.id === activeItem;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveItem(item.id)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium shrink-0 transition-colors cursor-pointer ${
+                        isItemActive
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs font-semibold'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent'
+                      }`}
+                      title={translations[language][item.label] || item.label}
+                    >
+                      <span className="truncate">{translations[language][item.label] || item.label}</span>
+                    </button>
+                  );
+                })}
+            </div>
           </div>
         )}
 
@@ -844,6 +874,7 @@ export default function App() {
             salaryConfigs={salaryConfigs}
             onUpdateStaffInfo={handleUpdateStaffInfo}
             onUpdateAvatar={(newUrl) => handleUpdateStaffInfo({ ...resolvedStaff, avatarUrl: newUrl })}
+            viewerHasSalaryAccess={canUserAccessSalarySlip(currentUser, salarySecurity)}
           />
         );
       })()}

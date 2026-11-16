@@ -110,66 +110,72 @@ export const HRAttendanceDiary: React.FC<{
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <StickyNote className="w-5 h-5 text-purple-400" />
-            <span>Nhật Ký Điểm Danh & Quân Số Hàng Ngày</span>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+        <div className="w-full lg:w-auto px-7 sm:px-4 lg:px-0 text-center lg:text-left">
+          <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center justify-center lg:justify-start gap-2">
+            <StickyNote className="w-5 h-5 text-purple-400 shrink-0" />
+            <span>Nhật Ký Điểm Danh &amp; Quân Số Hàng Ngày</span>
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-400 mt-1 text-center lg:text-left">
             Ghi nhận điểm danh thực tế theo ca, nhập thời gian đi muộn / về sớm và lưu nhật ký điểm danh toàn nhà máy.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-xs">
-            <Calendar className="w-3.5 h-3.5 text-slate-400" />
-            <input
-              type="text"
-              value={selectedDate}
-              onChange={e => setSelectedDate(e.target.value)}
-              className="bg-transparent text-slate-200 font-mono w-24 focus:outline-hidden"
-              placeholder="DD/MM/YYYY"
-            />
+        <div className="w-full max-w-md mx-auto lg:max-w-none lg:w-auto lg:mx-0 flex flex-col sm:flex-row sm:flex-wrap items-center justify-center lg:justify-end gap-2">
+          <div className="w-full sm:w-auto grid grid-cols-[auto_minmax(0,1fr)] sm:flex items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs shrink-0">
+              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+              <input
+                type="text"
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+                className="bg-transparent text-slate-200 font-mono w-24 focus:outline-hidden"
+                placeholder="DD/MM/YYYY"
+              />
+            </div>
+
+            <select
+              value={selectedShift}
+              onChange={e => setSelectedShift(e.target.value as any)}
+              className="w-full sm:w-auto bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
+            >
+              <option value="DAY">Ca Ngày (08:00 - 20:00)</option>
+              <option value="NIGHT">Ca Đêm (20:00 - 08:00)</option>
+            </select>
           </div>
 
-          <select
-            value={selectedShift}
-            onChange={e => setSelectedShift(e.target.value as any)}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
-          >
-            <option value="DAY">Ca Ngày (08:00 - 20:00)</option>
-            <option value="NIGHT">Ca Đêm (20:00 - 08:00)</option>
-          </select>
+          <div className="w-full sm:w-auto grid grid-cols-[auto_minmax(0,1fr)] sm:flex items-center gap-2">
+            <select
+              value={filterDept}
+              onChange={e => setFilterDept(e.target.value)}
+              className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 shrink-0"
+            >
+              <option value="ALL">Tất cả bộ phận</option>
+              <option value="MULTI">Multi Auto</option>
+              <option value="HR">HC &amp; NS</option>
+            </select>
 
-          <select
-            value={filterDept}
-            onChange={e => setFilterDept(e.target.value)}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
-          >
-            <option value="ALL">Tất cả bộ phận</option>
-            <option value="MULTI">Multi Auto</option>
-            <option value="HR">HC &amp; NS</option>
-          </select>
-
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Tìm mã / tên NV..."
-              className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden"
-            />
+            <div className="relative min-w-0">
+              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Tìm mã / tên NV..."
+                className="w-full sm:w-44 bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden"
+              />
+            </div>
           </div>
 
-          <button
-            onClick={handleSaveDiary}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md cursor-pointer transition-colors"
-          >
-            <Save className="w-4 h-4" />
-            <span>Lưu Nhật Ký</span>
-          </button>
+          <div className="w-full sm:w-auto flex justify-center">
+            <button
+              onClick={handleSaveDiary}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md cursor-pointer transition-colors"
+            >
+              <Save className="w-4 h-4" />
+              <span>Lưu Nhật Ký</span>
+            </button>
+          </div>
         </div>
       </div>
 

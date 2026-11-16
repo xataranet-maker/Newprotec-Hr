@@ -186,6 +186,87 @@ export function buildDefaultEmployeeMonthDays(
   return daysRecord;
 }
 
+export function parseDateJoined(dateJoinedStr?: string): Date | null {
+  if (!dateJoinedStr) return null;
+  const s = dateJoinedStr.trim();
+  if (s.includes('/')) {
+    const parts = s.split('/');
+    if (parts.length === 3) {
+      const d = Number(parts[0]);
+      const m = Number(parts[1]) - 1;
+      const y = Number(parts[2]);
+      const date = new Date(y, m, d);
+      if (!isNaN(date.getTime())) return date;
+    }
+  }
+  const date = new Date(s);
+  if (!isNaN(date.getTime())) return date;
+  return null;
+}
+
+export function isDayBeforeJoinDate(
+  year: number,
+  month: number,
+  day: number,
+  dateJoinedStr?: string
+): boolean {
+  const joinDate = parseDateJoined(dateJoinedStr);
+  if (!joinDate) return false;
+  const currentDayDate = new Date(year, month - 1, day);
+  currentDayDate.setHours(0, 0, 0, 0);
+  joinDate.setHours(0, 0, 0, 0);
+  return currentDayDate < joinDate;
+}
+
+export function applyJoinDateAndLockRules(
+  days: Record<number, MatrixDayTimeEntry>,
+  staff: StaffRecord,
+  year: number,
+  month: number,
+  isLocked?: boolean,
+  lockedDay?: number
+): Record<number, MatrixDayTimeEntry> {
+  const nextDays: Record<number, MatrixDayTimeEntry> = {};
+  Object.entries(days).forEach(([dayStr, entry]) => {
+    const day = Number(dayStr);
+    const isBeforeJoin = isDayBeforeJoinDate(year, month, day, staff.dateJoined);
+    const isAfterLock = Boolean(isLocked && lockedDay !== undefined && day >= lockedDay);
+
+    if (isBeforeJoin) {
+      nextDays[day] = {
+        ...entry,
+        inTime: '',
+        outTime: '',
+        regularHours: 0,
+        otDayHours: 0,
+        otNightHours: 0,
+        otSundayHours: 0,
+        otSundayNightHours: 0,
+        otHolidayHours: 0,
+        otHolidayNightHours: 0,
+        status: '' as AttendanceStatus,
+      };
+    } else if (isAfterLock) {
+      nextDays[day] = {
+        ...entry,
+        inTime: '',
+        outTime: '',
+        regularHours: 0,
+        otDayHours: 0,
+        otNightHours: 0,
+        otSundayHours: 0,
+        otSundayNightHours: 0,
+        otHolidayHours: 0,
+        otHolidayNightHours: 0,
+        status: 'Đã nghỉ việc',
+      };
+    } else {
+      nextDays[day] = entry;
+    }
+  });
+  return nextDays;
+}
+
 export function dispatchMatrixUpdatedEvent(department: string, year: number, month: number) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(
@@ -244,16 +325,25 @@ export function loadOrInitDepartmentMatrix(
   const normalized: Record<string, MatrixEmployeeTimekeeping> = {};
   let needsPersist = !parsedSaved && targetStaff.length > 0;
 
+  const staffById = new Map<string, StaffRecord>();
+  targetStaff.forEach((st) => staffById.set(st.employeeId.trim().toLowerCase(), st));
+
   if (parsedSaved) {
     Object.entries(parsedSaved).forEach(([empId, rec]) => {
-      const totals = recalculateStaffTotals(rec.days || {});
-      normalized[empId] = { ...rec, ...totals };
+      const matchedStaff = staffById.get(empId.trim().toLowerCase());
+      const rawDays = rec.days || {};
+      const appliedDays = matchedStaff
+        ? applyJoinDateAndLockRules(rawDays, matchedStaff, year, month, rec.isLocked, rec.lockedDay)
+        : rawDays;
+      const totals = recalculateStaffTotals(appliedDays);
+      normalized[empId] = { ...rec, days: appliedDays, ...totals };
     });
   }
 
   targetStaff.forEach((staff) => {
     if (!normalized[staff.employeeId]) {
-      const daysRecord = buildDefaultEmployeeMonthDays(staff, year, month, holidays);
+      const rawDays = buildDefaultEmployeeMonthDays(staff, year, month, holidays);
+      const daysRecord = applyJoinDateAndLockRules(rawDays, staff, year, month, false, undefined);
       const totals = recalculateStaffTotals(daysRecord);
       normalized[staff.employeeId] = {
         employeeId: staff.employeeId,
@@ -267,13 +357,17 @@ export function loadOrInitDepartmentMatrix(
       };
       needsPersist = true;
     } else {
-      // Keep basic metadata synchronized if edited in staff profile
+      const rec = normalized[staff.employeeId];
+      const appliedDays = applyJoinDateAndLockRules(rec.days || {}, staff, year, month, rec.isLocked, rec.lockedDay);
+      const totals = recalculateStaffTotals(appliedDays);
       normalized[staff.employeeId] = {
-        ...normalized[staff.employeeId],
+        ...rec,
         fullName: staff.fullName,
-        department: staff.department || normalized[staff.employeeId].department || department,
-        position: staff.position || normalized[staff.employeeId].position,
+        department: staff.department || rec.department || department,
+        position: staff.position || rec.position,
         shift: staff.shift,
+        days: appliedDays,
+        ...totals,
       };
     }
   });

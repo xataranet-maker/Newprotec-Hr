@@ -1,4 +1,66 @@
-import { EmployeeSalaryConfig, MatrixDayTimeEntry, StaffRecord } from '../types';
+import {
+  EmployeeSalaryConfig,
+  MatrixDayTimeEntry,
+  SalarySecurityConfig,
+  StaffRecord,
+  UserAccount,
+} from '../types';
+
+export const SALARY_SECURITY_STORAGE_KEY = 'app_salary_security_config';
+
+export const DEFAULT_SALARY_SECURITY_CONFIG: SalarySecurityConfig = {
+  enabled: true,
+  allowedUsernames: ['Newprotec', 'hr'],
+  allowedRoles: [],
+  requirePasscode: false,
+  passcode: '',
+  maskValuesByDefault: false,
+};
+
+export const normalizeSalarySecurityConfig = (
+  raw?: Partial<SalarySecurityConfig> | null
+): SalarySecurityConfig => {
+  const allowedUsernames = Array.isArray(raw?.allowedUsernames)
+    ? Array.from(new Set(raw.allowedUsernames.map((u) => String(u).trim()).filter(Boolean)))
+    : [...DEFAULT_SALARY_SECURITY_CONFIG.allowedUsernames];
+
+  if (!allowedUsernames.some((u) => u.toLowerCase() === 'newprotec')) {
+    allowedUsernames.unshift('Newprotec');
+  }
+
+  return {
+    enabled: raw?.enabled ?? DEFAULT_SALARY_SECURITY_CONFIG.enabled,
+    allowedUsernames,
+    allowedRoles: Array.isArray(raw?.allowedRoles) ? raw.allowedRoles : [],
+    requirePasscode: Boolean(raw?.requirePasscode),
+    passcode: typeof raw?.passcode === 'string' ? raw.passcode : '',
+    maskValuesByDefault: Boolean(raw?.maskValuesByDefault),
+    updatedAt: raw?.updatedAt,
+    updatedBy: raw?.updatedBy,
+  };
+};
+
+export const canUserAccessSalarySlip = (
+  user: UserAccount | null | undefined,
+  security?: SalarySecurityConfig | null
+): boolean => {
+  if (!user) return false;
+  const normalized = normalizeSalarySecurityConfig(security);
+  if (!normalized.enabled) return true;
+
+  const uLower = user.username.trim().toLowerCase();
+  if (uLower === 'newprotec') return true;
+
+  if (normalized.allowedUsernames.some((u) => u.trim().toLowerCase() === uLower)) {
+    return true;
+  }
+
+  if (normalized.allowedRoles.includes(user.role)) {
+    return true;
+  }
+
+  return false;
+};
 
 export type SalaryNumericFieldKey =
   | 'basicSalary'
@@ -84,13 +146,34 @@ export const createEmptySalaryConfig = (staff: {
   mealAllowance: 0,
   childcareAllowance: 0,
   phoneAllowance: 0,
+  unionFee: 0,
+  personalIncomeTax: 0,
   ovtInsuranceBase: 0,
   ovtInsuranceManual: false,
   totalSalary: 0,
 });
 
+/**
+ * Tính Thuế TNCN 10% trên phần thu nhập vượt ngưỡng cấu hình.
+ * Nếu ngưỡng <= 0 hoặc thu nhập <= ngưỡng thì không khấu trừ (0đ).
+ */
+export const calculatePitAboveThreshold = (income: number, threshold?: number): number => {
+  const numericThreshold = Number(threshold) || 0;
+  if (numericThreshold <= 0) return 0;
+  const numericIncome = Number(income) || 0;
+  if (numericIncome <= numericThreshold) return 0;
+  return Math.round((numericIncome - numericThreshold) * 0.1);
+};
+
+export const OUTSIDE_MAIN_SALARY_FIELDS: SalaryNumericFieldKey[] = [
+  'bereavementWeddingAllowance',
+  'mealAllowance',
+];
+
 export const calculateTotalSalary = (cfg: EmployeeSalaryConfig): number =>
-  SALARY_NUMERIC_FIELDS.reduce((sum, f) => sum + (Number(cfg[f.key]) || 0), 0);
+  SALARY_NUMERIC_FIELDS.filter(
+    (f) => !OUTSIDE_MAIN_SALARY_FIELDS.includes(f.key)
+  ).reduce((sum, f) => sum + (Number(cfg[f.key]) || 0), 0);
 
 export const calculateOvtInsuranceBase = (
   cfg: EmployeeSalaryConfig,
@@ -118,6 +201,113 @@ export const formatVnd = (value?: number): string => {
   return num.toLocaleString('vi-VN');
 };
 
+const parseTimeToMinutes = (timeStr?: string): number | null => {
+  if (!timeStr) return null;
+  const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+    return null;
+  }
+  return h * 60 + m;
+};
+
+/**
+ * Kiểm tra buổi tăng ca ra sau 6 giờ:
+ * - Ca ngày: giờ ra > 18:00 (hoặc qua đêm 00:00–12:00)
+ * - Ca đêm: giờ ra > 06:00 sáng (06:01–14:00)
+ * - Trường hợp không ghi giờ ra: số giờ tăng ca > 1h (tức quá mốc 6 giờ)
+ */
+export const isOvertimeAfterSix = (
+  entry: MatrixDayTimeEntry | undefined,
+  defaultShift: 'DAY' | 'NIGHT' = 'DAY'
+): boolean => {
+  if (!entry) return false;
+  const totalOtDay =
+    (entry.otDayHours || 0) +
+    (entry.otNightHours || 0) +
+    (entry.otSundayHours || 0) +
+    (entry.otSundayNightHours || 0) +
+    (entry.otHolidayHours || 0) +
+    (entry.otHolidayNightHours || 0);
+
+  if (totalOtDay <= 0) return false;
+
+  const effectiveShift = entry.shift || defaultShift;
+  const outMins = parseTimeToMinutes(entry.outTime);
+  const inMins = parseTimeToMinutes(entry.inTime);
+
+  if (outMins !== null) {
+    if (effectiveShift === 'NIGHT') {
+      return outMins > 6 * 60 && outMins <= 14 * 60;
+    }
+    if (outMins > 18 * 60) return true;
+    if (inMins !== null && outMins < inMins && outMins <= 12 * 60) return true;
+    return false;
+  }
+
+  return totalOtDay > 1;
+};
+
+export const isBereavementOrWeddingStatus = (status?: string): boolean =>
+  status === 'Nghỉ cưới' || status === 'Nghỉ tang' || status === 'FAMILY';
+
+const getBereavementWeddingLeaveRequestsInMonth = (
+  employeeId: string,
+  year: number,
+  month: number
+): { days: number; labels: string[] } => {
+  if (typeof window === 'undefined' || !employeeId) return { days: 0, labels: [] };
+  try {
+    const raw = localStorage.getItem(`app_employee_leaves_${employeeId}`);
+    if (!raw) return { days: 0, labels: [] };
+    const list = JSON.parse(raw) as Array<{
+      leaveType?: string;
+      startDate?: string;
+      days?: number;
+    }>;
+    if (!Array.isArray(list)) return { days: 0, labels: [] };
+
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 0);
+    let totalDays = 0;
+    const labelSet = new Set<string>();
+
+    list.forEach((item) => {
+      if (
+        item.leaveType !== 'Nghỉ cưới' &&
+        item.leaveType !== 'Nghỉ tang (Người nhà mất)'
+      ) {
+        return;
+      }
+      if (!item.startDate) return;
+      const [yStr, mStr, dStr] = item.startDate.split('-');
+      const sy = Number(yStr);
+      const sm = Number(mStr);
+      const sd = Number(dStr);
+      if (!sy || !sm || !sd) return;
+
+      const start = new Date(sy, sm - 1, sd);
+      const durationDays = Math.max(1, Math.ceil(Number(item.days) || 1));
+      const end = new Date(sy, sm - 1, sd + durationDays - 1);
+
+      if (end >= monthStart && start <= monthEnd) {
+        const overlapStart = start > monthStart ? start : monthStart;
+        const overlapEnd = end < monthEnd ? end : monthEnd;
+        const overlapDays =
+          Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / 86400000) + 1;
+        totalDays += Math.max(1, overlapDays);
+        labelSet.add(item.leaveType);
+      }
+    });
+
+    return { days: totalDays, labels: Array.from(labelSet) };
+  } catch {
+    return { days: 0, labels: [] };
+  }
+};
+
 export interface ComputedSalarySlipData {
   month: number;
   year: number;
@@ -133,6 +323,11 @@ export interface ComputedSalarySlipData {
   unpaidLeaveDays: number;
   remainingLeaveDays: number;
   otMealDays: number;
+  otMealUnitRate: number;
+  bereavementWeddingDays: number;
+  hasBereavementOrWeddingCase: boolean;
+  bereavementWeddingConfiguredAmount: number;
+  bereavementWeddingCaseLabel: string;
   regularNightHours: number;
   otDayHours: number;
   otNightHours: number;
@@ -154,7 +349,6 @@ export interface ComputedSalarySlipData {
   seniorityAllowanceAmount: number;
   processAllowanceAmount: number;
   attractionAllowanceAmount: number;
-  otMealAllowanceAmount: number;
   cleanroomAllowanceAmount: number;
   phoneAllowanceAmount: number;
   paidLeaveAmount: number;
@@ -173,7 +367,9 @@ export interface ComputedSalarySlipData {
   otHolidayDay300Amount: number;
   otHolidayNight390Amount: number;
   section2Total: number;
-  // Section 3 amounts
+  // Section 3 amounts (Thu nhập ngoài hợp đồng lao động / ngoài lương chính)
+  otMealAllowanceAmount: number;
+  bereavementWeddingAmount: number;
   childcareAllowanceAmount: number;
   productivityBonusAmount: number;
   scopeSettingAllowanceAmount: number;
@@ -186,6 +382,7 @@ export interface ComputedSalarySlipData {
   sectionIITotal: number;
   // Section III
   personalIncomeTaxAmount: number;
+  pitThreshold: number;
   // Section IV
   lateEarlyAmount: number;
   unexcusedFineHours: number;
@@ -218,6 +415,8 @@ export interface ComputeSalarySlipParams {
     otSundayNightHours: number;
     otHolidayDayHours: number;
     otHolidayNightHours: number;
+    otMealDays?: number;
+    bereavementWeddingDays?: number;
   };
 }
 
@@ -236,6 +435,8 @@ export const computeMonthlySalarySlipDetails = ({
   let paidLeaveDays = 0;
   let unpaidLeaveDays = 0;
   let otMealDays = 0;
+  let matrixBereavementWeddingDays = 0;
+  const matrixCaseLabels = new Set<string>();
   let regularNightHours = 0;
   let otDayHours = 0;
   let otNightHours = 0;
@@ -257,7 +458,6 @@ export const computeMonthlySalarySlipDetails = ({
       const otHD = entry.otHolidayHours || 0;
       const otHN = entry.otHolidayNightHours || 0;
       const dayTotal = reg + otD + otN + otSD + otSN + otHD + otHN;
-      const totalOtDay = otD + otN + otSD + otSN + otHD + otHN;
 
       if (dayTotal > 0 || (entry.inTime && entry.outTime)) {
         workDaysCount += 1;
@@ -265,14 +465,21 @@ export const computeMonthlySalarySlipDetails = ({
         entry.status === 'Nghỉ phép' ||
         entry.status === 'LEAVE' ||
         entry.status === 'Nghỉ lễ' ||
-        entry.status === 'FAMILY'
+        isBereavementOrWeddingStatus(entry.status)
       ) {
         paidLeaveDays += 1;
       } else if (entry.status === 'Nghỉ KL' || entry.status === 'Vắng mặt') {
         unpaidLeaveDays += 1;
       }
 
-      if (totalOtDay >= 1) {
+      if (isBereavementOrWeddingStatus(entry.status)) {
+        matrixBereavementWeddingDays += 1;
+        if (entry.status === 'Nghỉ cưới') matrixCaseLabels.add('Nghỉ cưới');
+        else if (entry.status === 'Nghỉ tang') matrixCaseLabels.add('Người nhà mất');
+        else matrixCaseLabels.add('Hiếu hỷ');
+      }
+
+      if (isOvertimeAfterSix(entry, staff.shift || 'DAY')) {
         otMealDays += 1;
       }
 
@@ -297,7 +504,25 @@ export const computeMonthlySalarySlipDetails = ({
     otSundayNightHours = attendanceSummary.otSundayNightHours || 0;
     otHolidayDayHours = attendanceSummary.otHolidayDayHours || 0;
     otHolidayNightHours = attendanceSummary.otHolidayNightHours || 0;
+    otMealDays = attendanceSummary.otMealDays || 0;
+    matrixBereavementWeddingDays = attendanceSummary.bereavementWeddingDays || 0;
   }
+
+  const leaveRequestCases = getBereavementWeddingLeaveRequestsInMonth(
+    staff.employeeId,
+    year,
+    month
+  );
+  const bereavementWeddingDays = Math.max(
+    matrixBereavementWeddingDays,
+    leaveRequestCases.days
+  );
+  const hasBereavementOrWeddingCase = bereavementWeddingDays > 0;
+  const combinedCaseLabels = Array.from(
+    new Set([...Array.from(matrixCaseLabels), ...leaveRequestCases.labels])
+  );
+  const bereavementWeddingCaseLabel =
+    combinedCaseLabels.length > 0 ? combinedCaseLabels.join(', ') : 'Nghỉ cưới / Người nhà mất';
 
   const r1 = (v: number) => Math.round(v * 10) / 10;
   regularNightHours = r1(regularNightHours);
@@ -310,7 +535,7 @@ export const computeMonthlySalarySlipDetails = ({
 
   const basicSalary = Number(salaryConfig.basicSalary) || 0;
   const ovtInsuranceBase = Number(salaryConfig.ovtInsuranceBase) || 0;
-  const totalSalary = Number(salaryConfig.totalSalary) || 0;
+  const totalSalary = calculateTotalSalary(salaryConfig);
 
   // Proration factor based on standard 26 working days
   const workRatio = standardWorkDays > 0 ? workDaysCount / standardWorkDays : 0;
@@ -331,13 +556,9 @@ export const computeMonthlySalarySlipDetails = ({
   const seniorityAllowanceAmount = Math.round((Number(salaryConfig.seniorityAllowance) || 0) * cappedRatio);
   const processAllowanceAmount = Math.round((Number(salaryConfig.processAllowance) || 0) * cappedRatio);
   const attractionAllowanceAmount = Math.round((Number(salaryConfig.attractionAllowance) || 0) * cappedRatio);
-  const otMealAllowanceAmount = Number(salaryConfig.mealAllowance) || 0;
   const cleanroomAllowanceAmount = Math.round((Number(salaryConfig.cleanroomAllowance) || 0) * cappedRatio);
   const phoneAllowanceAmount = Math.round((Number(salaryConfig.phoneAllowance) || 0) * cappedRatio);
-  const paidLeaveAmount = Math.round(
-    (basicSalary / standardWorkDays) * paidLeaveDays +
-      (Number(salaryConfig.bereavementWeddingAllowance) || 0)
-  );
+  const paidLeaveAmount = Math.round((basicSalary / standardWorkDays) * paidLeaveDays);
   const unusedLeaveSettlementAmount = 0;
 
   const section1Total =
@@ -351,7 +572,6 @@ export const computeMonthlySalarySlipDetails = ({
     seniorityAllowanceAmount +
     processAllowanceAmount +
     attractionAllowanceAmount +
-    otMealAllowanceAmount +
     cleanroomAllowanceAmount +
     phoneAllowanceAmount +
     paidLeaveAmount +
@@ -382,22 +602,36 @@ export const computeMonthlySalarySlipDetails = ({
     otHolidayDay300Amount +
     otHolidayNight390Amount;
 
-  // Section 3: Non-contract income
+  // Section 3: Ngoài lương chính / Thu nhập ngoài hợp đồng lao động
+  // - Trợ cấp tiền ăn tăng ca: Số buổi tăng ca ra sau 6h × đơn giá cấu hình ở cột Phụ cấp tiền ăn
+  // - Phụ cấp hiếu hỷ: chỉ cộng ngoài lương khi phát sinh trường hợp nghỉ phép cưới / người nhà mất
+  const otMealUnitRate = Number(salaryConfig.mealAllowance) || 0;
+  const otMealAllowanceAmount = otMealDays * otMealUnitRate;
+  const bereavementWeddingConfiguredAmount = Number(salaryConfig.bereavementWeddingAllowance) || 0;
+  const bereavementWeddingAmount = hasBereavementOrWeddingCase
+    ? bereavementWeddingConfiguredAmount
+    : 0;
   const childcareAllowanceAmount = Number(salaryConfig.childcareAllowance) || 0;
   const productivityBonusAmount = Number(salaryConfig.productivityBonus) || 0;
   const scopeSettingAllowanceAmount = 0;
   const section3Total =
-    childcareAllowanceAmount + productivityBonusAmount + scopeSettingAllowanceAmount;
+    otMealAllowanceAmount +
+    bereavementWeddingAmount +
+    childcareAllowanceAmount +
+    productivityBonusAmount +
+    scopeSettingAllowanceAmount;
 
   const sectionITotal = section1Total + section2Total + section3Total;
 
   // Section II: Social Insurance 10.5% + Union fee
   const socialInsuranceAmount = Math.round(ovtInsuranceBase * 0.105);
-  const unionFeeAmount = 0;
+  const unionFeeAmount = Number(salaryConfig.unionFee) || 0;
   const sectionIITotal = socialInsuranceAmount + unionFeeAmount;
 
   // Section III: Personal Income Tax
-  const personalIncomeTaxAmount = 0;
+  // Tính 10% trên phần thu nhập vượt ngưỡng cấu hình (personalIncomeTax)
+  const pitThreshold = Number(salaryConfig.personalIncomeTax) || 0;
+  const personalIncomeTaxAmount = calculatePitAboveThreshold(sectionITotal, pitThreshold);
 
   // Section IV: Deductions
   const totalLateEarlyMinutes = (staff.lateMinutes || 0) + (staff.earlyMinutes || 0);
@@ -438,6 +672,11 @@ export const computeMonthlySalarySlipDetails = ({
     unpaidLeaveDays,
     remainingLeaveDays: Math.max(0, 12 - paidLeaveDays),
     otMealDays,
+    otMealUnitRate,
+    bereavementWeddingDays,
+    hasBereavementOrWeddingCase,
+    bereavementWeddingConfiguredAmount,
+    bereavementWeddingCaseLabel,
     regularNightHours,
     otDayHours,
     otNightHours,
@@ -458,7 +697,6 @@ export const computeMonthlySalarySlipDetails = ({
     seniorityAllowanceAmount,
     processAllowanceAmount,
     attractionAllowanceAmount,
-    otMealAllowanceAmount,
     cleanroomAllowanceAmount,
     phoneAllowanceAmount,
     paidLeaveAmount,
@@ -476,6 +714,8 @@ export const computeMonthlySalarySlipDetails = ({
     otHolidayDay300Amount,
     otHolidayNight390Amount,
     section2Total,
+    otMealAllowanceAmount,
+    bereavementWeddingAmount,
     childcareAllowanceAmount,
     productivityBonusAmount,
     scopeSettingAllowanceAmount,
@@ -485,6 +725,7 @@ export const computeMonthlySalarySlipDetails = ({
     unionFeeAmount,
     sectionIITotal,
     personalIncomeTaxAmount,
+    pitThreshold,
     lateEarlyAmount,
     unexcusedFineHours,
     unexcusedFineAmount,

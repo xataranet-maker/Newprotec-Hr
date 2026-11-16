@@ -42,21 +42,23 @@ export const HRAnnouncements: React.FC<HRAnnouncementsProps> = ({
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Megaphone className="w-5 h-5 text-red-400" />
+        <div className="w-full sm:w-auto px-7 sm:px-0 text-center sm:text-left">
+          <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center justify-center sm:justify-start gap-2">
+            <Megaphone className="w-5 h-5 text-red-400 shrink-0" />
             <span>Bảng Thông Báo Nội Bộ Nhà Máy (Announcements)</span>
           </h2>
-          <p className="text-xs text-slate-400">Các thông báo chỉ đạo, kế hoạch ca, an toàn lao động và 5S.</p>
+          <p className="text-xs text-slate-400 mt-1 text-center sm:text-left">Các thông báo chỉ đạo, kế hoạch ca, an toàn lao động và 5S.</p>
         </div>
 
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-md cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Đăng Thông Báo</span>
-        </button>
+        <div className="flex justify-center sm:justify-end shrink-0">
+          <button
+            onClick={() => setShowAdd(true)}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-md cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Đăng Thông Báo</span>
+          </button>
+        </div>
       </div>
 
       <div className="space-y-4">

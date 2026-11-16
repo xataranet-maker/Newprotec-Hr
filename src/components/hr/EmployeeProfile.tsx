@@ -24,6 +24,7 @@ import {
   createEmptySalaryConfig,
   loadOvtFormulaFields,
   recomputeSalaryConfig,
+  calculatePitAboveThreshold,
 } from '../../lib/salaryConfig';
 import { SalarySlipModal } from './SalarySlipModal';
 import {
@@ -45,12 +46,19 @@ import {
   Hash,
   CalendarCheck,
   AlertCircle,
+  Lock,
 } from 'lucide-react';
 
 interface LeaveRequestItem {
   id: number;
   employeeId: string;
-  leaveType: 'Phép năm' | 'Nghỉ ốm' | 'Việc riêng' | 'Không lương';
+  leaveType:
+    | 'Phép năm'
+    | 'Nghỉ ốm'
+    | 'Việc riêng'
+    | 'Nghỉ cưới'
+    | 'Nghỉ tang (Người nhà mất)'
+    | 'Không lương';
   startDate: string;
   days: number;
   reason: string;
@@ -74,6 +82,7 @@ export interface EmployeeProfileProps {
   salaryConfigs?: EmployeeSalaryConfig[];
   onUpdateStaffInfo: (st: StaffRecord) => void;
   onUpdateAvatar?: (url: string) => void;
+  viewerHasSalaryAccess?: boolean;
   isModal?: boolean;
   onClose?: () => void;
 }
@@ -103,6 +112,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   onUpdateAttendanceConfirmation,
   salaryConfigs = [],
   onUpdateStaffInfo,
+  viewerHasSalaryAccess = true,
   isModal = false,
   onClose,
 }) => {
@@ -292,8 +302,16 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       let statusLabel = 'Chưa chấm công';
       let statusTone: 'ot' | 'full' | 'late' | 'early' | 'leave' | 'sunday' | 'holiday' | 'empty' = 'empty';
 
-      if (entry?.status === 'Nghỉ phép' || entry?.status === 'Nghỉ ốm' || entry?.status === 'Vắng mặt' || entry?.status === 'Nghỉ KL') {
-        statusLabel = entry.status;
+      if (
+        entry?.status === 'Nghỉ phép' ||
+        entry?.status === 'Nghỉ cưới' ||
+        entry?.status === 'Nghỉ tang' ||
+        entry?.status === 'FAMILY' ||
+        entry?.status === 'Nghỉ ốm' ||
+        entry?.status === 'Vắng mặt' ||
+        entry?.status === 'Nghỉ KL'
+      ) {
+        statusLabel = entry.status === 'FAMILY' ? 'Hiếu hỷ' : entry.status;
         statusTone = 'leave';
       } else if (totalOtDayRow > 0) {
         statusLabel = 'Có tăng ca';
@@ -431,7 +449,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       department: empDept,
       days: confirmDays,
       unexcusedAbsence: 0,
-      remainingLeave: Math.max(0, 12 - leaveRequests.reduce((s, r) => s + r.days, 0)),
+      remainingLeave: Math.max(
+        0,
+        12 - leaveRequests.filter((r) => r.leaveType === 'Phép năm').reduce((s, r) => s + r.days, 0)
+      ),
       isConfirmed: true,
       confirmedAt: new Date().toLocaleString('vi-VN'),
       confirmedBy: empName,
@@ -609,28 +630,30 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       {/* RIGHT MAIN PANEL */}
       <div className="flex-none lg:flex-1 flex flex-col min-w-0 lg:min-h-0 bg-[#050a14]">
         {/* Top Tab Navigation + Month Switcher */}
-        <div className={`px-3 sm:px-5 pt-3 pb-2 lg:pb-0 border-b border-slate-800/90 flex flex-wrap items-center justify-between gap-2 sm:gap-3 ${isModal ? 'pr-12 sm:pr-14' : ''}`}>
-          <div className="w-full sm:w-auto max-w-full min-w-0 flex items-center gap-1 sm:gap-2 overflow-x-auto custom-scrollbar pb-1 lg:pb-0">
-            {PROFILE_TABS.map((tab) => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`px-2.5 sm:px-3 py-3 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
-                    isActive
-                      ? 'border-blue-500 text-white'
-                      : 'border-transparent text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
+        <div className={`px-3 sm:px-5 pt-3 pb-2 lg:pb-0 border-b border-slate-800/90 flex flex-wrap items-center justify-center sm:justify-between gap-2 sm:gap-3 ${isModal ? 'pr-12 sm:pr-14' : ''}`}>
+          <div className="w-full sm:w-auto max-w-full min-w-0 flex items-center overflow-x-auto custom-scrollbar pb-1 lg:pb-0">
+            <div className="flex items-center gap-1 sm:gap-2 mx-auto sm:mx-0">
+              {PROFILE_TABS.map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`px-2.5 sm:px-3 py-3 text-[11px] font-bold uppercase tracking-wider border-b-2 transition-colors whitespace-nowrap cursor-pointer ${
+                      isActive
+                        ? 'border-blue-500 text-white'
+                        : 'border-transparent text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-full px-2 py-1 mb-2 text-[11px] font-mono font-bold text-slate-200 shrink-0">
+          <div className="flex items-center mx-auto sm:mx-0 bg-slate-900 border border-slate-800 rounded-full px-2 py-1 mb-2 text-[11px] font-mono font-bold text-slate-200 shrink-0">
             <button
               type="button"
               onClick={handlePrevMonth}
@@ -1016,7 +1039,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     <span>Đăng Ký Nghỉ Phép</span>
                   </h3>
                   <span className="text-[11px] font-mono text-cyan-400">
-                    Phép năm còn: {Math.max(0, 12 - leaveRequests.reduce((s, r) => s + r.days, 0))} ngày
+                    Phép năm còn:{' '}
+                    {Math.max(
+                      0,
+                      12 - leaveRequests.filter((r) => r.leaveType === 'Phép năm').reduce((s, r) => s + r.days, 0)
+                    )}{' '}
+                    ngày
                   </span>
                 </div>
 
@@ -1028,6 +1056,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200"
                   >
                     <option value="Phép năm">Nghỉ phép năm</option>
+                    <option value="Nghỉ cưới">Nghỉ phép cưới (Hiếu hỷ)</option>
+                    <option value="Nghỉ tang (Người nhà mất)">Nghỉ tang / Người nhà mất (Hiếu hỷ)</option>
                     <option value="Nghỉ ốm">Nghỉ ốm</option>
                     <option value="Việc riêng">Nghỉ việc riêng</option>
                     <option value="Không lương">Nghỉ không lương</option>
@@ -1112,6 +1142,20 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
           {/* TAB 4: LƯƠNG & PHIẾU */}
           {activeTab === 'salary' && (
+            !viewerHasSalaryAccess ? (
+              <div className="bg-[#0a1222] border border-rose-800/50 rounded-xl p-8 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-rose-950/80 border border-rose-700/50 flex items-center justify-center mx-auto text-rose-400">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wide">
+                  Thông Tin Lương Được Bảo Mật
+                </h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Thông tin lương và phụ cấp của nhân viên được bảo mật theo quy định công ty. Chỉ người có thẩm quyền được Admin cấp phép tại Tab{' '}
+                  <span className="text-emerald-300 font-semibold">ADMIN &rarr; Bảo Mật Lương</span> mới có thể xem.
+                </p>
+              </div>
+            ) : (
             <div className="space-y-4 text-xs">
               <div className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-3">
                 <h3 className="font-bold text-sm text-white flex items-center gap-2 pb-2 border-b border-slate-800">
@@ -1197,6 +1241,28 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                                   </span>
                                 </div>
                               ))}
+                              <div className="flex items-center justify-between px-2.5 py-1.5 rounded bg-rose-950/25 border border-rose-800/50">
+                                <span className="text-rose-300">Công đoàn phí</span>
+                                <span className="font-mono font-semibold text-rose-300">
+                                  {formatVnd(Number(s.salaryConfig?.unionFee) || 0)} ₫
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between px-2.5 py-1.5 rounded bg-orange-950/25 border border-orange-800/50">
+                                <span className="text-orange-300">
+                                  {(Number(s.salaryConfig?.personalIncomeTax) || 0) > 0
+                                    ? `Thuế TNCN (10% vượt ${formatVnd(Number(s.salaryConfig?.personalIncomeTax) || 0)})`
+                                    : 'Thuế TNCN'}
+                                </span>
+                                <span className="font-mono font-semibold text-orange-300">
+                                  {formatVnd(
+                                    calculatePitAboveThreshold(
+                                      s.salaryConfig?.totalSalary || 0,
+                                      s.salaryConfig?.personalIncomeTax
+                                    )
+                                  )}{' '}
+                                  ₫
+                                </span>
+                              </div>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                               <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-950/30 border border-amber-700/50">
@@ -1209,7 +1275,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                               </div>
                               <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-950/40 border border-emerald-700/50">
                                 <span className="text-emerald-300 font-bold text-[11px]">
-                                  Tổng lương
+                                  Tổng lương chính
                                 </span>
                                 <span className="font-mono font-bold text-emerald-300">
                                   {formatVnd(s.salaryConfig.totalSalary)} ₫
@@ -1249,6 +1315,28 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                         </span>
                       </div>
                     ))}
+                    <div className="flex items-center justify-between px-2.5 py-1.5 rounded bg-rose-950/25 border border-rose-800/50">
+                      <span className="text-rose-300">Công đoàn phí</span>
+                      <span className="font-mono font-semibold text-rose-300">
+                        {formatVnd(Number(mySalaryConfig.unionFee) || 0)} ₫
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between px-2.5 py-1.5 rounded bg-orange-950/25 border border-orange-800/50">
+                      <span className="text-orange-300">
+                        {(Number(mySalaryConfig.personalIncomeTax) || 0) > 0
+                          ? `Thuế TNCN (10% vượt ${formatVnd(Number(mySalaryConfig.personalIncomeTax) || 0)})`
+                          : 'Thuế TNCN'}
+                      </span>
+                      <span className="font-mono font-semibold text-orange-300">
+                        {formatVnd(
+                          calculatePitAboveThreshold(
+                            mySalaryConfig.totalSalary || 0,
+                            mySalaryConfig.personalIncomeTax
+                          )
+                        )}{' '}
+                        ₫
+                      </span>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-950/30 border border-amber-700/50">
@@ -1261,7 +1349,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     </div>
                     <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-950/40 border border-emerald-700/50">
                       <span className="text-emerald-300 font-bold text-[11px]">
-                        Tổng lương
+                        Tổng lương chính
                       </span>
                       <span className="font-mono font-bold text-emerald-300">
                         {formatVnd(mySalaryConfig.totalSalary)} ₫
@@ -1291,6 +1379,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 )}
               </div>
             </div>
+            )
           )}
 
           {/* TAB 5: TĂNG CA */}

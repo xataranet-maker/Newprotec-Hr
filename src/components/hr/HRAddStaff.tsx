@@ -52,12 +52,12 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
 
   return (
     <div className="p-6 max-w-xl mx-auto space-y-6">
-      <div className="pb-4 border-b border-slate-800">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <UserPlus className="w-5 h-5 text-emerald-400" />
+      <div className="pb-4 border-b border-slate-800 px-7 sm:px-0 text-center sm:text-left">
+        <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center justify-center sm:justify-start gap-2">
+          <UserPlus className="w-5 h-5 text-emerald-400 shrink-0" />
           <span>Thêm Nhân Viên Mới Vào Nhà Máy</span>
         </h2>
-        <p className="text-xs text-slate-400">Tạo hồ sơ và gán nhân viên vào đúng phân xưởng sản xuất.</p>
+        <p className="text-xs text-slate-400 mt-1">Tạo hồ sơ và gán nhân viên vào đúng phân xưởng sản xuất.</p>
       </div>
 
       {success && (

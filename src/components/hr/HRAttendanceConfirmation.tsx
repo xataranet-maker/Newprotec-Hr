@@ -28,6 +28,8 @@ import {
   getEmployeeProfileMatrixData,
 } from '../../lib/matrixTimekeeping';
 import {
+  isBereavementOrWeddingStatus,
+  isOvertimeAfterSix,
   loadOvtFormulaFields,
   recomputeSalaryConfig,
 } from '../../lib/salaryConfig';
@@ -54,6 +56,8 @@ interface EmployeeConfirmationSummaryRow {
   otSundayNightHours: number;
   otHolidayDayHours: number;
   otHolidayNightHours: number;
+  otMealDays: number;
+  bereavementWeddingDays: number;
   confirmation?: AttendanceConfirmationRecord;
   isConfirmed: boolean;
   salarySlip?: SalarySlipRecord;
@@ -160,6 +164,8 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
       let otSundayNightHours = 0;
       let otHolidayDayHours = 0;
       let otHolidayNightHours = 0;
+      let otMealDays = 0;
+      let bereavementWeddingDays = 0;
 
       for (let day = 1; day <= daysInMonth; day += 1) {
         const entry = days[day];
@@ -176,6 +182,13 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
         const dayTotal = reg + otDay + otNight + otSunDay + otSunNight + otHolDay + otHolNight;
         if (dayTotal > 0 || (entry.inTime && entry.outTime)) {
           workDaysCount += 1;
+        }
+
+        if (isOvertimeAfterSix(entry, staff.shift || 'DAY')) {
+          otMealDays += 1;
+        }
+        if (isBereavementOrWeddingStatus(entry.status)) {
+          bereavementWeddingDays += 1;
         }
 
         const effectiveShift = entry.shift || staff.shift || 'DAY';
@@ -217,6 +230,8 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
         otSundayNightHours: round1(otSundayNightHours),
         otHolidayDayHours: round1(otHolidayDayHours),
         otHolidayNightHours: round1(otHolidayNightHours),
+        otMealDays,
+        bereavementWeddingDays,
         confirmation,
         isConfirmed: Boolean(confirmation?.isConfirmed),
         salarySlip,
@@ -331,6 +346,8 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
         otSundayNightHours: row.otSundayNightHours,
         otHolidayDayHours: row.otHolidayDayHours,
         otHolidayNightHours: row.otHolidayNightHours,
+        otMealDays: row.otMealDays,
+        bereavementWeddingDays: row.bereavementWeddingDays,
         isConfirmed: row.isConfirmed,
       },
       salaryConfig: resolvedSalaryConfig,
@@ -426,26 +443,28 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
     <div className="p-3 sm:p-6 max-w-[100vw] space-y-4">
       {/* Header */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0">
-            <CalendarCheck2 className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center gap-2 uppercase tracking-wide">
-              <span>Xác Nhận Công — Danh Sách Tất Cả Nhân Viên</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono">
-                T{selectedMonth}/{selectedYear}
-              </span>
-            </h2>
-            <p className="text-xs text-slate-400">
-              Tổng hợp ngày công, giờ công ngày/đêm, tăng ca ngày/đêm/Chủ Nhật/ngày lễ &amp; đồng bộ trạng thái xác nhận từ Hồ sơ nhân viên.
-            </p>
+        <div className="w-full xl:w-auto px-7 sm:px-4 xl:px-0">
+          <div className="flex flex-col sm:flex-row items-center justify-center xl:justify-start gap-3 text-center sm:text-left">
+            <div className="w-10 h-10 rounded-xl bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0">
+              <CalendarCheck2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm sm:text-lg font-bold text-white flex flex-wrap items-center justify-center sm:justify-start gap-2 uppercase tracking-wide">
+                <span>Xác Nhận Công — Danh Sách Tất Cả Nhân Viên</span>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono">
+                  T{selectedMonth}/{selectedYear}
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-1 sm:mt-0.5 text-center sm:text-left">
+                Tổng hợp ngày công, giờ công ngày/đêm, tăng ca ngày/đêm/Chủ Nhật/ngày lễ &amp; đồng bộ trạng thái xác nhận từ Hồ sơ nhân viên.
+              </p>
+            </div>
           </div>
         </div>
 
         {/* Filters & Actions */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs font-mono font-bold text-slate-200">
+        <div className="w-full max-w-md mx-auto xl:max-w-none xl:w-auto xl:mx-0 flex flex-col sm:flex-row sm:flex-wrap items-center justify-center xl:justify-end gap-2">
+          <div className="w-full sm:w-auto flex items-center justify-between sm:justify-center bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs font-mono font-bold text-slate-200">
             <button
               type="button"
               onClick={handlePrevMonth}
@@ -467,48 +486,52 @@ export const HRAttendanceConfirmation: React.FC<HRAttendanceConfirmationProps> =
             </button>
           </div>
 
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm tên, mã NV..."
-              className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 w-44 focus:border-cyan-500 focus:outline-hidden"
-            />
+          <div className="w-full sm:w-auto grid grid-cols-2 sm:flex items-center gap-2">
+            <div className="relative col-span-2 sm:col-span-1">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Tìm tên, mã NV..."
+                className="w-full sm:w-44 bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden"
+              />
+            </div>
+
+            <select
+              value={filterDept}
+              onChange={(e) => setFilterDept(e.target.value)}
+              className="w-full sm:w-auto bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden"
+            >
+              <option value="ALL">Tất cả bộ phận</option>
+              {departments.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as 'ALL' | 'CONFIRMED' | 'UNCONFIRMED')}
+              className="w-full sm:w-auto bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden"
+            >
+              <option value="ALL">Tất cả trạng thái</option>
+              <option value="CONFIRMED">Đã xác nhận đủ công</option>
+              <option value="UNCONFIRMED">Chưa xác nhận</option>
+            </select>
           </div>
 
-          <select
-            value={filterDept}
-            onChange={(e) => setFilterDept(e.target.value)}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden"
-          >
-            <option value="ALL">Tất cả bộ phận</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as 'ALL' | 'CONFIRMED' | 'UNCONFIRMED')}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden"
-          >
-            <option value="ALL">Tất cả trạng thái</option>
-            <option value="CONFIRMED">Đã xác nhận đủ công</option>
-            <option value="UNCONFIRMED">Chưa xác nhận</option>
-          </select>
-
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer transition-colors"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Xuất Excel</span>
-          </button>
+          <div className="w-full sm:w-auto flex justify-center">
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer transition-colors"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Xuất Excel</span>
+            </button>
+          </div>
         </div>
       </div>
 

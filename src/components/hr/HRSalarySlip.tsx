@@ -2,8 +2,10 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   AttendanceConfirmationRecord,
   EmployeeSalaryConfig,
+  SalarySecurityConfig,
   SalarySlipRecord,
   StaffRecord,
+  UserAccount,
 } from '../../types';
 import {
   Banknote,
@@ -15,11 +17,16 @@ import {
   RotateCcw,
   CheckCircle2,
   Eye,
+  EyeOff,
   Users,
   SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
   FileText,
+  Lock,
+  ShieldCheck,
+  KeyRound,
+  AlertTriangle,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -38,6 +45,8 @@ import {
   formatVnd,
   ComputedSalarySlipData,
   computeMonthlySalarySlipDetails,
+  calculatePitAboveThreshold,
+  canUserAccessSalarySlip,
 } from '../../lib/salaryConfig';
 import { SalarySlipModal } from './SalarySlipModal';
 
@@ -48,6 +57,8 @@ interface HRSalarySlipProps {
   salaryConfigs: EmployeeSalaryConfig[];
   setSalaryConfigs: (configs: EmployeeSalaryConfig[]) => void;
   attendanceConfirmations?: AttendanceConfirmationRecord[];
+  currentUser?: UserAccount | null;
+  salarySecurity?: SalarySecurityConfig;
 }
 
 interface CurrencyInputCellProps {
@@ -57,6 +68,7 @@ interface CurrencyInputCellProps {
   placeholder?: string;
   isManual?: boolean;
   onResetManual?: () => void;
+  masked?: boolean;
 }
 
 const CurrencyInputCell: React.FC<CurrencyInputCellProps> = ({
@@ -66,16 +78,19 @@ const CurrencyInputCell: React.FC<CurrencyInputCellProps> = ({
   placeholder = '0',
   isManual,
   onResetManual,
+  masked = false,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState('');
 
   const handleFocus = () => {
+    if (masked) return;
     setIsEditing(true);
     setDraft(value > 0 ? String(value) : '');
   };
 
   const handleBlur = () => {
+    if (masked) return;
     setIsEditing(false);
     const cleaned = Number(draft.replace(/[^\d]/g, '')) || 0;
     if (cleaned !== value) {
@@ -92,6 +107,14 @@ const CurrencyInputCell: React.FC<CurrencyInputCellProps> = ({
       (e.currentTarget as HTMLInputElement).blur();
     }
   };
+
+  if (masked) {
+    return (
+      <div className="w-full min-w-[96px] bg-slate-950/70 border border-slate-800/70 rounded px-2 py-1 text-right font-mono text-[11px] text-slate-500 select-none">
+        ••••••
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex items-center gap-1">
@@ -127,6 +150,8 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
   allStaff,
   salaryConfigs,
   setSalaryConfigs,
+  currentUser,
+  salarySecurity,
 }) => {
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
@@ -140,6 +165,50 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
   const [viewingSlipData, setViewingSlipData] = useState<ComputedSalarySlipData | null>(null);
   const [matrixTick, setMatrixTick] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Salary security states
+  const hasSalaryAccess = currentUser
+    ? canUserAccessSalarySlip(currentUser, salarySecurity)
+    : false;
+  const requiresPin = Boolean(
+    salarySecurity?.enabled &&
+      salarySecurity?.requirePasscode &&
+      salarySecurity?.passcode?.trim()
+  );
+  const unlockStorageKey = `app_salary_unlocked_${currentUser?.username || 'guest'}_${
+    salarySecurity?.passcode || ''
+  }`;
+
+  const [isPinUnlocked, setIsPinUnlocked] = useState<boolean>(() => {
+    if (!requiresPin) return true;
+    try {
+      return sessionStorage.getItem(unlockStorageKey) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [pinInput, setPinInput] = useState('');
+  const [showPinInput, setShowPinInput] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [isAmountMasked, setIsAmountMasked] = useState<boolean>(
+    Boolean(salarySecurity?.maskValuesByDefault)
+  );
+
+  useEffect(() => {
+    if (!requiresPin) {
+      setIsPinUnlocked(true);
+      return;
+    }
+    try {
+      setIsPinUnlocked(sessionStorage.getItem(unlockStorageKey) === '1');
+    } catch {
+      setIsPinUnlocked(false);
+    }
+  }, [requiresPin, unlockStorageKey]);
+
+  useEffect(() => {
+    setIsAmountMasked(Boolean(salarySecurity?.maskValuesByDefault));
+  }, [salarySecurity?.maskValuesByDefault]);
 
   useEffect(() => {
     const onMatrixUpdated = () => setMatrixTick((v) => v + 1);
@@ -173,6 +242,10 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
   };
 
   const handleOpenEmployeeSlip = (staff: StaffRecord, config: EmployeeSalaryConfig) => {
+    if (isAmountMasked) {
+      showToast('Đang bật chế độ che số liệu — vui lòng nhấn "Hiện số liệu" để xem chi tiết phiếu lương!');
+      return;
+    }
     const { days } = getEmployeeProfileMatrixData(
       staff.employeeId,
       staff.department || 'MULTI',
@@ -191,6 +264,10 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
   };
 
   const handleOpenIssuedSlip = (slip: SalarySlipRecord) => {
+    if (isAmountMasked) {
+      showToast('Đang bật chế độ che số liệu — vui lòng nhấn "Hiện số liệu" để xem chi tiết phiếu lương!');
+      return;
+    }
     const [yStr, mStr] = slip.month.split('-');
     const slipYear = Number(yStr) || selectedYear;
     const slipMonth = Number(mStr) || selectedMonth;
@@ -275,6 +352,8 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
   // Totals for every numeric column in tfoot
   const columnTotals = useMemo(() => {
     const sums: Record<string, number> = {
+      unionFee: 0,
+      personalIncomeTax: 0,
       ovtInsuranceBase: 0,
       totalSalary: 0,
     };
@@ -286,6 +365,11 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
       SALARY_NUMERIC_FIELDS.forEach((f) => {
         sums[f.key] += Number(config[f.key]) || 0;
       });
+      sums.unionFee += Number(config.unionFee) || 0;
+      sums.personalIncomeTax += calculatePitAboveThreshold(
+        config.totalSalary,
+        config.personalIncomeTax
+      );
       sums.ovtInsuranceBase += Number(config.ovtInsuranceBase) || 0;
       sums.totalSalary += Number(config.totalSalary) || 0;
     });
@@ -332,6 +416,20 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
     });
   };
 
+  const handleUnionFeeChange = (currentConfig: EmployeeSalaryConfig, value: number) => {
+    upsertEmployeeConfig({
+      ...currentConfig,
+      unionFee: value,
+    });
+  };
+
+  const handlePitThresholdChange = (currentConfig: EmployeeSalaryConfig, value: number) => {
+    upsertEmployeeConfig({
+      ...currentConfig,
+      personalIncomeTax: value,
+    });
+  };
+
   const toggleFormulaField = (fieldKey: SalaryNumericFieldKey) => {
     const next = formulaFields.includes(fieldKey)
       ? formulaFields.filter((k) => k !== fieldKey)
@@ -367,14 +465,18 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
       'Họ Tên Nhân Viên',
       'Mã Nhân Viên',
       ...SALARY_NUMERIC_FIELDS.map((f) => f.label),
+      'Công đoàn phí',
+      'Thuế TNCN 10% (Mức vượt)',
       'Tổng lương tính OVT và BH',
-      'Tổng lương',
+      'Tổng lương chính',
     ];
 
     const data = filteredRows.map(({ config }) => [
       config.fullName,
       config.employeeId,
       ...SALARY_NUMERIC_FIELDS.map((f) => Number(config[f.key]) || 0),
+      Number(config.unionFee) || 0,
+      Number(config.personalIncomeTax) || 0,
       Number(config.ovtInsuranceBase) || 0,
       Number(config.totalSalary) || 0,
     ]);
@@ -383,6 +485,8 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
       `TỔNG CỘNG (${filteredRows.length} NV)`,
       '',
       ...SALARY_NUMERIC_FIELDS.map((f) => columnTotals[f.key] || 0),
+      columnTotals.unionFee || 0,
+      columnTotals.personalIncomeTax || 0,
       columnTotals.ovtInsuranceBase || 0,
       columnTotals.totalSalary || 0,
     ];
@@ -462,6 +566,21 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
             }
           });
 
+          // Import Công đoàn phí & Thuế TNCN (10%)
+          if (normalizedRow['congdoanphi'] !== undefined) {
+            updated.unionFee = parseAmount(normalizedRow['congdoanphi']);
+          }
+          const pitKey = Object.keys(normalizedRow).find(
+            (k) =>
+              k === 'thuetncn10' ||
+              k === 'thuetncn' ||
+              k.includes('mucvuot') ||
+              k.includes('thuethunhapcanhan')
+          );
+          if (pitKey) {
+            updated.personalIncomeTax = parseAmount(normalizedRow[pitKey]);
+          }
+
           // Check optional manual OVT & BH column
           const ovtKey = Object.keys(normalizedRow).find(
             (k) => k.includes('tongluongtinhovt') || k.includes('ovtvabh')
@@ -511,30 +630,183 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
     });
   }, [salarySlips, searchTerm]);
 
+  const handleUnlockPin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pinInput.trim() === (salarySecurity?.passcode || '').trim()) {
+      setPinError(null);
+      setPinInput('');
+      setIsPinUnlocked(true);
+      try {
+        sessionStorage.setItem(unlockStorageKey, '1');
+      } catch {
+        // ignore storage errors
+      }
+    } else {
+      setPinError('Mã PIN bảo mật không chính xác. Vui lòng thử lại!');
+    }
+  };
+
+  const handleLockNow = () => {
+    setIsPinUnlocked(false);
+    setPinInput('');
+    setPinError(null);
+    setViewingSlipData(null);
+    try {
+      sessionStorage.removeItem(unlockStorageKey);
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  if (!hasSalaryAccess) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto my-10">
+        <div className="bg-slate-900 border border-rose-800/60 rounded-2xl p-8 text-center space-y-4 shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-rose-950/80 border border-rose-700/50 flex items-center justify-center mx-auto text-rose-400">
+            <Lock className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-lg font-bold text-white uppercase tracking-wide">
+              Khu Vực Lương Được Bảo Mật
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              Tài khoản{' '}
+              <span className="font-mono font-bold text-cyan-300">
+                @{currentUser?.username || 'khách'}
+              </span>{' '}
+              chưa được cấp thẩm quyền truy cập <span className="font-semibold text-white">Tab Phiếu Lương</span>.
+            </p>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Để đảm bảo tính bí mật thu nhập nhân viên, vui lòng liên hệ Quản trị viên để được cấp quyền trong mục{' '}
+              <span className="text-emerald-300 font-semibold">ADMIN &rarr; Bảo Mật Lương</span>.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (requiresPin && !isPinUnlocked) {
+    return (
+      <div className="p-6 max-w-md mx-auto my-10">
+        <form
+          onSubmit={handleUnlockPin}
+          className="bg-slate-900 border border-amber-700/60 rounded-2xl p-6 sm:p-7 space-y-5 shadow-2xl"
+        >
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-amber-950/70 border border-amber-600/50 flex items-center justify-center mx-auto text-amber-400">
+              <KeyRound className="w-7 h-7" />
+            </div>
+            <h2 className="text-base font-bold text-white uppercase tracking-wide">
+              Xác Thực Mã PIN Phiếu Lương
+            </h2>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Nhập mã PIN bảo mật lớp 2 để mở khóa thông tin lương của nhân viên.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-slate-300">
+              Mã PIN bảo mật
+            </label>
+            <div className="relative flex items-center">
+              <input
+                type={showPinInput ? 'text' : 'password'}
+                value={pinInput}
+                onChange={(e) => {
+                  setPinInput(e.target.value);
+                  if (pinError) setPinError(null);
+                }}
+                placeholder="Nhập mã PIN..."
+                autoFocus
+                className="w-full bg-slate-950 border border-slate-700 focus:border-amber-500 rounded-xl pl-3.5 pr-10 py-2.5 text-sm font-mono text-white focus:outline-hidden"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPinInput((v) => !v)}
+                className="absolute right-3 text-slate-400 hover:text-white cursor-pointer"
+                title={showPinInput ? 'Ẩn mã PIN' : 'Hiện mã PIN'}
+              >
+                {showPinInput ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            {pinError && (
+              <div className="flex items-center gap-1.5 text-[11px] text-rose-400 font-semibold pt-1">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>{pinError}</span>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow-lg cursor-pointer transition-colors"
+          >
+            Mở Khóa Tab Phiếu Lương
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="p-3 sm:p-6 max-w-[100vw] space-y-4">
       {/* Header */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
-            <Banknote className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center gap-2 uppercase tracking-wide">
-              <span>Cấu Hình Phiếu Lương &amp; Phụ Cấp Nhân Viên</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono">
-                {allStaff.length} Nhân viên
-              </span>
-            </h2>
-            <p className="text-xs text-slate-400">
-              Thiết lập lương cơ bản, các khoản phụ cấp, trợ cấp, thưởng và tổng lương tính OVT &amp; BH.
-            </p>
+        <div className="w-full xl:w-auto px-7 sm:px-4 xl:px-0">
+          <div className="flex flex-col sm:flex-row items-center justify-center xl:justify-start gap-3 text-center sm:text-left">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+              <Banknote className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm sm:text-lg font-bold text-white flex flex-wrap items-center justify-center sm:justify-start gap-2 uppercase tracking-wide">
+                <span>Cấu Hình Phiếu Lương &amp; Phụ Cấp Nhân Viên</span>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono">
+                  {allStaff.length} Nhân viên
+                </span>
+                {salarySecurity?.enabled && (
+                  <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-cyan-950/90 border border-cyan-700/50 text-cyan-300 font-semibold normal-case">
+                    <ShieldCheck className="w-3 h-3" />
+                    <span>Bảo mật đang bật</span>
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-slate-400 mt-1 sm:mt-0.5 text-center sm:text-left">
+                Thiết lập lương cơ bản, các khoản phụ cấp, trợ cấp, thưởng và tổng lương tính OVT &amp; BH.
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* Month Selector & Mode Switcher */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs font-mono font-bold text-slate-200">
+        {/* Month Selector, Privacy Controls & Mode Switcher */}
+        <div className="w-full max-w-md mx-auto xl:max-w-none xl:w-auto xl:mx-0 flex flex-col sm:flex-row sm:flex-wrap items-center justify-center xl:justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setIsAmountMasked((v) => !v)}
+            className={`w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
+              isAmountMasked
+                ? 'bg-amber-950/60 border-amber-600/50 text-amber-300 hover:bg-amber-900/60'
+                : 'bg-slate-900 border-slate-700 text-slate-200 hover:border-cyan-500/50'
+            }`}
+            title={isAmountMasked ? 'Hiện số tiền lương' : 'Che số tiền lương trên màn hình'}
+          >
+            {isAmountMasked ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            <span>{isAmountMasked ? 'Hiện số liệu' : 'Che số liệu'}</span>
+          </button>
+
+          {requiresPin && (
+            <button
+              type="button"
+              onClick={handleLockNow}
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/70 border border-rose-700/50 text-rose-300 text-xs font-semibold cursor-pointer transition-colors"
+              title="Khóa ngay Tab Phiếu Lương"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span>Khóa Ngay</span>
+            </button>
+          )}
+
+          <div className="w-full sm:w-auto flex items-center justify-between sm:justify-center bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs font-mono font-bold text-slate-200">
             <button
               type="button"
               onClick={handlePrevMonth}
@@ -556,11 +828,11 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
             </button>
           </div>
 
-          <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs font-semibold">
+          <div className="w-full sm:w-auto grid grid-cols-2 sm:flex bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs font-semibold">
             <button
               type="button"
               onClick={() => setSubTab('CONFIG')}
-              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer text-center ${
                 subTab === 'CONFIG'
                   ? 'bg-emerald-600 text-white shadow'
                   : 'text-slate-400 hover:text-white'
@@ -571,7 +843,7 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
             <button
               type="button"
               onClick={() => setSubTab('ISSUED')}
-              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
                 subTab === 'ISSUED'
                   ? 'bg-cyan-600 text-white shadow'
                   : 'text-slate-400 hover:text-white'
@@ -586,6 +858,25 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
         </div>
       </div>
 
+      {isAmountMasked && (
+        <div className="bg-amber-950/40 border border-amber-700/50 text-amber-200 px-4 py-2 rounded-xl text-xs flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <EyeOff className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              Đang bật chế độ che số liệu lương trên màn hình. Nhấn{' '}
+              <span className="font-bold text-white">&quot;Hiện số liệu&quot;</span> để xem chi tiết hoặc chỉnh sửa.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAmountMasked(false)}
+            className="px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-bold text-[11px] shrink-0 cursor-pointer"
+          >
+            Hiện ngay
+          </button>
+        </div>
+      )}
+
       {toastMsg && (
         <div className="bg-emerald-950/90 border border-emerald-500/60 text-emerald-200 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-lg">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -594,16 +885,16 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
       )}
 
       {/* Search & Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
+      <div className="flex flex-col xl:flex-row items-center justify-between gap-3">
+        <div className="w-full max-w-md mx-auto xl:max-w-none xl:w-auto xl:mx-0 grid grid-cols-[minmax(0,1fr)_auto] sm:flex items-center justify-center xl:justify-start gap-2">
+          <div className="relative min-w-0">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Tìm tên, mã NV..."
-              className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 w-48 focus:border-emerald-500 focus:outline-hidden"
+              className="w-full sm:w-48 bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-hidden"
             />
           </div>
 
@@ -611,7 +902,7 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
             <select
               value={filterDept}
               onChange={(e) => setFilterDept(e.target.value)}
-              className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-hidden"
+              className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:border-emerald-500 focus:outline-hidden shrink-0"
             >
               <option value="ALL">Tất cả bộ phận</option>
               {departments.map((d) => (
@@ -624,11 +915,11 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
         </div>
 
         {subTab === 'CONFIG' && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="w-full max-w-md mx-auto xl:max-w-none xl:w-auto xl:mx-0 flex flex-wrap items-center justify-center xl:justify-end gap-2">
             <button
               type="button"
               onClick={() => setShowFormulaBar((v) => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
+              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] sm:text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap ${
                 showFormulaBar
                   ? 'bg-amber-950/70 border-amber-500/60 text-amber-300'
                   : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-amber-500/50 hover:text-amber-300'
@@ -648,7 +939,7 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold cursor-pointer transition-colors"
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] sm:text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
             >
               <Upload className="w-3.5 h-3.5 text-cyan-400" />
               <span>Nhập Excel</span>
@@ -657,7 +948,7 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
             <button
               type="button"
               onClick={handleExportExcel}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold cursor-pointer transition-colors"
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] sm:text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
               <span>Xuất Excel</span>
@@ -666,7 +957,7 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
             <button
               type="button"
               onClick={handleSaveAll}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer transition-colors"
+              className="flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold shadow-md cursor-pointer transition-colors whitespace-nowrap"
             >
               <Save className="w-3.5 h-3.5" />
               <span>Lưu Cấu Hình</span>
@@ -740,26 +1031,39 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
                 Tổng Lương Tính OVT và BH
               </div>
               <div className="text-lg font-bold font-mono text-amber-300 mt-0.5">
-                {formatVnd(columnTotals.ovtInsuranceBase)}{' '}
+                {isAmountMasked ? '••••••' : formatVnd(columnTotals.ovtInsuranceBase)}{' '}
                 <span className="text-xs font-sans font-normal text-amber-400/80">VNĐ</span>
               </div>
             </div>
 
             <div className="bg-emerald-950/30 border border-emerald-700/50 p-3.5 rounded-xl">
               <div className="text-[10px] text-emerald-300 uppercase font-semibold">
-                Tổng Lương
+                Tổng Lương Chính (Cấu Hình)
               </div>
               <div className="text-lg font-bold font-mono text-emerald-300 mt-0.5">
-                {formatVnd(columnTotals.totalSalary)}{' '}
+                {isAmountMasked ? '••••••' : formatVnd(columnTotals.totalSalary)}{' '}
                 <span className="text-xs font-sans font-normal text-emerald-400/80">VNĐ</span>
               </div>
             </div>
           </div>
 
-          {/* 18-Column Salary Configuration Table */}
+          {/* Rules Info Strip */}
+          <div className="bg-cyan-950/25 border border-cyan-800/50 rounded-xl px-4 py-2.5 text-[11px] text-slate-300 flex flex-col lg:flex-row lg:items-center justify-between gap-2">
+            <div>
+              <span className="font-bold text-cyan-300">Trợ cấp tiền ăn tăng ca:</span> Tự động tính ={' '}
+              <span className="font-mono font-bold text-emerald-300">Số buổi tăng ca ra sau 6 giờ</span> (ca ngày &gt; 18:00, ca đêm &gt; 06:00) × đơn giá cấu hình ở cột{' '}
+              <span className="font-semibold text-white">&quot;Phụ cấp tiền ăn&quot;</span> (cộng ngoài lương chính, cập nhật linh hoạt theo từng thời điểm).
+            </div>
+            <div>
+              <span className="font-bold text-amber-300">Phụ cấp hiếu hỷ:</span> Cộng ngoài lương chính khi có ngày nghỉ phép cưới hoặc người nhà mất trong tháng.{' '}
+              <span className="font-bold text-orange-300">Thuế TNCN 10%:</span> Nhập mức ngưỡng thu nhập để tính 10% trên số tiền vượt mức đó.
+            </div>
+          </div>
+
+          {/* Salary Configuration Table */}
           <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
             <div className="w-full overflow-x-auto overflow-y-auto custom-scrollbar max-h-[65vh]">
-              <table className="w-full min-w-[2420px] text-left text-xs border-collapse">
+              <table className="w-full min-w-[2700px] text-left text-xs border-collapse">
                 <thead className="bg-[#1b2e1e] text-emerald-100 text-[11px] sticky top-0 z-20 shadow-md">
                   <tr className="border-b border-emerald-800/70">
                     <th className="py-3 px-2 text-center border-r border-emerald-800/60 w-[44px] sm:sticky sm:left-0 sm:z-30 bg-[#1b2e1e] font-bold">
@@ -777,13 +1081,38 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
                         className="py-2.5 px-2.5 text-center border-r border-emerald-800/60 min-w-[118px] font-bold leading-tight"
                       >
                         <div>{field.label}</div>
+                        {field.key === 'mealAllowance' && (
+                          <div className="text-[9px] font-normal text-cyan-300 mt-0.5">
+                            Ngoài lương · Đơn giá/buổi &gt;6h
+                          </div>
+                        )}
+                        {field.key === 'bereavementWeddingAllowance' && (
+                          <div className="text-[9px] font-normal text-amber-300 mt-0.5">
+                            Ngoài lương · Cưới / Tang
+                          </div>
+                        )}
                       </th>
                     ))}
+                    <th className="py-2.5 px-2.5 text-center border-r border-emerald-800/60 min-w-[125px] bg-[#2a2224] text-rose-200 font-bold leading-tight">
+                      <div>Công đoàn phí</div>
+                      <div className="text-[9px] font-normal text-rose-300/80 mt-0.5">
+                        Khấu trừ cá nhân
+                      </div>
+                    </th>
+                    <th className="py-2.5 px-2.5 text-center border-r border-emerald-800/60 min-w-[155px] bg-[#2b231e] text-orange-200 font-bold leading-tight">
+                      <div>Thuế TNCN 10%</div>
+                      <div className="text-[9px] font-normal text-orange-300/80 mt-0.5">
+                        Mức tính phần vượt
+                      </div>
+                    </th>
                     <th className="py-2.5 px-2.5 text-center border-r border-emerald-800/60 min-w-[148px] bg-[#213824] text-amber-200 font-bold leading-tight">
                       <div>Tổng lương tính OVT và BH</div>
                     </th>
                     <th className="py-2.5 px-2.5 text-center border-r border-emerald-800/60 min-w-[138px] bg-[#244028] text-emerald-200 font-bold leading-tight">
-                      <div>Tổng lương</div>
+                      <div>Tổng lương chính</div>
+                      <div className="text-[9px] font-normal text-emerald-300/80 mt-0.5">
+                        Ngoài Hiếu Hỷ &amp; Tiền ăn
+                      </div>
                     </th>
                     <th className="py-2.5 px-3 text-center min-w-[155px] bg-[#1b2e1e] text-cyan-200 font-bold leading-tight whitespace-nowrap">
                       <div>Xem Phiếu Lương</div>
@@ -794,7 +1123,7 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
                 <tbody className="divide-y divide-slate-800/80 text-slate-200">
                   {filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={21} className="py-12 text-center text-slate-500">
+                      <td colSpan={23} className="py-12 text-center text-slate-500">
                         Không có nhân viên phù hợp với bộ lọc hiện tại.
                       </td>
                     </tr>
@@ -824,6 +1153,7 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
                             <CurrencyInputCell
                               value={Number(config[field.key]) || 0}
                               onChange={(val) => handleFieldChange(config, field.key, val)}
+                              masked={isAmountMasked}
                               accentClass={
                                 field.key === 'basicSalary'
                                   ? 'text-cyan-200 font-bold'
@@ -833,10 +1163,41 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
                           </td>
                         ))}
 
+                        <td className="py-1.5 px-1.5 border-r border-slate-800 bg-rose-950/10">
+                          <CurrencyInputCell
+                            value={Number(config.unionFee) || 0}
+                            onChange={(val) => handleUnionFeeChange(config, val)}
+                            masked={isAmountMasked}
+                            accentClass="text-rose-300 font-semibold"
+                          />
+                        </td>
+
+                        <td className="py-1.5 px-1.5 border-r border-slate-800 bg-orange-950/10">
+                          <CurrencyInputCell
+                            value={Number(config.personalIncomeTax) || 0}
+                            onChange={(val) => handlePitThresholdChange(config, val)}
+                            masked={isAmountMasked}
+                            accentClass="text-orange-300 font-bold"
+                          />
+                          {!isAmountMasked && (Number(config.personalIncomeTax) || 0) > 0 && (
+                            <div className="text-[9px] text-right font-mono text-orange-300/80 mt-0.5 pr-1">
+                              {config.totalSalary > (Number(config.personalIncomeTax) || 0)
+                                ? `10% vượt: ${formatVnd(
+                                    calculatePitAboveThreshold(
+                                      config.totalSalary,
+                                      config.personalIncomeTax
+                                    )
+                                  )}đ`
+                                : 'Chưa vượt mức'}
+                            </div>
+                          )}
+                        </td>
+
                         <td className="py-1.5 px-1.5 border-r border-slate-800 bg-amber-950/10">
                           <CurrencyInputCell
                             value={Number(config.ovtInsuranceBase) || 0}
                             onChange={(val) => handleOvtBaseManualChange(config, val)}
+                            masked={isAmountMasked}
                             accentClass="text-amber-300 font-bold"
                             isManual={Boolean(config.ovtInsuranceManual)}
                             onResetManual={() => handleResetOvtManual(config)}
@@ -844,7 +1205,7 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
                         </td>
 
                         <td className="py-2 px-3 text-right font-mono font-bold text-emerald-300 border-r border-slate-800 bg-emerald-950/15 whitespace-nowrap">
-                          {formatVnd(config.totalSalary)} ₫
+                          {isAmountMasked ? '•••••• ₫' : `${formatVnd(config.totalSalary)} ₫`}
                         </td>
 
                         <td className="py-2 px-3 text-center whitespace-nowrap">
@@ -876,14 +1237,20 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
                         key={field.key}
                         className="py-2.5 px-2 text-right font-bold text-slate-200 border-r border-slate-800 whitespace-nowrap"
                       >
-                        {formatVnd(columnTotals[field.key])}
+                        {isAmountMasked ? '••••••' : formatVnd(columnTotals[field.key])}
                       </td>
                     ))}
+                    <td className="py-2.5 px-2.5 text-right font-bold text-rose-300 border-r border-slate-800 whitespace-nowrap bg-rose-950/20">
+                      {isAmountMasked ? '••••••' : formatVnd(columnTotals.unionFee)}
+                    </td>
+                    <td className="py-2.5 px-2.5 text-right font-bold text-orange-300 border-r border-slate-800 whitespace-nowrap bg-orange-950/20">
+                      {isAmountMasked ? '••••••' : formatVnd(columnTotals.personalIncomeTax)}
+                    </td>
                     <td className="py-2.5 px-2.5 text-right font-bold text-amber-300 border-r border-slate-800 whitespace-nowrap bg-amber-950/20">
-                      {formatVnd(columnTotals.ovtInsuranceBase)} ₫
+                      {isAmountMasked ? '•••••• ₫' : `${formatVnd(columnTotals.ovtInsuranceBase)} ₫`}
                     </td>
                     <td className="py-2.5 px-3 text-right font-bold text-emerald-300 border-r border-slate-800 whitespace-nowrap bg-emerald-950/25">
-                      {formatVnd(columnTotals.totalSalary)} ₫
+                      {isAmountMasked ? '•••••• ₫' : `${formatVnd(columnTotals.totalSalary)} ₫`}
                     </td>
                     <td className="py-2.5 px-3 text-center font-sans text-[10px] text-cyan-300">
                       T{selectedMonth}/{selectedYear}
@@ -919,7 +1286,8 @@ export const HRSalarySlip: React.FC<HRSalarySlipProps> = ({
                       Cập nhật: {s.uploadDate}
                       {s.salaryConfig && (
                         <span className="text-emerald-400 ml-2">
-                          · Tổng lương cấu hình: {formatVnd(s.salaryConfig.totalSalary)} ₫
+                          · Tổng lương cấu hình:{' '}
+                          {isAmountMasked ? '•••••• ₫' : `${formatVnd(s.salaryConfig.totalSalary)} ₫`}
                         </span>
                       )}
                     </div>

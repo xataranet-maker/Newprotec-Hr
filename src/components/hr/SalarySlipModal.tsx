@@ -229,15 +229,6 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                   </td>
                 </tr>
                 <tr className="border-b border-black">
-                  <td className="py-0.5 px-2 border-r border-black">Trợ cấp tiền ăn tăng ca</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
-                    {fmtQty(data.otMealDays)}
-                  </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
-                    {fmtAmt(data.otMealAllowanceAmount)}
-                  </td>
-                </tr>
-                <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Trợ cấp phòng sạch</td>
                   <td className="py-0.5 px-2 border-r border-black text-right font-mono">
                     {fmtQty(data.cleanroomAllowanceAmount > 0 ? data.workDaysCount : 0)}
@@ -384,11 +375,39 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                 {/* Subsection 3 */}
                 <tr className="border-b border-black font-bold italic">
                   <td className="py-1 px-2 border-r border-black">
-                    3. Thu nhập ngoài hợp đồng lao động
+                    3. Thu nhập ngoài hợp đồng lao động (Ngoài lương chính)
                   </td>
                   <td className="py-1 px-2 border-r border-black text-right" />
                   <td className="py-1 px-2 text-right font-mono not-italic">
                     {fmtAmt(data.section3Total)}
+                  </td>
+                </tr>
+                <tr className="border-b border-black">
+                  <td className="py-0.5 px-2 border-r border-black">
+                    {data.otMealUnitRate > 0
+                      ? `Trợ cấp tiền ăn tăng ca (${formatVnd(data.otMealUnitRate)}đ/buổi sau 6h)`
+                      : 'Trợ cấp tiền ăn tăng ca (theo cấu hình lương)'}
+                  </td>
+                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                    {data.otMealDays > 0 ? `${fmtQty(data.otMealDays)} buổi` : '-'}
+                  </td>
+                  <td className="py-0.5 px-2 text-right font-mono">
+                    {fmtAmt(data.otMealAllowanceAmount)}
+                  </td>
+                </tr>
+                <tr className="border-b border-black">
+                  <td className="py-0.5 px-2 border-r border-black">
+                    Phụ cấp hiếu hỷ ({data.hasBereavementOrWeddingCase ? data.bereavementWeddingCaseLabel : 'Nghỉ cưới / Người nhà mất'})
+                  </td>
+                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                    {data.hasBereavementOrWeddingCase
+                      ? `${fmtQty(data.bereavementWeddingDays)} ngày`
+                      : data.bereavementWeddingConfiguredAmount > 0
+                        ? 'Chưa phát sinh'
+                        : '-'}
+                  </td>
+                  <td className="py-0.5 px-2 text-right font-mono">
+                    {fmtAmt(data.bereavementWeddingAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
@@ -444,7 +463,9 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
 
                 {/* Section III */}
                 <tr className="border-b border-black font-bold bg-slate-50">
-                  <td className="py-1 px-2 border-r border-black">III. THUẾ TNCN</td>
+                  <td className="py-1 px-2 border-r border-black">
+                    {data.pitThreshold > 0 ? 'III. THUẾ TNCN (10%)' : 'III. THUẾ TNCN'}
+                  </td>
                   <td className="py-1 px-2 border-r border-black text-right" />
                   <td className="py-1 px-2 text-right font-mono">
                     {fmtAmt(data.personalIncomeTaxAmount)}

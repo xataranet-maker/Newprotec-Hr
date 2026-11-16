@@ -82,21 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      {/* 1. Floating Left-Edge Handle when Menu is collapsed/hidden */}
-      {!isOpen && !isPinned && (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="fixed left-0 top-20 z-40 flex items-center gap-1.5 py-3 px-1.5 rounded-r-lg bg-slate-900/90 hover:bg-cyan-600/30 border-y border-r border-slate-700/80 text-slate-300 hover:text-cyan-300 shadow-2xl backdrop-blur-md transition-all cursor-pointer group hover:pl-2"
-          title="Mở Menu chọn Tab (phím M)"
-        >
-          <ChevronRight className="w-4 h-4 text-cyan-400 group-hover:translate-x-0.5 transition-transform" />
-          <span className="text-[10px] font-bold tracking-widest [writing-mode:vertical-lr] uppercase text-slate-400 group-hover:text-cyan-300 select-none">
-            MENU
-          </span>
-        </button>
-      )}
-
-      {/* 2. Backdrop Overlay when Menu is open (non-pinned mode) */}
+      {/* Backdrop Overlay when Menu is open (non-pinned mode) */}
       {isOpen && !isPinned && (
         <div 
           className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs transition-opacity duration-300 animate-in fade-in"

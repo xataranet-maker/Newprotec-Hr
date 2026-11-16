@@ -34,6 +34,8 @@ import {
   loadOrInitDepartmentMatrix,
   recalculateStaffTotals,
   saveDepartmentMatrix,
+  isDayBeforeJoinDate,
+  applyJoinDateAndLockRules,
 } from '../../lib/matrixTimekeeping';
 
 interface DepartmentTimekeepingMatrixProps {
@@ -344,19 +346,62 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
   // Toggle row lock
   const handleToggleLockRow = (staff: StaffRecord) => {
-    const current = matrixData[staff.employeeId];
-    if (!current) return;
+    const current = matrixData[staff.employeeId] || {
+      employeeId: staff.employeeId,
+      fullName: staff.fullName,
+      department: staff.department || department,
+      position: staff.position,
+      shift: staff.shift,
+      isLocked: false,
+      days: {},
+    };
     const nextLocked = !current.isLocked;
+    let lockedDay = current.lockedDay;
+
+    if (nextLocked) {
+      const input = prompt(
+        `Nhập ngày nghỉ việc / khóa (từ 1 đến ${daysInMonth}):`,
+        String(new Date().getDate())
+      );
+      if (input === null) return;
+      const parsed = Number(input.trim());
+      if (Number.isFinite(parsed) && parsed >= 1 && parsed <= daysInMonth) {
+        lockedDay = parsed;
+      } else {
+        alert('Ngày không hợp lệ. Mặc định dùng ngày 1.');
+        lockedDay = 1;
+      }
+    } else {
+      lockedDay = undefined;
+    }
+
+    const appliedDays = applyJoinDateAndLockRules(
+      current.days || {},
+      staff,
+      selectedYear,
+      selectedMonth,
+      nextLocked,
+      lockedDay
+    );
+    const totals = recalculateStaffTotals(appliedDays);
+
     const nextMatrix = {
       ...matrixData,
       [staff.employeeId]: {
         ...current,
         isLocked: nextLocked,
+        lockedDay,
+        days: appliedDays,
+        ...totals,
       },
     };
     setMatrixData(nextMatrix);
     persistMatrixAndHolidays(nextMatrix, holidayDays);
-    showToast(nextLocked ? `Đã khóa bảng công của ${staff.fullName}` : `Đã mở khóa bảng công của ${staff.fullName}`);
+    showToast(
+      nextLocked
+        ? `Đã khóa bảng công của ${staff.fullName} (nghỉ việc từ ngày ${lockedDay})`
+        : `Đã mở khóa bảng công của ${staff.fullName}`
+    );
   };
 
   // Auto fill standard 8h/day (respecting holidays & Sundays)
@@ -452,7 +497,15 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
   // Open cell editor
   const openEditCell = (staff: StaffRecord, meta: DayHeaderMeta) => {
+    if (isDayBeforeJoinDate(selectedYear, selectedMonth, meta.day, staff.dateJoined)) {
+      showToast(`Nhân viên ${staff.fullName} chưa vào làm vào ngày ${meta.day} (${staff.dateJoined}).`);
+      return;
+    }
     const record = matrixData[staff.employeeId];
+    if (record?.isLocked && record.lockedDay !== undefined && meta.day >= record.lockedDay) {
+      showToast(`Nhân viên ${staff.fullName} đã nghỉ việc từ ngày ${record.lockedDay}. Không thể chấm công.`);
+      return;
+    }
     if (record?.isLocked) {
       showToast(`Hàng của ${staff.fullName} đang khóa. Nhấn biểu tượng ổ khóa bên cạnh tên để mở khóa.`);
       return;
@@ -808,7 +861,17 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         } else if (total > 0) {
           daysCols.push(`${total}h`);
         } else {
-          daysCols.push(d?.status === 'Nghỉ chủ nhật' ? 'CN' : d?.status === 'Nghỉ lễ' ? 'Lễ' : d?.status || '');
+          daysCols.push(
+            d?.status === 'Nghỉ chủ nhật'
+              ? 'CN'
+              : d?.status === 'Nghỉ lễ'
+              ? 'Lễ'
+              : d?.status === 'Nghỉ cưới'
+              ? 'Cưới'
+              : d?.status === 'Nghỉ tang'
+              ? 'Tang'
+              : d?.status || ''
+          );
         }
       });
 
@@ -868,19 +931,19 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     <div className="p-3 sm:p-6 max-w-[100vw] space-y-4">
       {/* Top Header Controls */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
+        <div className="w-full xl:w-auto px-7 sm:px-4 xl:px-0">
+          <div className="flex flex-col sm:flex-row items-center justify-center xl:justify-start gap-2.5 text-center sm:text-left">
+            <div className="w-9 h-9 rounded-lg bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0">
               <CalendarDays className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 uppercase tracking-wide">
+              <h2 className="text-sm sm:text-lg font-bold text-white flex flex-wrap items-center justify-center sm:justify-start gap-2 uppercase tracking-wide">
                 <span>Bảng Chấm Công Ma Trận ({departmentTitle})</span>
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono">
                   T{selectedMonth}/{selectedYear}
                 </span>
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 mt-1 sm:mt-0.5 text-center sm:text-left">
                 Lưới ma trận chi tiết từ ngày 1 đến ngày {daysInMonth} theo năm {selectedYear} · Giờ vào, giờ ra, tăng ca ngày, đêm, chủ nhật & ngày lễ.
               </p>
             </div>
@@ -888,8 +951,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         </div>
 
         {/* Date Selector & Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs">
+        <div className="w-full max-w-md mx-auto xl:max-w-none xl:w-auto xl:mx-0 flex flex-col sm:flex-row sm:flex-wrap items-center justify-center xl:justify-end gap-2">
+          <div className="w-full sm:w-auto flex items-center justify-between sm:justify-center bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs">
             <button
               onClick={() => {
                 if (selectedMonth === 1) {
@@ -899,13 +962,13 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   setSelectedMonth((m) => m - 1);
                 }
               }}
-              className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              className="p-1.5 sm:p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
               title="Tháng trước"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            <div className="flex items-center gap-1 px-2 font-mono font-bold text-slate-200">
+            <div className="flex items-center justify-center gap-1 px-2 font-mono font-bold text-slate-200">
               <select
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(Number(e.target.value))}
@@ -940,59 +1003,63 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   setSelectedMonth((m) => m + 1);
                 }
               }}
-              className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              className="p-1.5 sm:p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
               title="Tháng sau"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm theo tên, mã NV..."
-              className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden w-40 sm:w-48"
-            />
+          <div className="w-full sm:w-auto grid grid-cols-[minmax(0,1fr)_auto] sm:flex items-center gap-2">
+            <div className="relative min-w-0">
+              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Tìm theo tên, mã NV..."
+                className="w-full sm:w-48 bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden"
+              />
+            </div>
+
+            <select
+              value={filterShift}
+              onChange={(e) => setFilterShift(e.target.value as 'ALL' | 'DAY' | 'NIGHT')}
+              className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 cursor-pointer shrink-0"
+            >
+              <option value="ALL">Tất cả ca</option>
+              <option value="DAY">Ca Ngày</option>
+              <option value="NIGHT">Ca Đêm</option>
+            </select>
           </div>
 
-          <select
-            value={filterShift}
-            onChange={(e) => setFilterShift(e.target.value as 'ALL' | 'DAY' | 'NIGHT')}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 cursor-pointer"
-          >
-            <option value="ALL">Tất cả ca</option>
-            <option value="DAY">Ca Ngày</option>
-            <option value="NIGHT">Ca Đêm</option>
-          </select>
+          <div className="w-full sm:w-auto flex flex-wrap items-center justify-center gap-2">
+            <button
+              onClick={handleAutoFillStandard}
+              className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-200 border border-indigo-700/60 text-[11px] sm:text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
+              title="Điền tự động công chuẩn 8h cho các ngày trong tuần"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span>Điền Chuẩn</span>
+            </button>
 
-          <button
-            onClick={handleAutoFillStandard}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-200 border border-indigo-700/60 text-xs font-semibold cursor-pointer transition-colors"
-            title="Điền tự động công chuẩn 8h cho các ngày trong tuần"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Điền Chuẩn</span>
-          </button>
+            <button
+              onClick={handleSaveMatrix}
+              className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] sm:text-xs font-bold shadow-md cursor-pointer transition-colors whitespace-nowrap"
+            >
+              <Save className="w-3.5 h-3.5 shrink-0" />
+              <span>Lưu Bảng Công</span>
+            </button>
 
-          <button
-            onClick={handleSaveMatrix}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-md cursor-pointer transition-colors"
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>Lưu Bảng Công</span>
-          </button>
-
-          <button
-            onClick={handleExportExcel}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer transition-colors"
-            title="Xuất ma trận chấm công ra Excel"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Xuất Excel</span>
-          </button>
+            <button
+              onClick={handleExportExcel}
+              className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold shadow-md cursor-pointer transition-colors whitespace-nowrap"
+              title="Xuất ma trận chấm công ra Excel"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+              <span>Xuất Excel</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1079,19 +1146,19 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
       {/* Main Matrix Table Container */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
-        <div className="overflow-x-auto custom-scrollbar max-h-[72vh]">
+        <div className="overflow-auto custom-scrollbar max-h-[72vh]">
           <table className="w-full text-left text-xs border-collapse">
             {/* Header: 2 Rows */}
             <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider sticky top-0 z-30 shadow-md">
               {/* Row 1 */}
               <tr className="border-b border-slate-800">
-                <th className="py-2.5 px-2 bg-slate-950 sticky left-0 z-40 min-w-[40px] w-[40px] text-center border-r border-slate-800">
-                  STT
-                </th>
-                <th className="py-2.5 px-3 bg-slate-950 sticky left-[40px] z-40 min-w-[190px] w-[190px] border-r border-slate-800">
+                <th className="py-2.5 px-2 sm:px-3 bg-slate-950 sticky left-0 z-40 w-[144px] min-w-[144px] max-w-[144px] sm:w-[210px] sm:min-w-[210px] sm:max-w-[210px] border-r border-slate-700 shadow-[4px_0_12px_rgba(0,0,0,0.75)]">
                   Tên Nhân Viên
                 </th>
-                <th className="py-2.5 px-2.5 bg-slate-950 sticky left-[230px] z-40 min-w-[85px] w-[85px] border-r border-slate-800">
+                <th className="py-2.5 px-2 bg-slate-950 min-w-[44px] w-[44px] text-center border-r border-slate-800">
+                  STT
+                </th>
+                <th className="py-2.5 px-2.5 bg-slate-950 min-w-[85px] w-[85px] border-r border-slate-800">
                   Mã NV
                 </th>
                 <th className="py-2.5 px-2 bg-slate-950 text-center min-w-[78px] border-r border-slate-800 text-emerald-400 font-bold">
@@ -1157,8 +1224,14 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
               {/* Row 2: Sub-labels */}
               <tr className="border-b border-slate-800 bg-slate-950/95 text-[9px] text-slate-400 font-mono">
-                <th colSpan={3} className="py-1 px-2.5 sticky left-0 z-40 bg-slate-950 border-r border-slate-800 text-slate-400">
-                  THÔNG TIN NHÂN SỰ
+                <th
+                  colSpan={1}
+                  className="py-1 px-2 sm:px-3 sticky left-0 z-40 bg-slate-950 border-r border-slate-700 shadow-[4px_0_12px_rgba(0,0,0,0.75)] text-slate-400"
+                >
+                  HỌ TÊN · CHẤM CÔNG
+                </th>
+                <th colSpan={2} className="py-1 px-2 text-center bg-slate-950 border-r border-slate-800 text-slate-400">
+                  STT · MÃ NV
                 </th>
                 <th colSpan={7} className="py-1 px-2 text-center border-r border-slate-700 bg-slate-950 text-cyan-300">
                   TỔNG HỢP CÔNG & TĂNG CA CẢ THÁNG
@@ -1207,19 +1280,14 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
                 return (
                   <tr key={staff.employeeId} className="hover:bg-slate-800/40 transition-colors group">
-                    {/* STT */}
-                    <td className="py-2.5 px-2 sticky left-0 z-20 bg-slate-950 group-hover:bg-slate-900 border-r border-slate-800 text-center font-mono text-slate-400 text-xs">
-                      {idx + 1}
-                    </td>
-
-                    {/* Tên Nhân Viên + Lock + Chấm công button */}
-                    <td className="py-2 px-3 sticky left-[40px] z-20 bg-slate-950 group-hover:bg-slate-900 border-r border-slate-800">
-                      <div className="flex items-center justify-between gap-1.5">
+                    {/* Tên Nhân Viên + Lock + Chấm công button (ONLY sticky left column) */}
+                    <td className="py-2 px-2 sm:px-3 sticky left-0 z-20 bg-slate-950 group-hover:bg-slate-900 border-r border-slate-700 shadow-[4px_0_12px_rgba(0,0,0,0.75)] w-[144px] min-w-[144px] max-w-[144px] sm:w-[210px] sm:min-w-[210px] sm:max-w-[210px]">
+                      <div className="flex items-center justify-between gap-1">
                         <button
                           type="button"
                           onClick={() => onViewProfile?.(staff)}
                           title="Nhấn để xem hồ sơ nhân viên"
-                          className="font-bold text-cyan-300 hover:text-cyan-200 hover:underline text-xs truncate max-w-[140px] text-left cursor-pointer"
+                          className="font-bold text-cyan-300 hover:text-cyan-200 hover:underline text-[11px] sm:text-xs truncate flex-1 min-w-0 text-left cursor-pointer"
                         >
                           {staff.fullName}
                         </button>
@@ -1229,7 +1297,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                             e.stopPropagation();
                             handleToggleLockRow(staff);
                           }}
-                          className={`p-1 rounded transition-colors cursor-pointer ${
+                          className={`p-1 rounded transition-colors cursor-pointer shrink-0 ${
                             record.isLocked
                               ? 'text-amber-400 bg-amber-950/50 hover:bg-amber-900/60'
                               : 'text-slate-500 hover:text-slate-300'
@@ -1240,9 +1308,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         </button>
                       </div>
 
-                      <div className="flex items-center justify-between gap-1.5 mt-1">
-                        <div className="text-[10px] text-slate-400 truncate max-w-[95px]">
-                          {staff.position} ·{' '}
+                      <div className="flex items-center justify-between gap-1 mt-1">
+                        <div className="text-[9px] sm:text-[10px] text-slate-400 truncate flex-1 min-w-0">
+                          <span className="hidden sm:inline">{staff.position} · </span>
                           <span className={staff.shift === 'DAY' ? 'text-amber-400 font-semibold' : 'text-purple-400 font-semibold'}>
                             {staff.shift === 'DAY' ? 'Ca Ngày' : 'Ca Đêm'}
                           </span>
@@ -1253,7 +1321,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                             e.stopPropagation();
                             handleQuickTimekeepingClick(staff);
                           }}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-teal-950/70 hover:bg-teal-900/80 text-teal-300 border border-teal-700/60 text-[10px] font-semibold cursor-pointer transition-colors shrink-0"
+                          className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded bg-teal-950/70 hover:bg-teal-900/80 text-teal-300 border border-teal-700/60 text-[9px] sm:text-[10px] font-semibold cursor-pointer transition-colors shrink-0"
                         >
                           <Clock className="w-2.5 h-2.5" />
                           <span>Chấm công</span>
@@ -1261,11 +1329,16 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                       </div>
                     </td>
 
-                    {/* Mã NV */}
+                    {/* STT (scrolls under Tên Nhân Viên) */}
+                    <td className="py-2.5 px-2 border-r border-slate-800 text-center font-mono text-slate-400 text-xs">
+                      {idx + 1}
+                    </td>
+
+                    {/* Mã NV (scrolls under Tên Nhân Viên) */}
                     <td
                       onClick={() => onViewProfile?.(staff)}
                       title="Nhấn để xem hồ sơ nhân viên"
-                      className="py-2.5 px-2.5 sticky left-[230px] z-20 bg-slate-950 group-hover:bg-slate-900 border-r border-slate-800 font-mono text-cyan-400 hover:text-cyan-200 hover:underline font-semibold text-xs cursor-pointer"
+                      className="py-2.5 px-2.5 border-r border-slate-800 font-mono text-cyan-400 hover:text-cyan-200 hover:underline font-semibold text-xs cursor-pointer whitespace-nowrap"
                     >
                       {staff.employeeId}
                     </td>
@@ -1338,6 +1411,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                       const totalHours = getEntryTotalHours(entry);
                       const isLeave =
                         entry.status === 'Nghỉ phép' ||
+                        entry.status === 'Nghỉ cưới' ||
+                        entry.status === 'Nghỉ tang' ||
+                        entry.status === 'FAMILY' ||
                         entry.status === 'Nghỉ ốm' ||
                         entry.status === 'Vắng mặt' ||
                         entry.status === 'Nghỉ KL';
@@ -1362,11 +1438,17 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           {isLeave && totalHours === 0 ? (
                             <div className="space-y-0.5">
                               <div className="font-mono text-[10px] text-sky-400 font-bold">
-                                {entry.status === 'Nghỉ phép' ? 'Phép' : entry.status}
+                                {entry.status === 'Nghỉ phép'
+                                  ? 'Phép'
+                                  : entry.status === 'Nghỉ cưới'
+                                  ? 'Cưới'
+                                  : entry.status === 'Nghỉ tang'
+                                  ? 'Tang'
+                                  : entry.status}
                               </div>
                               <div className="flex justify-center">
                                 <span className="px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 font-mono text-[9px] font-semibold">
-                                  {entry.status}
+                                  {entry.status === 'FAMILY' ? 'Hiếu hỷ' : entry.status}
                                 </span>
                               </div>
                             </div>
@@ -1473,15 +1555,15 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               {/* Row 1: SỐ NV ĐI LÀM CA NGÀY */}
               <tr className="border-b border-slate-800/80 bg-slate-950">
                 <td
-                  colSpan={3}
-                  className="py-2 px-3 sticky left-0 z-40 bg-slate-950 border-r border-slate-800 font-sans font-bold text-[11px] text-amber-300 uppercase"
+                  colSpan={1}
+                  className="py-2 px-2 sm:px-3 sticky left-0 z-40 bg-slate-950 border-r border-slate-700 shadow-[4px_0_12px_rgba(0,0,0,0.75)] font-sans font-bold text-[10px] sm:text-[11px] text-amber-300 uppercase"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
                     <Sun className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span>Số NV Đi Làm Ca Ngày</span>
+                    <span className="leading-tight">Số NV Đi Làm Ca Ngày</span>
                   </div>
                 </td>
-                <td colSpan={7} className="py-2 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-slate-500">
+                <td colSpan={9} className="py-2 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-slate-500">
                   Ca Ngày / ngày
                 </td>
                 {monthDaysMeta.map((m) => {
@@ -1502,15 +1584,15 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               {/* Row 2: SỐ NV ĐI LÀM CA ĐÊM */}
               <tr className="border-b border-slate-800/80 bg-slate-950">
                 <td
-                  colSpan={3}
-                  className="py-2 px-3 sticky left-0 z-40 bg-slate-950 border-r border-slate-800 font-sans font-bold text-[11px] text-purple-300 uppercase"
+                  colSpan={1}
+                  className="py-2 px-2 sm:px-3 sticky left-0 z-40 bg-slate-950 border-r border-slate-700 shadow-[4px_0_12px_rgba(0,0,0,0.75)] font-sans font-bold text-[10px] sm:text-[11px] text-purple-300 uppercase"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
                     <Moon className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                    <span>Số NV Đi Làm Ca Đêm</span>
+                    <span className="leading-tight">Số NV Đi Làm Ca Đêm</span>
                   </div>
                 </td>
-                <td colSpan={7} className="py-2 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-slate-500">
+                <td colSpan={9} className="py-2 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-slate-500">
                   Ca Đêm / ngày
                 </td>
                 {monthDaysMeta.map((m) => {
@@ -1531,15 +1613,18 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               {/* Row 3: TỔNG NV ĐI LÀM TRONG NGÀY */}
               <tr className="bg-slate-950">
                 <td
-                  colSpan={3}
-                  className="py-2.5 px-3 sticky left-0 z-40 bg-slate-950 border-r border-slate-800 font-sans font-bold text-[11px] text-teal-300 uppercase"
+                  colSpan={1}
+                  className="py-2.5 px-2 sm:px-3 sticky left-0 z-40 bg-slate-950 border-r border-slate-700 shadow-[4px_0_12px_rgba(0,0,0,0.75)] font-sans font-bold text-[10px] sm:text-[11px] text-teal-300 uppercase"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
                     <Users className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-                    <span>Tổng NV Đi Làm Trong Ngày</span>
+                    <span className="leading-tight">
+                      <span className="sm:hidden">Tổng NV Đi Làm</span>
+                      <span className="hidden sm:inline">Tổng NV Đi Làm Trong Ngày</span>
+                    </span>
                   </div>
                 </td>
-                <td colSpan={7} className="py-2.5 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-teal-400/80 font-bold">
+                <td colSpan={9} className="py-2.5 px-2 bg-slate-950 border-r border-slate-700 text-center text-[10px] text-teal-400/80 font-bold">
                   Tổng quân số
                 </td>
                 {monthDaysMeta.map((m) => {
@@ -1604,8 +1689,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
       {/* Day Header Modal: Chọn Ngày Lễ / Ngày Thường */}
       {dayTypeModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-sm w-full p-5 space-y-4 text-xs shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-sm w-full p-4 sm:p-5 space-y-4 text-xs shadow-2xl max-h-[90dvh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div
@@ -1692,8 +1777,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
       {/* Quick Edit Cell Modal */}
       {editingCell && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-5 space-y-4 text-xs shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-4 sm:p-5 space-y-4 text-xs shadow-2xl max-h-[90dvh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2.5">
                 <div
@@ -2214,6 +2299,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   <option value="Đi muộn">Đi muộn</option>
                   <option value="Về sớm">Về sớm</option>
                   <option value="Nghỉ phép">Nghỉ phép</option>
+                  <option value="Nghỉ cưới">Nghỉ phép cưới (Hiếu hỷ)</option>
+                  <option value="Nghỉ tang">Nghỉ tang / Người nhà mất (Hiếu hỷ)</option>
                   <option value="Nghỉ ốm">Nghỉ ốm</option>
                   <option value="Nghỉ lễ">Nghỉ lễ</option>
                   <option value="Nghỉ chủ nhật">Nghỉ chủ nhật</option>

@@ -86,70 +86,74 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Users className="w-5 h-5 text-cyan-400" />
-            <span>Quản Lý Nhân Viên & Điểm Danh Toàn Nhà Máy ({allStaff.length} Nhân Viên)</span>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+        <div className="w-full lg:w-auto px-7 sm:px-4 lg:px-0 text-center sm:text-left">
+          <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center justify-center lg:justify-start gap-2">
+            <Users className="w-5 h-5 text-cyan-400 shrink-0" />
+            <span>Quản Lý Nhân Viên &amp; Điểm Danh Toàn Nhà Máy ({allStaff.length} Nhân Viên)</span>
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-400 mt-1 text-center lg:text-left">
             Tổng hợp hồ sơ nhân sự và theo dõi điểm danh, thời gian đi muộn / về sớm tại các phân xưởng.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* View Mode Toggle */}
-          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5">
-            <button
-              onClick={() => setViewMode('CARDS')}
-              className={`p-1.5 rounded-md transition-colors cursor-pointer ${viewMode === 'CARDS' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
-              title="Dạng thẻ"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('TABLE')}
-              className={`p-1.5 rounded-md transition-colors cursor-pointer ${viewMode === 'TABLE' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
-              title="Dạng bảng điểm danh"
-            >
-              <Table className="w-4 h-4" />
-            </button>
+        <div className="w-full max-w-md mx-auto lg:max-w-none lg:w-auto lg:mx-0 flex flex-col sm:flex-row sm:flex-wrap items-center justify-center lg:justify-end gap-2">
+          <div className="w-full sm:w-auto grid grid-cols-[auto_minmax(0,1fr)] sm:flex items-center gap-2">
+            {/* View Mode Toggle */}
+            <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 shrink-0">
+              <button
+                onClick={() => setViewMode('CARDS')}
+                className={`p-1.5 rounded-md transition-colors cursor-pointer ${viewMode === 'CARDS' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                title="Dạng thẻ"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('TABLE')}
+                className={`p-1.5 rounded-md transition-colors cursor-pointer ${viewMode === 'TABLE' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400 hover:text-white'}`}
+                title="Dạng bảng điểm danh"
+              >
+                <Table className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="relative min-w-0">
+              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Tìm theo tên, mã NV..."
+                className="w-full sm:w-44 bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden"
+              />
+            </div>
           </div>
 
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Tìm theo tên, mã NV..."
-              className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-hidden"
-            />
+          <div className="w-full sm:w-auto grid grid-cols-2 sm:flex items-center gap-2">
+            <select
+              value={filterDept}
+              onChange={e => setFilterDept(e.target.value)}
+              className="w-full sm:w-auto bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
+            >
+              <option value="ALL">Tất cả phòng ban</option>
+              <option value="Multi Auto">Multi Auto</option>
+              <option value="HC & NS">HC &amp; NS</option>
+            </select>
+
+            <select
+              value={filterStatus}
+              onChange={e => setFilterStatus(e.target.value)}
+              className="w-full sm:w-auto bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
+            >
+              <option value="ALL">Tất cả trạng thái</option>
+              <option value="Đúng giờ">Đúng giờ</option>
+              <option value="Đi muộn">Đi muộn</option>
+              <option value="Về sớm">Về sớm</option>
+              <option value="Nghỉ phép">Nghỉ phép</option>
+              <option value="Nghỉ ốm">Nghỉ ốm</option>
+              <option value="Vắng mặt">Vắng mặt</option>
+            </select>
           </div>
-
-          <select
-            value={filterDept}
-            onChange={e => setFilterDept(e.target.value)}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
-          >
-            <option value="ALL">Tất cả phòng ban</option>
-            <option value="Multi Auto">Multi Auto</option>
-            <option value="HC & NS">HC &amp; NS</option>
-          </select>
-
-          <select
-            value={filterStatus}
-            onChange={e => setFilterStatus(e.target.value)}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
-          >
-            <option value="ALL">Tất cả trạng thái</option>
-            <option value="Đúng giờ">Đúng giờ</option>
-            <option value="Đi muộn">Đi muộn</option>
-            <option value="Về sớm">Về sớm</option>
-            <option value="Nghỉ phép">Nghỉ phép</option>
-            <option value="Nghỉ ốm">Nghỉ ốm</option>
-            <option value="Vắng mặt">Vắng mặt</option>
-          </select>
         </div>
       </div>
 

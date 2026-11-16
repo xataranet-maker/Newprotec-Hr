@@ -19,35 +19,35 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ plans, dep
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <CalendarRange className="w-5 h-5 text-cyan-400" />
-            <span>Lịch Sử Kế Hoạch & Chỉ Thị Sản Xuất</span>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+        <div className="w-full md:w-auto px-7 sm:px-4 md:px-0 text-center md:text-left">
+          <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center justify-center md:justify-start gap-2">
+            <CalendarRange className="w-5 h-5 text-cyan-400 shrink-0" />
+            <span>Lịch Sử Kế Hoạch &amp; Chỉ Thị Sản Xuất</span>
           </h2>
-          <p className="text-xs text-slate-400">Danh sách các kế hoạch điều phối sản xuất từ ban điều hành</p>
+          <p className="text-xs text-slate-400 mt-1 text-center md:text-left">Danh sách các kế hoạch điều phối sản xuất từ ban điều hành</p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative">
+        <div className="w-full max-w-md mx-auto md:max-w-none md:w-auto md:mx-0 grid grid-cols-[minmax(0,1fr)_auto] sm:flex items-center justify-center md:justify-end gap-2">
+          <div className="relative min-w-0">
             <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
             <input 
               type="text" 
               value={searchTerm} 
               onChange={e => setSearchTerm(e.target.value)} 
               placeholder="Tìm model, chỉ thị..." 
-              className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200"
+              className="w-full sm:w-44 bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200"
             />
           </div>
 
           <select 
             value={filterDept} 
             onChange={e => setFilterDept(e.target.value)}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
+            className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 shrink-0"
           >
             <option value="ALL">Tất cả bộ phận</option>
             <option value="Multi Auto">Multi Auto</option>
-            <option value="HC & NS">HC & NS</option>
+            <option value="HC & NS">HC &amp; NS</option>
           </select>
         </div>
       </div>

@@ -71,29 +71,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-            <span>TRUNG TÂM QUẢN LÝ NHÂN SỰ & CHẤM CÔNG</span>
+        <div className="w-full md:w-auto px-7 sm:px-4 md:px-0 text-center md:text-left">
+          <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white flex flex-wrap items-center justify-center md:justify-start gap-2">
+            <span>TRUNG TÂM QUẢN LÝ NHÂN SỰ &amp; CHẤM CÔNG</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-mono">
               NEWPROTEC VINA
             </span>
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-400 mt-1 text-center md:text-left">
             Tổng quan quân số, chấm công ma trận, hành chính nhân sự và phân quyền hệ thống.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="w-full md:w-auto flex flex-wrap items-center justify-center md:justify-end gap-2">
           <button
             onClick={() => setShowPlanModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer"
+            className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Tạo Kế Hoạch Mới</span>
           </button>
           <button
             onClick={() => onNavigate('multi_matrix_timekeeping')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-all cursor-pointer"
+            className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-all cursor-pointer"
           >
             <CalendarDays className="w-3.5 h-3.5 text-amber-400" />
             <span>Chấm Công Multi Auto</span>

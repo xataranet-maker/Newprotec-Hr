@@ -9,12 +9,12 @@ export const HRContracts: React.FC<{
 }> = ({ contracts, setContracts, allStaff }) => {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
-      <div className="pb-4 border-b border-slate-800">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <FileText className="w-5 h-5 text-indigo-400" />
+      <div className="pb-4 border-b border-slate-800 px-7 sm:px-0 text-center sm:text-left">
+        <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center justify-center sm:justify-start gap-2">
+          <FileText className="w-5 h-5 text-indigo-400 shrink-0" />
           <span>Hợp Đồng Lao Động Điện Tử</span>
         </h2>
-        <p className="text-xs text-slate-400">Quản lý hồ sơ hợp đồng xác định thời hạn, không xác định thời hạn của người lao động.</p>
+        <p className="text-xs text-slate-400 mt-1">Quản lý hồ sơ hợp đồng xác định thời hạn, không xác định thời hạn của người lao động.</p>
       </div>
 
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs">

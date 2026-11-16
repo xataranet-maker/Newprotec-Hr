@@ -4,7 +4,7 @@ export type Language = 'vi' | 'ko' | 'en';
 
 export type DeptTheme = 'DEFAULT' | 'TECH_ELECTRONIC' | 'SPACE_FUTURE';
 
-export type AttendanceStatus = 'PRESENT' | 'SICK' | 'LEAVE' | 'FAMILY' | 'UNMARKED' | 'Đúng giờ' | 'Đi muộn' | 'Về sớm' | 'Vắng mặt' | 'Thiếu giờ vào' | 'Thiếu giờ ra' | 'Đủ công' | 'PENDING_REVIEW' | 'CHECKING' | 'Nghỉ ốm' | 'Nghỉ phép' | 'Nghỉ chủ nhật' | 'Nghỉ lễ' | 'Nghỉ KL';
+export type AttendanceStatus = 'PRESENT' | 'SICK' | 'LEAVE' | 'FAMILY' | 'UNMARKED' | 'Đúng giờ' | 'Đi muộn' | 'Về sớm' | 'Vắng mặt' | 'Thiếu giờ vào' | 'Thiếu giờ ra' | 'Đủ công' | 'PENDING_REVIEW' | 'CHECKING' | 'Nghỉ ốm' | 'Nghỉ phép' | 'Nghỉ cưới' | 'Nghỉ tang' | 'Nghỉ chủ nhật' | 'Nghỉ lễ' | 'Nghỉ KL' | 'Đã nghỉ việc';
 
 export type MachineNoteType = 'NORMAL' | 'BROKEN' | 'WAITING_MATERIAL' | 'NO_STOCK' | 'MODEL_MISMATCH';
 
@@ -424,6 +424,10 @@ export interface EmployeeSalaryConfig {
     mealAllowance?: number;           // Phụ cấp tiền ăn
     childcareAllowance: number;       // Trợ cấp con Nhỏ
     phoneAllowance: number;           // Trợ cấp điện thoại
+    unionFee?: number;                // Công đoàn phí
+    personalIncomeTax?: number;       // Thuế TNCN (nhập tay)
+    pitManual?: boolean;              // Nhập tay Thuế TNCN thay vì tự động 10% mức vượt 10tr
+    pit10Percent?: boolean;           // Legacy flag
     ovtInsuranceBase: number;         // Tổng lương tính OVT và BH
     ovtInsuranceManual?: boolean;
     totalSalary: number;              // Tổng lương
@@ -452,6 +456,8 @@ export interface SalarySlipRecord {
         otSundayNightHours: number;
         otHolidayDayHours: number;
         otHolidayNightHours: number;
+        otMealDays?: number;
+        bereavementWeddingDays?: number;
         isConfirmed?: boolean;
     };
     salaryConfig?: EmployeeSalaryConfig;
@@ -636,6 +642,7 @@ export interface MatrixEmployeeTimekeeping {
     position: string;
     shift: 'DAY' | 'NIGHT';
     isLocked?: boolean;
+    lockedDay?: number;
     days: Record<number, MatrixDayTimeEntry>;
     totalWorkHours: number;
     totalDayOt: number;
@@ -647,3 +654,15 @@ export interface MatrixEmployeeTimekeeping {
     totalHolidayNightHours?: number;
     totalHolidayOt?: number;
 }
+
+export interface SalarySecurityConfig {
+    enabled: boolean;
+    allowedUsernames: string[];
+    allowedRoles: UserRole[];
+    requirePasscode: boolean;
+    passcode: string;
+    maskValuesByDefault: boolean;
+    updatedAt?: string;
+    updatedBy?: string;
+}
+
