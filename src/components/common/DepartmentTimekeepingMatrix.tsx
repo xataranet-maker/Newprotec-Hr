@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   StaffRecord,
   AttendanceRecord,
@@ -20,9 +20,11 @@ import {
   Moon,
   Sparkles,
   FileSpreadsheet,
+  Upload,
   X,
   Lock,
   Unlock,
+  AlertTriangle,
   CalendarHeart,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -104,6 +106,13 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     isSunday: boolean;
     applyDayTypeToColumn: boolean;
     entry: MatrixDayTimeEntry;
+  } | null>(null);
+
+  // Modal Khóa Nhân Viên Nghỉ Việc
+  const [lockModal, setLockModal] = useState<{
+    staff: StaffRecord;
+    isLocked: boolean;
+    lockedDay: number;
   } | null>(null);
 
   // Days in selected month
@@ -344,8 +353,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     );
   };
 
-  // Toggle row lock
-  const handleToggleLockRow = (staff: StaffRecord) => {
+  // Open Lock Employee Modal
+  const openLockModal = (staff: StaffRecord) => {
     const current = matrixData[staff.employeeId] || {
       employeeId: staff.employeeId,
       fullName: staff.fullName,
@@ -355,33 +364,39 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       isLocked: false,
       days: {},
     };
-    const nextLocked = !current.isLocked;
-    let lockedDay = current.lockedDay;
+    const defaultDay =
+      current.lockedDay ||
+      (selectedYear === currentDate.getFullYear() && selectedMonth === currentDate.getMonth() + 1
+        ? currentDate.getDate()
+        : 12);
 
-    if (nextLocked) {
-      const input = prompt(
-        `Nhập ngày nghỉ việc / khóa (từ 1 đến ${daysInMonth}):`,
-        String(new Date().getDate())
-      );
-      if (input === null) return;
-      const parsed = Number(input.trim());
-      if (Number.isFinite(parsed) && parsed >= 1 && parsed <= daysInMonth) {
-        lockedDay = parsed;
-      } else {
-        alert('Ngày không hợp lệ. Mặc định dùng ngày 1.');
-        lockedDay = 1;
-      }
-    } else {
-      lockedDay = undefined;
-    }
+    setLockModal({
+      staff,
+      isLocked: Boolean(current.isLocked),
+      lockedDay: Math.min(daysInMonth, Math.max(1, defaultDay)),
+    });
+  };
 
+  // Apply or Remove Lock for Resigned Staff
+  const handleApplyLock = (staff: StaffRecord, shouldLock: boolean, dayNumber: number) => {
+    const current = matrixData[staff.employeeId] || {
+      employeeId: staff.employeeId,
+      fullName: staff.fullName,
+      department: staff.department || department,
+      position: staff.position,
+      shift: staff.shift,
+      isLocked: false,
+      days: {},
+    };
+
+    const targetDay = shouldLock ? Math.min(daysInMonth, Math.max(1, dayNumber)) : undefined;
     const appliedDays = applyJoinDateAndLockRules(
       current.days || {},
       staff,
       selectedYear,
       selectedMonth,
-      nextLocked,
-      lockedDay
+      shouldLock,
+      targetDay
     );
     const totals = recalculateStaffTotals(appliedDays);
 
@@ -389,18 +404,20 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       ...matrixData,
       [staff.employeeId]: {
         ...current,
-        isLocked: nextLocked,
-        lockedDay,
+        isLocked: shouldLock,
+        lockedDay: targetDay,
         days: appliedDays,
         ...totals,
       },
     };
+
     setMatrixData(nextMatrix);
     persistMatrixAndHolidays(nextMatrix, holidayDays);
+    setLockModal(null);
     showToast(
-      nextLocked
-        ? `Đã khóa bảng công của ${staff.fullName} (nghỉ việc từ ngày ${lockedDay})`
-        : `Đã mở khóa bảng công của ${staff.fullName}`
+      shouldLock
+        ? `Đã khóa nhân viên ${staff.fullName} (nghỉ việc từ ngày ${targetDay}) thành công!`
+        : `Đã mở khóa nhân viên ${staff.fullName} thành công!`
     );
   };
 
@@ -427,7 +444,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         totalHolidayOt: 0,
       };
 
-      if (current.isLocked) return;
+      if (current.isLocked && current.lockedDay === undefined) return;
 
       const days = { ...current.days };
       monthDaysMeta.forEach(({ day, isSunday, isHoliday }) => {
@@ -482,10 +499,18 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         }
       });
 
-      const totals = recalculateStaffTotals(days);
+      const appliedDays = applyJoinDateAndLockRules(
+        days,
+        staff,
+        selectedYear,
+        selectedMonth,
+        current.isLocked,
+        current.lockedDay
+      );
+      const totals = recalculateStaffTotals(appliedDays);
       updated[staff.employeeId] = {
         ...current,
-        days,
+        days: appliedDays,
         ...totals,
       };
     });
@@ -502,13 +527,16 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       return;
     }
     const record = matrixData[staff.employeeId];
-    if (record?.isLocked && record.lockedDay !== undefined && meta.day >= record.lockedDay) {
-      showToast(`Nhân viên ${staff.fullName} đã nghỉ việc từ ngày ${record.lockedDay}. Không thể chấm công.`);
-      return;
-    }
     if (record?.isLocked) {
-      showToast(`Hàng của ${staff.fullName} đang khóa. Nhấn biểu tượng ổ khóa bên cạnh tên để mở khóa.`);
-      return;
+      if (record.lockedDay !== undefined) {
+        if (meta.day >= record.lockedDay) {
+          showToast(`Nhân viên ${staff.fullName} đã nghỉ việc từ ngày ${record.lockedDay}. Không thể chấm công.`);
+          return;
+        }
+      } else {
+        showToast(`Hàng của ${staff.fullName} đang khóa hoàn toàn. Nhấn biểu tượng ổ khóa bên cạnh tên để mở khóa.`);
+        return;
+      }
     }
 
     const existing: MatrixDayTimeEntry = record?.days?.[meta.day] || {
@@ -813,118 +841,422 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     return map;
   }, [monthDaysMeta, displayedStaff, matrixData]);
 
-  // Export to Excel
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Export to Excel matching the exact expected layout in user image
   const handleExportExcel = () => {
     const wb = XLSX.utils.book_new();
 
     const headerRow1 = [
-      'STT',
-      'Họ và Tên Nhân Viên',
-      'Mã Nhân Viên',
-      'Vị Trí / Chức Vụ',
-      'Ca Trực',
-      'Tổng Giờ Làm (h)',
-      'Tổng TC Ngày (h)',
-      'Tổng TC Đêm (h)',
-      'Tổng Ngày CN (h)',
-      'Tổng Đêm CN (h)',
-      'Tổng Ngày Lễ (h)',
-      'Tổng Đêm Lễ (h)',
-      ...monthDaysMeta.flatMap((m) => {
-        const dayTag = m.isHoliday ? `${m.dayOfWeek} - NGÀY LỄ` : m.dayOfWeek;
-        return [`Ngày ${m.day} (${dayTag}) - Vào`, `Ngày ${m.day} - Ra`, `Ngày ${m.day} - Giờ/TC`];
-      }),
+      selectedYear,
+      selectedMonth,
+      ...monthDaysMeta.map((m) => m.dayOfWeek),
     ];
 
-    const dataRows = displayedStaff.map((staff, idx) => {
+    const headerRow2 = [
+      'Họ và Tên',
+      'Hạng Mục',
+      ...monthDaysMeta.map((m) => `${String(m.day).padStart(2, '0')}-${String(selectedMonth).padStart(2, '0')}`),
+    ];
+
+    const aoa: any[][] = [headerRow1, headerRow2];
+
+    displayedStaff.forEach((staff) => {
       const record = matrixData[staff.employeeId];
       const days = record?.days || {};
 
-      const daysCols: (string | number)[] = [];
+      const caRow: any[] = [staff.fullName, 'Ca'];
+      const vaoRow: any[] = [staff.employeeId, 'Vào'];
+      const raRow: any[] = ['', 'Ra'];
+
       monthDaysMeta.forEach((m) => {
         const d = days[m.day];
-        daysCols.push(d?.inTime || '');
-        daysCols.push(d?.outTime || '');
-        const total = getEntryTotalHours(d);
-        const holDay = d?.otHolidayHours || 0;
-        const holNight = d?.otHolidayNightHours || 0;
-        if (holDay > 0 && holNight > 0) {
-          daysCols.push(`${holDay}h Ngày Lễ / ${holNight}h Đêm Lễ`);
-        } else if (holDay > 0) {
-          daysCols.push(`${holDay}h Ngày Lễ`);
-        } else if (holNight > 0) {
-          daysCols.push(`${holNight}h Đêm Lễ`);
-        } else if (m.isSunday && ((d?.otSundayHours || 0) + (d?.otSundayNightHours || 0) > 0)) {
-          daysCols.push(`${(d?.otSundayHours || 0) + (d?.otSundayNightHours || 0)}h CN`);
-        } else if ((d?.otDayHours || 0) + (d?.otNightHours || 0) > 0) {
-          daysCols.push(`+${(d?.otDayHours || 0) + (d?.otNightHours || 0)}h TC`);
-        } else if (total > 0) {
-          daysCols.push(`${total}h`);
+        const isBeforeJoin = isDayBeforeJoinDate(selectedYear, selectedMonth, m.day, staff.dateJoined);
+        const isResigned = Boolean(
+          (record?.isLocked && record?.lockedDay !== undefined && m.day >= record.lockedDay) ||
+          d?.status === 'Đã nghỉ việc' ||
+          (d?.status as string) === 'Đã thôi việc'
+        );
+
+        // Check if there is actual timekeeping data / working time
+        const hasInTime = Boolean(d?.inTime && d.inTime.trim() && d.inTime.includes(':'));
+        const hasOutTime = Boolean(d?.outTime && d.outTime.trim() && d.outTime.includes(':'));
+        const totalHours =
+          (d?.regularHours || 0) +
+          (d?.otDayHours || 0) +
+          (d?.otNightHours || 0) +
+          (d?.otSundayHours || 0) +
+          (d?.otSundayNightHours || 0) +
+          (d?.otHolidayHours || 0) +
+          (d?.otHolidayNightHours || 0);
+
+        const hasWorkingData = !isBeforeJoin && !isResigned && (hasInTime || hasOutTime || totalHours > 0);
+
+        // Determine night shift vs day shift
+        const isNight =
+          d?.shift === 'NIGHT' ||
+          (d?.otNightHours || 0) > 0 ||
+          (d?.otSundayNightHours || 0) > 0 ||
+          (d?.otHolidayNightHours || 0) > 0 ||
+          (d?.inTime &&
+            (d.inTime.startsWith('20') ||
+              d.inTime.startsWith('21') ||
+              d.inTime.startsWith('19') ||
+              d.inTime.startsWith('22')));
+
+        const shiftText = isNight ? 'Đêm' : 'Ngày';
+        const defaultInTime = isNight ? '20:00' : '08:00';
+        const defaultOutTime = isNight ? '08:00' : '20:00';
+
+        let caCell = '';
+        let vaoCell = '';
+        let raCell = '';
+
+        if (isBeforeJoin) {
+          caCell = '';
+          vaoCell = '';
+          raCell = '';
+        } else if (isResigned) {
+          caCell = 'Đã thôi việc';
+          vaoCell = '';
+          raCell = '';
+        } else if (d?.status === 'Nghỉ phép') {
+          caCell = 'Nghỉ phép';
+          vaoCell = '';
+          raCell = '';
+        } else if (d?.status === 'Nghỉ KL') {
+          caCell = 'Nghỉ KL';
+          vaoCell = '';
+          raCell = '';
+        } else if (d?.status === 'Nghỉ ốm' || d?.status === 'Nghỉ cưới' || d?.status === 'Nghỉ tang') {
+          caCell = d.status;
+          vaoCell = '';
+          raCell = '';
+        } else if (m.isHoliday || d?.isHoliday) {
+          if (hasWorkingData) {
+            caCell = shiftText;
+            vaoCell = d?.inTime || defaultInTime;
+            raCell = d?.outTime || defaultOutTime;
+          } else {
+            caCell = 'Nghỉ lễ';
+            vaoCell = '';
+            raCell = '';
+          }
+        } else if (m.isSunday) {
+          if (hasWorkingData) {
+            caCell = shiftText;
+            vaoCell = d?.inTime || defaultInTime;
+            raCell = d?.outTime || defaultOutTime;
+          } else {
+            caCell = 'Nghỉ CN';
+            vaoCell = '';
+            raCell = '';
+          }
         } else {
-          daysCols.push(
-            d?.status === 'Nghỉ chủ nhật'
-              ? 'CN'
-              : d?.status === 'Nghỉ lễ'
-              ? 'Lễ'
-              : d?.status === 'Nghỉ cưới'
-              ? 'Cưới'
-              : d?.status === 'Nghỉ tang'
-              ? 'Tang'
-              : d?.status || ''
-          );
+          if (hasWorkingData) {
+            caCell = shiftText;
+            vaoCell = d?.inTime || defaultInTime;
+            raCell = d?.outTime || defaultOutTime;
+          } else {
+            caCell = '';
+            vaoCell = '';
+            raCell = '';
+          }
         }
+
+        caRow.push(caCell);
+        vaoRow.push(vaoCell);
+        raRow.push(raCell);
       });
 
-      return [
-        idx + 1,
-        staff.fullName,
-        staff.employeeId,
-        staff.position,
-        staff.shift === 'DAY' ? 'Ca Ngày' : 'Ca Đêm',
-        record?.totalWorkHours || 0,
-        record?.totalDayOt || 0,
-        record?.totalNightOt || 0,
-        record?.totalSundayDayHours ?? record?.totalSundayOt ?? 0,
-        record?.totalSundayNightHours || 0,
-        record?.totalHolidayDayHours ?? (staff.shift === 'NIGHT' ? 0 : record?.totalHolidayOt ?? 0),
-        record?.totalHolidayNightHours ?? (staff.shift === 'NIGHT' ? record?.totalHolidayOt ?? 0 : 0),
-        ...daysCols,
-      ];
+      aoa.push(caRow);
+      aoa.push(vaoRow);
+      aoa.push(raRow);
     });
 
-    const summaryPrefix = ['', '', '', '', '', '', '', '', '', '', '', ''];
-    const rowDayCount = [
+    const totalDayAllMonth = monthDaysMeta.reduce((sum, m) => sum + (dailyHeadcount[m.day]?.dayCount || 0), 0);
+    const totalNightAllMonth = monthDaysMeta.reduce((sum, m) => sum + (dailyHeadcount[m.day]?.nightCount || 0), 0);
+    const totalAllMonth = totalDayAllMonth + totalNightAllMonth;
+
+    const summaryCaRow = [
       '',
-      'SỐ NV ĐI LÀM CA NGÀY',
-      ...summaryPrefix.slice(2),
-      ...monthDaysMeta.flatMap((m) => [dailyHeadcount[m.day]?.dayCount || 0, '', '']),
+      `Số NV đi làm Ca Ngày   Tổng: ${totalDayAllMonth}`,
+      ...monthDaysMeta.map((m) => dailyHeadcount[m.day]?.dayCount || 0),
     ];
-    const rowNightCount = [
+    const summaryVaoRow = [
       '',
-      'SỐ NV ĐI LÀM CA ĐÊM',
-      ...summaryPrefix.slice(2),
-      ...monthDaysMeta.flatMap((m) => [dailyHeadcount[m.day]?.nightCount || 0, '', '']),
+      `Số NV đi làm Ca Đêm   Tổng: ${totalNightAllMonth}`,
+      ...monthDaysMeta.map((m) => dailyHeadcount[m.day]?.nightCount || 0),
     ];
-    const rowTotalCount = [
+    const summaryRaRow = [
       '',
-      'TỔNG NV ĐI LÀM TRONG NGÀY',
-      ...summaryPrefix.slice(2),
-      ...monthDaysMeta.flatMap((m) => [dailyHeadcount[m.day]?.totalCount || 0, '', '']),
+      `Tổng NV đi làm trong ngày   Tổng: ${totalAllMonth}`,
+      ...monthDaysMeta.map((m) => dailyHeadcount[m.day]?.totalCount || 0),
     ];
 
-    const ws = XLSX.utils.aoa_to_sheet([
-      [`BẢNG CHẤM CÔNG MA TRẬN - BỘ PHẬN ${departmentTitle.toUpperCase()} - THÁNG ${selectedMonth}/${selectedYear}`],
-      [],
-      headerRow1,
-      ...dataRows,
-      [],
-      rowDayCount,
-      rowNightCount,
-      rowTotalCount,
-    ]);
+    aoa.push([]);
+    aoa.push(summaryCaRow);
+    aoa.push(summaryVaoRow);
+    aoa.push(summaryRaRow);
 
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
     XLSX.utils.book_append_sheet(wb, ws, `Thang_${selectedMonth}_${selectedYear}`);
     XLSX.writeFile(wb, `Bang_Cham_Cong_Ma_Tran_${department}_T${selectedMonth}_${selectedYear}.xlsx`);
+    showToast('Đã xuất file Excel bảng chấm công thành công!');
+  };
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+        if (!rows || rows.length < 3) {
+          showToast('File Excel không đúng định dạng bảng chấm công.');
+          return;
+        }
+
+        let dayColMap: { colIdx: number; dayNum: number }[] = [];
+        const headerRow2 = rows[1] || rows[0];
+        headerRow2.forEach((cellVal, colIdx) => {
+          const s = String(cellVal || '').trim();
+          const matchDate = s.match(/^(\d{1,2})-(\d{1,2})$/);
+          if (matchDate) {
+            const dNum = Number(matchDate[1]);
+            if (dNum >= 1 && dNum <= 31) {
+              dayColMap.push({ colIdx, dayNum: dNum });
+            }
+          } else {
+            const n = Number(s);
+            if (n >= 1 && n <= 31) {
+              dayColMap.push({ colIdx, dayNum: n });
+            }
+          }
+        });
+
+        if (dayColMap.length === 0) {
+          for (let d = 1; d <= daysInMonth; d++) {
+            dayColMap.push({ colIdx: d + 1, dayNum: d });
+          }
+        }
+
+        const normalizeTime = (val: any): string => {
+          if (val === null || val === undefined) return '';
+          const s = String(val).trim();
+          if (!s) return '';
+          if (s.includes(':')) {
+            const parts = s.split(':');
+            const h = parts[0].padStart(2, '0');
+            const m = (parts[1] || '00').slice(0, 2).padStart(2, '0');
+            return `${h}:${m}`;
+          }
+          const n = Number(s);
+          if (!isNaN(n) && n > 0 && n < 1) {
+            const totalMins = Math.round(n * 24 * 60);
+            const h = String(Math.floor(totalMins / 60)).padStart(2, '0');
+            const m = String(totalMins % 60).padStart(2, '0');
+            return `${h}:${m}`;
+          }
+          return s;
+        };
+
+        const nextMatrix = { ...matrixData };
+        let updatedCount = 0;
+
+        for (let r = 2; r < rows.length; r += 3) {
+          const caRow = rows[r];
+          const vaoRow = rows[r + 1];
+          const raRow = rows[r + 2];
+
+          if (!caRow || !vaoRow) continue;
+
+          const empIdOrName = String(vaoRow[0] || caRow[0] || '').trim();
+          if (!empIdOrName) continue;
+
+          const matchedStaff = targetStaff.find(
+            (st) =>
+              st.employeeId.trim().toLowerCase() === empIdOrName.toLowerCase() ||
+              st.fullName.trim().toLowerCase() === String(caRow[0] || '').trim().toLowerCase() ||
+              st.fullName.trim().toLowerCase() === empIdOrName.toLowerCase()
+          );
+          if (!matchedStaff) continue;
+
+          const currentRec = nextMatrix[matchedStaff.employeeId] || {
+            employeeId: matchedStaff.employeeId,
+            fullName: matchedStaff.fullName,
+            department: matchedStaff.department || department,
+            position: matchedStaff.position,
+            shift: matchedStaff.shift,
+            isLocked: false,
+            days: {},
+          };
+
+          const days = { ...currentRec.days };
+          let minResignedDay: number | undefined = undefined;
+
+          dayColMap.forEach(({ colIdx, dayNum }) => {
+            const caVal = String(caRow[colIdx] || '').trim();
+            const vaoVal = String(vaoRow[colIdx] || '').trim();
+            const raVal = String((raRow && raRow[colIdx]) || '').trim();
+            const caLower = caVal.toLowerCase();
+            const vaoLower = vaoVal.toLowerCase();
+            const vaoTime = normalizeTime(vaoVal);
+            const raTime = normalizeTime(raVal);
+            const hasTime = vaoTime.includes(':') || raTime.includes(':');
+
+            const isResigned =
+              caLower.includes('đã thôi việc') ||
+              caLower.includes('đã nghỉ việc') ||
+              caLower.includes('thôi việc') ||
+              vaoLower.includes('thôi việc') ||
+              vaoLower.includes('nghỉ việc');
+
+            if (isResigned) {
+              if (minResignedDay === undefined || dayNum < minResignedDay) {
+                minResignedDay = dayNum;
+              }
+            }
+
+            const isSun = new Date(selectedYear, selectedMonth - 1, dayNum).getDay() === 0;
+            const isHol = Boolean(holidayDays[dayNum]) || caLower.includes('lễ');
+
+            let shift: 'DAY' | 'NIGHT' = matchedStaff.shift;
+            let inTime = '';
+            let outTime = '';
+            let regularHours = 0;
+            let otDayHours = 0;
+            let otNightHours = 0;
+            let otSundayHours = 0;
+            let otSundayNightHours = 0;
+            let otHolidayHours = 0;
+            let otHolidayNightHours = 0;
+            let status: AttendanceStatus = 'Đúng giờ';
+
+            if (isResigned) {
+              status = 'Đã nghỉ việc';
+            } else if (caLower.includes('nghỉ phép') || vaoVal.includes('Nghỉ phép')) {
+              status = 'Nghỉ phép';
+            } else if (caLower.includes('nghỉ kl') || vaoVal.includes('Nghỉ KL')) {
+              status = 'Nghỉ KL';
+            } else if (caLower.includes('nghỉ ốm')) {
+              status = 'Nghỉ ốm';
+            } else if (caLower.includes('nghỉ cưới')) {
+              status = 'Nghỉ cưới';
+            } else if (caLower.includes('nghỉ tang')) {
+              status = 'Nghỉ tang';
+            } else if (
+              caLower.includes('nghỉ cn') ||
+              caLower === 'cn' ||
+              (isSun && !hasTime && !caLower.includes('ngày') && !caLower.includes('đêm'))
+            ) {
+              status = 'Nghỉ chủ nhật';
+            } else if (
+              caLower.includes('nghỉ lễ') ||
+              (isHol && !hasTime && !caLower.includes('ngày') && !caLower.includes('đêm'))
+            ) {
+              status = 'Nghỉ lễ';
+            } else if (
+              caLower.includes('đêm') ||
+              vaoTime.startsWith('20') ||
+              vaoTime.startsWith('21') ||
+              vaoTime.startsWith('19') ||
+              (!caVal && matchedStaff.shift === 'NIGHT' && hasTime)
+            ) {
+              shift = 'NIGHT';
+              inTime = vaoTime || '20:00';
+              outTime = raTime || '08:00';
+              status = 'Đúng giờ';
+              if (isHol) {
+                otHolidayNightHours = 11;
+              } else if (isSun) {
+                otSundayNightHours = 11;
+              } else {
+                regularHours = 8;
+                otNightHours = 3;
+              }
+            } else if (
+              caLower.includes('ngày') ||
+              vaoTime.startsWith('08') ||
+              vaoTime.startsWith('07') ||
+              hasTime
+            ) {
+              shift = 'DAY';
+              inTime = vaoTime || '08:00';
+              outTime = raTime || '20:00';
+              status = 'Đúng giờ';
+              if (isHol) {
+                otHolidayHours = 11;
+              } else if (isSun) {
+                otSundayHours = 11;
+              } else {
+                regularHours = 8;
+                otDayHours = 3;
+              }
+            } else {
+              inTime = '';
+              outTime = '';
+              status = isHol ? 'Nghỉ lễ' : isSun ? 'Nghỉ chủ nhật' : 'Đúng giờ';
+            }
+
+            days[dayNum] = {
+              day: dayNum,
+              shift,
+              inTime,
+              outTime,
+              regularHours,
+              otDayHours,
+              otNightHours,
+              otSundayHours,
+              otSundayNightHours,
+              otHolidayHours,
+              otHolidayNightHours,
+              isHoliday: isHol,
+              status,
+            };
+          });
+
+          const isLocked = minResignedDay !== undefined ? true : Boolean(currentRec.isLocked);
+          const lockedDay = minResignedDay !== undefined ? minResignedDay : currentRec.lockedDay;
+          const appliedDays = applyJoinDateAndLockRules(
+            days,
+            matchedStaff,
+            selectedYear,
+            selectedMonth,
+            isLocked,
+            lockedDay
+          );
+          const totals = recalculateStaffTotals(appliedDays);
+          nextMatrix[matchedStaff.employeeId] = {
+            ...currentRec,
+            isLocked,
+            lockedDay,
+            days: appliedDays,
+            ...totals,
+          };
+          updatedCount += 1;
+        }
+
+        if (updatedCount > 0) {
+          setMatrixData(nextMatrix);
+          persistMatrixAndHolidays(nextMatrix, holidayDays);
+          showToast(`Đã cập nhật bảng chấm công cho ${updatedCount} nhân viên từ Excel thành công!`);
+        } else {
+          showToast('Không tìm thấy dữ liệu mã nhân viên hợp lệ trong file Excel.');
+        }
+      } catch (err) {
+        console.error('Excel import error:', err);
+        showToast('Lỗi khi đọc file Excel bảng chấm công.');
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsBinaryString(file);
   };
 
   return (
@@ -1051,7 +1383,25 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               <span>Lưu Bảng Công</span>
             </button>
 
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleImportExcel}
+              className="hidden"
+            />
             <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] sm:text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
+              title="Nhập bảng chấm công từ Excel"
+            >
+              <Upload className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <span>Nhập Excel</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleExportExcel}
               className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold shadow-md cursor-pointer transition-colors whitespace-nowrap"
               title="Xuất ma trận chấm công ra Excel"
@@ -1291,21 +1641,32 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         >
                           {staff.fullName}
                         </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleLockRow(staff);
-                          }}
-                          className={`p-1 rounded transition-colors cursor-pointer shrink-0 ${
-                            record.isLocked
-                              ? 'text-amber-400 bg-amber-950/50 hover:bg-amber-900/60'
-                              : 'text-slate-500 hover:text-slate-300'
-                          }`}
-                          title={record.isLocked ? 'Nhấn để mở khóa chỉnh sửa' : 'Nhấn để khóa hàng nhân viên'}
-                        >
-                          {record.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                        </button>
+                        {record.isLocked ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openLockModal(staff);
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-600/70 text-amber-300 text-[9px] font-bold cursor-pointer transition-colors shadow-xs shrink-0"
+                            title={`Nhân viên đã nghỉ việc từ ngày ${record.lockedDay || 1}. Nhấn để cấu hình hoặc mở khóa.`}
+                          >
+                            <Lock className="w-2.5 h-2.5 text-amber-400" />
+                            <span>Nghỉ việc (N{record.lockedDay || 1})</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openLockModal(staff);
+                            }}
+                            className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                            title="Nhấn để khóa nhân viên nghỉ việc"
+                          >
+                            <Unlock className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between gap-1 mt-1">
@@ -1460,12 +1821,18 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                                   {entry.inTime && entry.outTime ? `${entry.inTime} - ${entry.outTime}` : 'NGÀY LỄ'}
                                 </div>
                               ) : isSunday ? (
-                                entry.status === 'Về sớm' ? (
+                                entry.inTime || entry.outTime ? (
                                   <div className="font-mono text-[10px] text-slate-200 font-medium">
-                                    {entry.inTime || '--:--'} - {entry.outTime || '--:--'}
+                                    <span className={entry.status === 'Đi muộn' ? 'text-amber-400 font-bold' : 'text-slate-200'}>
+                                      {entry.inTime || '--:--'}
+                                    </span>
+                                    <span className="text-slate-500 mx-0.5">-</span>
+                                    <span className={entry.status === 'Về sớm' ? 'text-teal-300 font-bold' : 'text-slate-200'}>
+                                      {entry.outTime || '--:--'}
+                                    </span>
                                   </div>
                                 ) : (
-                                  <div className="font-mono text-[10px] text-rose-400 font-bold">CN</div>
+                                  <div className="font-mono text-[10px] text-rose-400 font-bold">Nghỉ CN</div>
                                 )
                               ) : (
                                 <div className="font-mono text-[10px] text-slate-200 font-medium">
@@ -1529,12 +1896,12 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                             <div className="text-[10px] text-slate-500 font-mono py-1">
                               {isHolidayCell ? (
                                 <div className="space-y-0.5">
-                                  <div className="text-red-400 font-bold">Lễ</div>
+                                  <div className="text-red-400 font-bold">Nghỉ lễ</div>
                                   <div className="text-[9px] text-slate-500">-</div>
                                 </div>
                               ) : isSunday ? (
                                 <div className="space-y-0.5">
-                                  <div className="text-rose-400 font-bold">CN</div>
+                                  <div className="text-rose-400 font-bold">Nghỉ CN</div>
                                   <div className="text-[9px] text-slate-500">-</div>
                                 </div>
                               ) : (
@@ -2279,6 +2646,19 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   >
                     Nghỉ ngày này
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleApplyLock(editingCell.staff, true, editingCell.day);
+                      setEditingCell(null);
+                    }}
+                    className="px-2 py-0.5 rounded text-[9px] bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-600/70 font-bold flex items-center gap-1 cursor-pointer"
+                    title="Khóa toàn bộ ngày công từ ngày này trở đi (đánh dấu nghỉ việc)"
+                  >
+                    <Lock className="w-2.5 h-2.5 text-amber-400" />
+                    <span>Khóa nghỉ việc từ N{editingCell.day}</span>
+                  </button>
                 </div>
               </div>
 
@@ -2305,6 +2685,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   <option value="Nghỉ lễ">Nghỉ lễ</option>
                   <option value="Nghỉ chủ nhật">Nghỉ chủ nhật</option>
                   <option value="Vắng mặt">Vắng mặt</option>
+                  <option value="Đã nghỉ việc">Đã thôi việc (Nghỉ việc)</option>
                 </select>
               </div>
 
@@ -2324,6 +2705,188 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cấu Hình Khóa Nhân Viên Nghỉ Việc */}
+      {lockModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl relative">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                    lockModal.isLocked
+                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                      : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                  }`}
+                >
+                  {lockModal.isLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-sm sm:text-base">
+                    Khóa Nhân Viên &amp; Trạng Thái Nghỉ Việc
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Tháng {selectedMonth}/{selectedYear} · {departmentTitle}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLockModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Thông tin nhân viên */}
+            <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 text-xs space-y-1.5">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium">Họ và tên:</span>
+                <span className="font-bold text-cyan-300 text-sm">{lockModal.staff.fullName}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium">Mã nhân viên:</span>
+                <span className="font-mono text-slate-200">{lockModal.staff.employeeId}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium">Vị trí · Ca:</span>
+                <span className="text-slate-300">
+                  {lockModal.staff.position} · {lockModal.staff.shift === 'DAY' ? 'Ca Ngày' : 'Ca Đêm'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium">Ngày vào làm:</span>
+                <span className="font-mono text-slate-300">{lockModal.staff.dateJoined || 'Chưa ghi nhận'}</span>
+              </div>
+              <div className="flex justify-between items-center pt-1 border-t border-slate-800/80">
+                <span className="text-slate-400 font-medium">Trạng thái hiện tại:</span>
+                {lockModal.isLocked ? (
+                  <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-[10px]">
+                    ĐANG KHÓA (Nghỉ việc từ N{lockModal.lockedDay})
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-[10px]">
+                    Đang làm việc bình thường
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Chọn hình thức */}
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                  <CalendarDays className="w-4 h-4 text-amber-400" />
+                  <span>Chọn ngày bắt đầu nghỉ việc / khóa (1 đến {daysInMonth}):</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={daysInMonth}
+                    value={lockModal.lockedDay}
+                    onChange={(e) =>
+                      setLockModal({
+                        ...lockModal,
+                        lockedDay: Math.min(daysInMonth, Math.max(1, Number(e.target.value) || 1)),
+                      })
+                    }
+                    className="w-24 bg-slate-950 border border-slate-700 rounded-lg p-2 font-mono text-center text-white font-bold text-base focus:border-amber-500 focus:outline-hidden"
+                  />
+                  <span className="text-xs text-slate-400">
+                    tháng {selectedMonth}/{selectedYear}
+                  </span>
+                </div>
+
+                {/* Nút chọn nhanh */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400 self-center">Chọn nhanh:</span>
+                  {[
+                    { label: 'Ngày 1', val: 1 },
+                    { label: 'Ngày 10', val: 10 },
+                    { label: 'Ngày 12', val: 12 },
+                    { label: 'Ngày 15', val: 15 },
+                    { label: 'Ngày 20', val: 20 },
+                    {
+                      label: `Hôm nay (N${new Date().getDate()})`,
+                      val: Math.min(daysInMonth, new Date().getDate()),
+                    },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => setLockModal({ ...lockModal, lockedDay: preset.val })}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold border cursor-pointer transition-colors ${
+                        lockModal.lockedDay === preset.val
+                          ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Hộp quy tắc nghiệp vụ */}
+              <div className="bg-amber-950/30 border border-amber-800/50 p-3 rounded-xl text-[11px] text-amber-200/90 space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Quy tắc hiển thị &amp; bảo lưu công:</span>
+                </div>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1">
+                  <li>
+                    <span className="text-amber-300 font-semibold">
+                      Từ ngày {lockModal.lockedDay} đến hết tháng:
+                    </span>{' '}
+                    Khóa không cho chấm công, trạng thái hiển thị <strong>'Đã thôi việc'</strong>, để trống giờ
+                    vào và giờ ra.
+                  </li>
+                  <li>
+                    <span className="text-emerald-300 font-semibold">Trước ngày {lockModal.lockedDay}:</span>{' '}
+                    Giữ nguyên toàn bộ ngày công và giờ tăng ca thực tế đã làm.
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t border-slate-800">
+              {lockModal.isLocked ? (
+                <button
+                  type="button"
+                  onClick={() => handleApplyLock(lockModal.staff, false, lockModal.lockedDay)}
+                  className="w-full sm:w-auto px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span>Mở Khóa Nhân Viên</span>
+                </button>
+              ) : (
+                <div />
+              )}
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setLockModal(null)}
+                  className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyLock(lockModal.staff, true, lockModal.lockedDay)}
+                  className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>{lockModal.isLocked ? 'Cập Nhật Ngày Khóa' : 'Khóa Nghỉ Việc'}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

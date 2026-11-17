@@ -264,6 +264,8 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           ? 'bg-amber-950/70 text-amber-300 border-amber-600'
                           : s.attendance === 'Về sớm'
                           ? 'bg-orange-950/70 text-orange-300 border-orange-600'
+                          : s.attendance === 'Đã nghỉ việc'
+                          ? 'bg-rose-950/80 text-rose-300 border-rose-600'
                           : 'bg-slate-900 text-slate-300 border-slate-700'
                       }`}
                     >
@@ -273,6 +275,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                       <option value="Nghỉ phép">Nghỉ phép</option>
                       <option value="Nghỉ ốm">Nghỉ ốm</option>
                       <option value="Vắng mặt">Vắng mặt</option>
+                      <option value="Đã nghỉ việc">Đã nghỉ việc (Thôi việc)</option>
                     </select>
                   </div>
 
@@ -417,6 +420,8 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                               ? 'bg-amber-950/70 text-amber-300 border-amber-600'
                               : s.attendance === 'Về sớm'
                               ? 'bg-orange-950/70 text-orange-300 border-orange-600'
+                              : s.attendance === 'Đã nghỉ việc'
+                              ? 'bg-rose-950/80 text-rose-300 border-rose-600'
                               : 'bg-slate-900 text-slate-300 border-slate-700'
                           }`}
                         >
@@ -426,6 +431,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           <option value="Nghỉ phép">Nghỉ phép</option>
                           <option value="Nghỉ ốm">Nghỉ ốm</option>
                           <option value="Vắng mặt">Vắng mặt</option>
+                          <option value="Đã nghỉ việc">Đã nghỉ việc (Thôi việc)</option>
                         </select>
                       </td>
                       <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>

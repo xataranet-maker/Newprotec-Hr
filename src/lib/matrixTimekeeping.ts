@@ -116,7 +116,14 @@ export function buildDefaultEmployeeMonthDays(
       }
       status = 'Đúng giờ';
     } else if (isSunday) {
-      if (day === 8 || day === 22 || day === 15) {
+      const worksThisSunday =
+        day === 1
+          ? staff.employeeId !== 'V2311006'
+          : day === 8
+          ? ['V2610010', 'V2407038', 'TV2610225', 'V2408025', 'V2106026', 'V2502030', 'V2610004', 'V2303011'].includes(staff.employeeId) || staff.shift === 'NIGHT'
+          : day === 15 || day === 22;
+
+      if (worksThisSunday) {
         if (staff.shift === 'NIGHT') {
           inTime = '20:00';
           outTime = '08:00';
@@ -128,6 +135,8 @@ export function buildDefaultEmployeeMonthDays(
         }
         status = 'Đúng giờ';
       } else {
+        inTime = '';
+        outTime = '';
         status = 'Nghỉ chủ nhật';
       }
     } else {
@@ -342,8 +351,11 @@ export function loadOrInitDepartmentMatrix(
 
   targetStaff.forEach((staff) => {
     if (!normalized[staff.employeeId]) {
+      const isSan = staff.employeeId === 'TV2610025';
+      const initLocked = isSan;
+      const initLockedDay = isSan ? 12 : undefined;
       const rawDays = buildDefaultEmployeeMonthDays(staff, year, month, holidays);
-      const daysRecord = applyJoinDateAndLockRules(rawDays, staff, year, month, false, undefined);
+      const daysRecord = applyJoinDateAndLockRules(rawDays, staff, year, month, initLocked, initLockedDay);
       const totals = recalculateStaffTotals(daysRecord);
       normalized[staff.employeeId] = {
         employeeId: staff.employeeId,
@@ -351,7 +363,8 @@ export function loadOrInitDepartmentMatrix(
         department: staff.department || department,
         position: staff.position || 'Công nhân vận hành',
         shift: staff.shift,
-        isLocked: false,
+        isLocked: initLocked,
+        lockedDay: initLockedDay,
         days: daysRecord,
         ...totals,
       };
