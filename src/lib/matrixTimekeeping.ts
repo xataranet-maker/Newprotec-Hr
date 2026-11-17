@@ -195,17 +195,48 @@ export function buildDefaultEmployeeMonthDays(
   return daysRecord;
 }
 
+export function formatDateDDMMYYYY(date: Date = new Date()): string {
+  const d = String(date.getDate()).padStart(2, '0');
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
+}
+
 export function parseDateJoined(dateJoinedStr?: string): Date | null {
   if (!dateJoinedStr) return null;
   const s = dateJoinedStr.trim();
   if (s.includes('/')) {
     const parts = s.split('/');
     if (parts.length === 3) {
-      const d = Number(parts[0]);
-      const m = Number(parts[1]) - 1;
+      let d = Number(parts[0]);
+      let m = Number(parts[1]);
       const y = Number(parts[2]);
-      const date = new Date(y, m, d);
+      // Handle accidental MM/DD/YYYY format if month > 12
+      if (m > 12 && d <= 12) {
+        const tmp = d;
+        d = m;
+        m = tmp;
+      }
+      const date = new Date(y, m - 1, d);
       if (!isNaN(date.getTime())) return date;
+    }
+  }
+  if (s.includes('-')) {
+    const parts = s.split('-');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        const y = Number(parts[0]);
+        const m = Number(parts[1]) - 1;
+        const d = Number(parts[2]);
+        const date = new Date(y, m, d);
+        if (!isNaN(date.getTime())) return date;
+      } else {
+        const d = Number(parts[0]);
+        const m = Number(parts[1]) - 1;
+        const y = Number(parts[2]);
+        const date = new Date(y, m, d);
+        if (!isNaN(date.getTime())) return date;
+      }
     }
   }
   const date = new Date(s);
@@ -236,28 +267,39 @@ export function applyJoinDateAndLockRules(
   lockedDay?: number
 ): Record<number, MatrixDayTimeEntry> {
   const nextDays: Record<number, MatrixDayTimeEntry> = {};
-  Object.entries(days).forEach(([dayStr, entry]) => {
-    const day = Number(dayStr);
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const existing = days[day];
     const isBeforeJoin = isDayBeforeJoinDate(year, month, day, staff.dateJoined);
     const isAfterLock = Boolean(isLocked && lockedDay !== undefined && day >= lockedDay);
+    const isSun = new Date(year, month - 1, day).getDay() === 0;
 
     if (isBeforeJoin) {
-      nextDays[day] = {
-        ...entry,
-        inTime: '',
-        outTime: '',
-        regularHours: 0,
-        otDayHours: 0,
-        otNightHours: 0,
-        otSundayHours: 0,
-        otSundayNightHours: 0,
-        otHolidayHours: 0,
-        otHolidayNightHours: 0,
-        status: '' as AttendanceStatus,
-      };
+      if (existing) {
+        nextDays[day] = {
+          ...existing,
+          inTime: '',
+          outTime: '',
+          regularHours: 0,
+          otDayHours: 0,
+          otNightHours: 0,
+          otSundayHours: 0,
+          otSundayNightHours: 0,
+          otHolidayHours: 0,
+          otHolidayNightHours: 0,
+          isHoliday: false,
+          status: '' as AttendanceStatus,
+        };
+      }
     } else if (isAfterLock) {
       nextDays[day] = {
-        ...entry,
+        ...(existing || {
+          day,
+          shift: staff.shift,
+        }),
+        day,
+        shift: existing?.shift || staff.shift,
         inTime: '',
         outTime: '',
         regularHours: 0,
@@ -267,12 +309,14 @@ export function applyJoinDateAndLockRules(
         otSundayNightHours: 0,
         otHolidayHours: 0,
         otHolidayNightHours: 0,
-        status: 'Đã nghỉ việc',
+        isHoliday: false,
+        status: (isSun ? '' : 'Đã nghỉ việc') as AttendanceStatus,
       };
-    } else {
-      nextDays[day] = entry;
+    } else if (existing) {
+      nextDays[day] = existing;
     }
-  });
+  }
+
   return nextDays;
 }
 
@@ -493,8 +537,9 @@ export function getEmployeeProfileMatrixData(
 
   // If no saved matrix exists in localStorage yet for this month, generate matching MultiAuto default schedule
   if (staffInfo) {
+    const rawDays = buildDefaultEmployeeMonthDays(staffInfo, year, month, fallbackHolidays);
     return {
-      days: buildDefaultEmployeeMonthDays(staffInfo, year, month, fallbackHolidays),
+      days: applyJoinDateAndLockRules(rawDays, staffInfo, year, month, false, undefined),
       holidays: fallbackHolidays,
       sourceDepartment: 'MULTI',
     };

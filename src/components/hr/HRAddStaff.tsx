@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { StaffRecord } from '../../types';
 import { UserPlus, CheckCircle } from 'lucide-react';
+import { formatDateDDMMYYYY } from '../../lib/matrixTimekeeping';
 
 interface HRAddStaffProps {
   multiStaff: StaffRecord[];
@@ -8,6 +9,11 @@ interface HRAddStaffProps {
   hrStaff: StaffRecord[];
   setHrStaff: (s: StaffRecord[]) => void;
 }
+
+const getTodayIso = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
 
 export const HRAddStaff: React.FC<HRAddStaffProps> = ({
   multiStaff,
@@ -21,18 +27,27 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
   const [position, setPosition] = useState('Công nhân vận hành');
   const [phone, setPhone] = useState('');
   const [shift, setShift] = useState<'DAY' | 'NIGHT'>('DAY');
+  const [joinDateIso, setJoinDateIso] = useState<string>(getTodayIso);
   const [success, setSuccess] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName || !employeeId) return;
 
+    let formattedJoin = formatDateDDMMYYYY(new Date());
+    if (joinDateIso && joinDateIso.includes('-')) {
+      const [y, m, d] = joinDateIso.split('-');
+      if (y && m && d) {
+        formattedJoin = `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+      }
+    }
+
     const newStaff: StaffRecord = {
       id: Date.now(),
       fullName,
       employeeId,
       position,
-      dateJoined: new Date().toLocaleDateString('vi-VN'),
+      dateJoined: formattedJoin,
       dob: '01/01/1998',
       hometown: 'Việt Nam',
       phone: phone || '0987-xxx-xxx',
@@ -47,6 +62,7 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
     setSuccess(true);
     setFullName('');
     setEmployeeId('');
+    setJoinDateIso(getTodayIso());
     setTimeout(() => setSuccess(false), 3000);
   };
 
@@ -92,16 +108,28 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
           />
         </div>
 
-        <div>
-          <label className="block text-slate-300 mb-1">Mã Nhân Viên</label>
-          <input
-            type="text"
-            value={employeeId}
-            onChange={e => setEmployeeId(e.target.value)}
-            placeholder="VD: NV025"
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono"
-            required
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-slate-300 mb-1">Mã Nhân Viên</label>
+            <input
+              type="text"
+              value={employeeId}
+              onChange={e => setEmployeeId(e.target.value)}
+              placeholder="VD: NV025"
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-slate-300 mb-1">Ngày Vào Làm (Ngày Tạo)</label>
+            <input
+              type="date"
+              value={joinDateIso}
+              onChange={e => setJoinDateIso(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono"
+              required
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

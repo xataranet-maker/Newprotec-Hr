@@ -15,6 +15,7 @@ import {
 import {
   MATRIX_UPDATED_EVENT,
   getEmployeeProfileMatrixData,
+  isDayBeforeJoinDate,
 } from '../../lib/matrixTimekeeping';
 import {
   SALARY_NUMERIC_FIELDS,
@@ -299,10 +300,25 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       totalHolidayDay += otHoliday;
       totalHolidayNight += otHolidayNight;
 
+      const isBeforeJoin = isDayBeforeJoinDate(
+        selectedYear,
+        selectedMonth,
+        day,
+        staffInfo?.dateJoined
+      );
+      const isResigned =
+        entry?.status === 'Đã nghỉ việc' || (entry?.status as string) === 'Đã thôi việc';
+
       let statusLabel = 'Chưa chấm công';
       let statusTone: 'ot' | 'full' | 'late' | 'early' | 'leave' | 'sunday' | 'holiday' | 'empty' = 'empty';
 
-      if (
+      if (isBeforeJoin) {
+        statusLabel = '';
+        statusTone = 'empty';
+      } else if (isResigned) {
+        statusLabel = isSunday ? '' : 'Đã thôi việc';
+        statusTone = 'empty';
+      } else if (
         entry?.status === 'Nghỉ phép' ||
         entry?.status === 'Nghỉ cưới' ||
         entry?.status === 'Nghỉ tang' ||
@@ -329,7 +345,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         statusLabel = 'Nghỉ lễ';
         statusTone = 'holiday';
       } else if (isSunday || entry?.status === 'Nghỉ chủ nhật') {
-        statusLabel = 'Nghỉ chủ nhật';
+        statusLabel = 'CN';
         statusTone = 'sunday';
       }
 
@@ -339,8 +355,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         isSunday,
         isHoliday,
         shift: entry?.shift || staffInfo?.shift || 'DAY',
-        inTime: entry?.inTime || '--:--',
-        outTime: entry?.outTime || '--:--',
+        inTime: isBeforeJoin || isResigned ? '' : entry?.inTime || '--:--',
+        outTime: isBeforeJoin || isResigned ? '' : entry?.outTime || '--:--',
         regularHours: reg,
         totalHrs: Math.round(totalHrs * 10) / 10,
         totalOtDayRow: Math.round(totalOtDayRow * 10) / 10,

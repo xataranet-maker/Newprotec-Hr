@@ -333,7 +333,15 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         }
       }
 
-      const updatedDays = { ...current.days, [day]: updatedEntry };
+      const rawUpdatedDays = { ...current.days, [day]: updatedEntry };
+      const updatedDays = applyJoinDateAndLockRules(
+        rawUpdatedDays,
+        staff,
+        selectedYear,
+        selectedMonth,
+        current.isLocked,
+        current.lockedDay
+      );
       const totals = recalculateStaffTotals(updatedDays);
       nextMatrix[staff.employeeId] = {
         ...current,
@@ -730,7 +738,15 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             };
           }
         }
-        const nextDays = { ...cur.days, [day]: converted };
+        const rawNextDays = { ...cur.days, [day]: converted };
+        const nextDays = applyJoinDateAndLockRules(
+          rawNextDays,
+          other,
+          selectedYear,
+          selectedMonth,
+          cur.isLocked,
+          cur.lockedDay
+        );
         workingMatrix[other.employeeId] = {
           ...cur,
           days: nextDays,
@@ -917,9 +933,15 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
           vaoCell = '';
           raCell = '';
         } else if (isResigned) {
-          caCell = 'Đã thôi việc';
-          vaoCell = '';
-          raCell = '';
+          if (m.isSunday) {
+            caCell = '';
+            vaoCell = '';
+            raCell = '';
+          } else {
+            caCell = 'Đã thôi việc';
+            vaoCell = '';
+            raCell = '';
+          }
         } else if (d?.status === 'Nghỉ phép') {
           caCell = 'Nghỉ phép';
           vaoCell = '';
@@ -948,7 +970,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             vaoCell = d?.inTime || defaultInTime;
             raCell = d?.outTime || defaultOutTime;
           } else {
-            caCell = 'Nghỉ CN';
+            caCell = 'CN';
             vaoCell = '';
             raCell = '';
           }
@@ -1747,7 +1769,23 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
                     {/* Day Cells */}
                     {monthDaysMeta.map((m) => {
-                      const entry: MatrixDayTimeEntry = days[m.day] || {
+                      const isBeforeJoin = isDayBeforeJoinDate(
+                        selectedYear,
+                        selectedMonth,
+                        m.day,
+                        staff.dateJoined
+                      );
+                      const rawEntry = days[m.day];
+                      const isResigned = Boolean(
+                        !isBeforeJoin &&
+                          ((record?.isLocked &&
+                            record?.lockedDay !== undefined &&
+                            m.day >= record.lockedDay) ||
+                            rawEntry?.status === 'Đã nghỉ việc' ||
+                            (rawEntry?.status as string) === 'Đã thôi việc')
+                      );
+
+                      const entry: MatrixDayTimeEntry = rawEntry || {
                         day: m.day,
                         shift: staff.shift,
                         regularHours: 0,
@@ -1758,7 +1796,13 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         otHolidayHours: 0,
                         otHolidayNightHours: 0,
                         isHoliday: m.isHoliday,
-                        status: m.isHoliday ? 'Nghỉ lễ' : m.isSunday ? 'Nghỉ chủ nhật' : 'Đúng giờ',
+                        status: (isBeforeJoin || isResigned
+                          ? ''
+                          : m.isHoliday
+                          ? 'Nghỉ lễ'
+                          : m.isSunday
+                          ? 'Nghỉ chủ nhật'
+                          : 'Đúng giờ') as AttendanceStatus,
                       };
 
                       const isHolidayCell = Boolean(m.isHoliday || entry.isHoliday);
@@ -1784,7 +1828,11 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           key={m.day}
                           onClick={() => openEditCell(staff, m)}
                           className={`py-1.5 px-1.5 text-center border-r border-slate-800/80 cursor-pointer transition-colors relative hover:ring-1 hover:ring-cyan-400 ${
-                            isHolidayCell
+                            isBeforeJoin
+                              ? 'bg-slate-950/70 hover:bg-slate-900/60'
+                              : isResigned
+                              ? 'bg-slate-950/60 hover:bg-slate-900/60'
+                              : isHolidayCell
                               ? 'bg-red-950/25 hover:bg-red-950/45'
                               : isSunday
                               ? 'bg-rose-950/20 hover:bg-rose-950/40'
@@ -1792,11 +1840,29 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                               ? 'bg-amber-950/10 hover:bg-amber-950/30'
                               : 'hover:bg-slate-800'
                           }`}
-                          title={`Kích để sửa: ${staff.fullName} - Ngày ${m.day}/${selectedMonth} (${
-                            isHolidayCell ? 'Ngày Lễ' : m.dayOfWeek
-                          })`}
+                          title={
+                            isBeforeJoin
+                              ? `${staff.fullName} - Chưa vào làm (vào làm từ ${staff.dateJoined})`
+                              : isResigned
+                              ? `${staff.fullName} - Đã nghỉ việc từ ngày ${record?.lockedDay || m.day}`
+                              : `Kích để sửa: ${staff.fullName} - Ngày ${m.day}/${selectedMonth} (${
+                                  isHolidayCell ? 'Ngày Lễ' : m.dayOfWeek
+                                })`
+                          }
                         >
-                          {isLeave && totalHours === 0 ? (
+                          {isBeforeJoin ? (
+                            <div className="text-[10px] font-mono py-1 select-none">&nbsp;</div>
+                          ) : isResigned ? (
+                            isSunday || isHolidayCell ? (
+                              <div className="text-[10px] font-mono py-1 select-none">&nbsp;</div>
+                            ) : (
+                              <div className="py-0.5">
+                                <span className="px-1.5 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-700/50 font-mono text-[9px] font-semibold whitespace-nowrap">
+                                  Đã thôi việc
+                                </span>
+                              </div>
+                            )
+                          ) : isLeave && totalHours === 0 ? (
                             <div className="space-y-0.5">
                               <div className="font-mono text-[10px] text-sky-400 font-bold">
                                 {entry.status === 'Nghỉ phép'
@@ -1832,7 +1898,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                                     </span>
                                   </div>
                                 ) : (
-                                  <div className="font-mono text-[10px] text-rose-400 font-bold">Nghỉ CN</div>
+                                  <div className="font-mono text-[10px] text-rose-400 font-bold">CN</div>
                                 )
                               ) : (
                                 <div className="font-mono text-[10px] text-slate-200 font-medium">
@@ -1901,8 +1967,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                                 </div>
                               ) : isSunday ? (
                                 <div className="space-y-0.5">
-                                  <div className="text-rose-400 font-bold">Nghỉ CN</div>
-                                  <div className="text-[9px] text-slate-500">-</div>
+                                  <div className="text-rose-400 font-bold">CN</div>
                                 </div>
                               ) : (
                                 '·'
@@ -2843,8 +2908,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                     <span className="text-amber-300 font-semibold">
                       Từ ngày {lockModal.lockedDay} đến hết tháng:
                     </span>{' '}
-                    Khóa không cho chấm công, trạng thái hiển thị <strong>'Đã thôi việc'</strong>, để trống giờ
-                    vào và giờ ra.
+                    Khóa không cho chấm công, ngày thường hiển thị <strong>'Đã thôi việc'</strong>, Chủ Nhật để
+                    trống trạng thái, không hiển thị giờ vào/ra.
                   </li>
                   <li>
                     <span className="text-emerald-300 font-semibold">Trước ngày {lockModal.lockedDay}:</span>{' '}

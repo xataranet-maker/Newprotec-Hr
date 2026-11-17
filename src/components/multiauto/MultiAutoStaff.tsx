@@ -4,6 +4,12 @@ import {
   Users, Plus, Search, CheckCircle2, Clock, Phone, 
   AlertTriangle, ArrowRight, LayoutGrid, Table, Calendar, Check, X
 } from 'lucide-react';
+import { formatDateDDMMYYYY } from '../../lib/matrixTimekeeping';
+
+const getTodayIso = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
 
 interface MultiAutoStaffProps {
   data: StaffRecord[];
@@ -39,6 +45,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
   const [position, setPosition] = useState('Vận hành máy Multi Auto');
   const [phone, setPhone] = useState('');
   const [shift, setShift] = useState<'DAY' | 'NIGHT'>('DAY');
+  const [joinDateIso, setJoinDateIso] = useState<string>(getTodayIso);
   const [newAttendance, setNewAttendance] = useState<AttendanceStatus>('Đúng giờ');
   const [newLateMinutes, setNewLateMinutes] = useState<number>(30);
   const [newLateIn, setNewLateIn] = useState<string>('08:30');
@@ -66,6 +73,14 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
     e.preventDefault();
     if (!fullName || !employeeId) return;
 
+    let formattedJoin = formatDateDDMMYYYY(new Date());
+    if (joinDateIso && joinDateIso.includes('-')) {
+      const [y, m, d] = joinDateIso.split('-');
+      if (y && m && d) {
+        formattedJoin = `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+      }
+    }
+
     const newStaff: StaffRecord = {
       id: Date.now(),
       fullName,
@@ -78,7 +93,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
       lateIn: newAttendance === 'Đi muộn' ? newLateIn : undefined,
       earlyMinutes: newAttendance === 'Về sớm' ? newEarlyMinutes : undefined,
       earlyOut: newAttendance === 'Về sớm' ? newEarlyOut : undefined,
-      dateJoined: new Date().toLocaleDateString('vi-VN'),
+      dateJoined: formattedJoin,
       dob: '01/01/1998',
       hometown: 'Việt Nam',
       department: 'MULTI'
@@ -88,6 +103,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
     setShowAddModal(false);
     setFullName('');
     setEmployeeId('');
+    setJoinDateIso(getTodayIso());
     setNewAttendance('Đúng giờ');
   };
 
@@ -695,6 +711,17 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                     <option value="NIGHT">Ca Đêm (20:00 - 08:00)</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Ngày Vào Làm (Ngày Tạo)</label>
+                <input
+                  type="date"
+                  value={joinDateIso}
+                  onChange={e => setJoinDateIso(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono"
+                  required
+                />
               </div>
 
               {/* Attendance Selection in Modal */}
