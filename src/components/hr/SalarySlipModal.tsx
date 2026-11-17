@@ -64,7 +64,7 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
 
         {/* Scrollable Official Slip Sheet */}
         <div className="flex-1 overflow-y-auto overflow-x-auto p-3 sm:p-5 bg-slate-900/60 custom-scrollbar">
-          <div className="bg-white text-black mx-auto w-full min-w-[490px] border-2 border-black shadow-xl font-serif text-[12px] leading-snug">
+          <div className="bg-white text-black mx-auto w-full min-w-[490px] border-2 border-black shadow-xl font-times text-[12px] leading-snug print:shadow-none">
             <table className="w-full border-collapse table-fixed">
               <colgroup>
                 <col className="w-[54%]" />
@@ -99,10 +99,10 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                   <td className="py-1 px-2 border-r border-black">
                     Tổng lương/ Lương tính bảo hiểm và tăng ca
                   </td>
-                  <td className="py-1 px-2 border-r border-black text-right font-bold font-mono">
+                  <td className="py-1 px-2 border-r border-black text-right font-bold tabular-nums">
                     {fmtAmt(data.totalSalary)}
                   </td>
-                  <td className="py-1 px-2 text-right font-bold font-mono">
+                  <td className="py-1 px-2 text-right font-bold tabular-nums">
                     {fmtAmt(data.ovtInsuranceBase)}
                   </td>
                 </tr>
@@ -120,7 +120,7 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                     I/ THU NHẬP TỪ TIỀN CÔNG ( I = 1+2+3)
                   </td>
                   <td className="py-1 px-2 border-r border-black text-right" />
-                  <td className="py-1 px-2 text-right font-mono">{fmtAmt(data.sectionITotal)}</td>
+                  <td className="py-1 px-2 text-right tabular-nums">{fmtAmt(data.sectionITotal)}</td>
                 </tr>
 
                 {/* Subsection 1 */}
@@ -129,26 +129,26 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                     1. Thu nhập theo hợp đồng lao động
                   </td>
                   <td className="py-1 px-2 border-r border-black text-right" />
-                  <td className="py-1 px-2 text-right font-mono not-italic">
+                  <td className="py-1 px-2 text-right tabular-nums not-italic">
                     {fmtAmt(data.section1Total)}
                   </td>
                 </tr>
 
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Lương ngày công</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.workDaysCount)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.workDaySalaryAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Lương ngày nghỉ 70%</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.leave70DayCount)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.leave70DayAmount)}
                   </td>
                 </tr>
@@ -161,88 +161,88 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                         ? 'Chưa đạt'
                         : '-'}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.attendanceAllowanceAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Phụ cấp nhà ở</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.housingAllowanceAmount > 0 ? data.workDaysCount : 0)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.housingAllowanceAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Phụ cấp đời sống</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.livingAllowanceAmount > 0 ? data.workDaysCount : 0)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.livingAllowanceAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Phụ cấp ngôn ngữ</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.languageAllowanceAmount > 0 ? data.workDaysCount : 0)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.languageAllowanceAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Phụ cấp chức vụ</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.positionAllowanceAmount > 0 ? data.workDaysCount : 0)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.positionAllowanceAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Phụ cấp thâm niên</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.seniorityAllowanceAmount > 0 ? data.workDaysCount : 0)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.seniorityAllowanceAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Trợ cấp công đoạn</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.processAllowanceAmount > 0 ? data.workDaysCount : 0)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.processAllowanceAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Trợ cấp thu hút</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.attractionAllowanceAmount > 0 ? data.workDaysCount : 0)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.attractionAllowanceAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Trợ cấp phòng sạch</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.cleanroomAllowanceAmount > 0 ? data.workDaysCount : 0)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.cleanroomAllowanceAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Trợ cấp điện thoại</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.phoneAllowanceAmount > 0 ? data.workDaysCount : 0)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.phoneAllowanceAmount)}
                   </td>
                 </tr>
@@ -250,33 +250,33 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                   <td className="py-0.5 px-2 border-r border-black">
                     Ngày nghỉ nguyên lương (phép,lễ,hiếu,hỷ)
                   </td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.paidLeaveDays)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.paidLeaveAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Số ngày phép còn lại</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.remainingLeaveDays)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">-</td>
+                  <td className="py-0.5 px-2 text-right tabular-nums">-</td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Nghỉ không hưởng lương</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.unpaidLeaveDays)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">-</td>
+                  <td className="py-0.5 px-2 text-right tabular-nums">-</td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">
                     Thanh toán phép tồn khi nghỉ việc
                   </td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">-</td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">-</td>
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.unusedLeaveSettlementAmount)}
                   </td>
                 </tr>
@@ -287,87 +287,87 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                     2. Tăng ca + PC ca đêm
                   </td>
                   <td className="py-1 px-2 border-r border-black text-center">ĐVT : Số giờ</td>
-                  <td className="py-1 px-2 text-right font-mono">{fmtAmt(data.section2Total)}</td>
+                  <td className="py-1 px-2 text-right tabular-nums">{fmtAmt(data.section2Total)}</td>
                 </tr>
 
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Nghỉ 70% lương</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.leave70Hours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.leave70HoursAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Trợ cấp ca đêm 30%</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.regularNightHours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.nightShift30Amount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Tăng ca đêm (195%)</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.otNight195Hours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.otNight195Amount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Tăng ca đêm (215%)</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.otNightHours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.otNight215Amount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Tăng ca 150%</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.otDayHours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.otDay150Amount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Ngày chủ nhật (200%)</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.otSundayDayHours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.otSundayDay200Amount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Đêm chủ nhật (270%)</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.otSundayNightHours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.otSundayNight270Amount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Ngày lễ (300%)</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.otHolidayDayHours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.otHolidayDay300Amount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Đêm ngày lễ (390%)</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.otHolidayNightHours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.otHolidayNight390Amount)}
                   </td>
                 </tr>
@@ -378,7 +378,7 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                     3. Thu nhập ngoài hợp đồng lao động (Ngoài lương chính)
                   </td>
                   <td className="py-1 px-2 border-r border-black text-right" />
-                  <td className="py-1 px-2 text-right font-mono not-italic">
+                  <td className="py-1 px-2 text-right tabular-nums not-italic">
                     {fmtAmt(data.section3Total)}
                   </td>
                 </tr>
@@ -388,10 +388,10 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                       ? `Trợ cấp tiền ăn tăng ca (${formatVnd(data.otMealUnitRate)}đ/buổi sau 6h)`
                       : 'Trợ cấp tiền ăn tăng ca (theo cấu hình lương)'}
                   </td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {data.otMealDays > 0 ? `${fmtQty(data.otMealDays)} buổi` : '-'}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.otMealAllowanceAmount)}
                   </td>
                 </tr>
@@ -399,21 +399,21 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                   <td className="py-0.5 px-2 border-r border-black">
                     Phụ cấp hiếu hỷ ({data.hasBereavementOrWeddingCase ? data.bereavementWeddingCaseLabel : 'Nghỉ cưới / Người nhà mất'})
                   </td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {data.hasBereavementOrWeddingCase
                       ? `${fmtQty(data.bereavementWeddingDays)} ngày`
                       : data.bereavementWeddingConfiguredAmount > 0
                         ? 'Chưa phát sinh'
                         : '-'}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.bereavementWeddingAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Trợ cấp con nhỏ</td>
                   <td className="py-0.5 px-2 border-r border-black text-right" />
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.childcareAllowanceAmount)}
                   </td>
                 </tr>
@@ -422,7 +422,7 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                     Thưởng năng suất,cải tiến
                   </td>
                   <td className="py-0.5 px-2 border-r border-black text-right" />
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.productivityBonusAmount)}
                   </td>
                 </tr>
@@ -431,7 +431,7 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                     Trợ cấp soi kính và setting máy
                   </td>
                   <td className="py-0.5 px-2 border-r border-black text-right" />
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.scopeSettingAllowanceAmount)}
                   </td>
                 </tr>
@@ -442,21 +442,21 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                     II/ BẢO HIỂM ,CÔNG ĐOÀN CÁ NHÂN ĐÓNG
                   </td>
                   <td className="py-1 px-2 border-r border-black text-right" />
-                  <td className="py-1 px-2 text-right font-mono">{fmtAmt(data.sectionIITotal)}</td>
+                  <td className="py-1 px-2 text-right tabular-nums">{fmtAmt(data.sectionIITotal)}</td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">
                     BHXH + BHYT + BHTN (10.5%)
                   </td>
                   <td className="py-0.5 px-2 border-r border-black text-right" />
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.socialInsuranceAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Công đoàn phí</td>
                   <td className="py-0.5 px-2 border-r border-black text-right" />
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.unionFeeAmount)}
                   </td>
                 </tr>
@@ -467,7 +467,7 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                     {data.pitThreshold > 0 ? 'III. THUẾ TNCN (10%)' : 'III. THUẾ TNCN'}
                   </td>
                   <td className="py-1 px-2 border-r border-black text-right" />
-                  <td className="py-1 px-2 text-right font-mono">
+                  <td className="py-1 px-2 text-right tabular-nums">
                     {fmtAmt(data.personalIncomeTaxAmount)}
                   </td>
                 </tr>
@@ -476,39 +476,39 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                 <tr className="border-b border-black font-bold bg-slate-50">
                   <td className="py-1 px-2 border-r border-black">IV: CÁC KHOẢN TRỪ</td>
                   <td className="py-1 px-2 border-r border-black text-center">ĐVT : Số giờ</td>
-                  <td className="py-1 px-2 text-right font-mono">{fmtAmt(data.sectionIVTotal)}</td>
+                  <td className="py-1 px-2 text-right tabular-nums">{fmtAmt(data.sectionIVTotal)}</td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">
                     Đi muộn,về sớm, ra ngoài
                   </td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.lateEarlyHours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.lateEarlyAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">&nbsp;Phạt nghỉ không phép</td>
-                  <td className="py-0.5 px-2 border-r border-black text-right font-mono">
+                  <td className="py-0.5 px-2 border-r border-black text-right tabular-nums">
                     {fmtQty(data.unexcusedFineHours)}
                   </td>
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.unexcusedFineAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Làm mất, rách đồng phục</td>
                   <td className="py-0.5 px-2 border-r border-black text-right" />
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.uniformDeductionAmount)}
                   </td>
                 </tr>
                 <tr className="border-b border-black">
                   <td className="py-0.5 px-2 border-r border-black">Vi phạm hợp đồng</td>
                   <td className="py-0.5 px-2 border-r border-black text-right" />
-                  <td className="py-0.5 px-2 text-right font-mono">
+                  <td className="py-0.5 px-2 text-right tabular-nums">
                     {fmtAmt(data.contractViolationAmount)}
                   </td>
                 </tr>
@@ -519,7 +519,7 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                     V/ THỰC LĨNH ( V = I - II - III - IV )
                   </td>
                   <td className="py-1.5 px-2 border-r border-black text-right" />
-                  <td className="py-1.5 px-2 text-right font-mono text-[13px] text-emerald-900">
+                  <td className="py-1.5 px-2 text-right tabular-nums text-[13px] text-emerald-900">
                     {fmtAmt(data.netSalaryAmount)}
                   </td>
                 </tr>
@@ -528,7 +528,7 @@ export const SalarySlipModal: React.FC<SalarySlipModalProps> = ({ data, onClose 
                 <tr className="border-b border-black font-bold">
                   <td className="py-1 px-2 border-r border-black">Công tác</td>
                   <td className="py-1 px-2 border-r border-black text-right" />
-                  <td className="py-1 px-2 text-right font-mono">
+                  <td className="py-1 px-2 text-right tabular-nums">
                     {fmtAmt(data.businessTripAmount)}
                   </td>
                 </tr>
