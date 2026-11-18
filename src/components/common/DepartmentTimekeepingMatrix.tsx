@@ -38,6 +38,7 @@ import {
   saveDepartmentMatrix,
   isDayBeforeJoinDate,
   applyJoinDateAndLockRules,
+  MATRIX_UPDATED_EVENT,
 } from '../../lib/matrixTimekeeping';
 
 interface DepartmentTimekeepingMatrixProps {
@@ -172,6 +173,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     return {};
   });
 
+  const skipNextMatrixEventRef = useRef(false);
+
   // Initialize / Load matrix data on month/year/staff change
   useEffect(() => {
     const { matrix, holidays } = loadOrInitDepartmentMatrix(
@@ -185,6 +188,37 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     setMatrixData(matrix);
   }, [storageKey, targetStaff, selectedYear, selectedMonth, department]);
 
+  // Reload if updated externally (e.g. edited from HRTimekeeping or restored from cloud sync)
+  useEffect(() => {
+    const onExternalMatrixUpdate = (ev: Event) => {
+      if (skipNextMatrixEventRef.current) {
+        skipNextMatrixEventRef.current = false;
+        return;
+      }
+      const detail = (ev as CustomEvent<{ department?: string; year?: number; month?: number }>)?.detail;
+      if (
+        detail &&
+        detail.year === selectedYear &&
+        detail.month === selectedMonth &&
+        (!detail.department ||
+          detail.department.toLowerCase() === department.toLowerCase() ||
+          detail.department.toLowerCase() === 'multi')
+      ) {
+        const { matrix, holidays } = loadOrInitDepartmentMatrix(
+          department,
+          selectedYear,
+          selectedMonth,
+          targetStaff,
+          false
+        );
+        setHolidayDays(holidays);
+        setMatrixData(matrix);
+      }
+    };
+    window.addEventListener(MATRIX_UPDATED_EVENT, onExternalMatrixUpdate);
+    return () => window.removeEventListener(MATRIX_UPDATED_EVENT, onExternalMatrixUpdate);
+  }, [department, selectedYear, selectedMonth, targetStaff]);
+
   const showToast = (msg: string) => {
     setSaveToast(msg);
     setTimeout(() => setSaveToast(null), 3200);
@@ -195,6 +229,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     nextMatrix: Record<string, MatrixEmployeeTimekeeping>,
     nextHolidays: Record<number, boolean>
   ) => {
+    skipNextMatrixEventRef.current = true;
     saveDepartmentMatrix(department, selectedYear, selectedMonth, nextMatrix, nextHolidays, true);
   };
 

@@ -671,6 +671,7 @@ export default function App() {
             attendanceRequests={attendanceRequests}
             onUpdateRequest={setAttendanceRequests}
             attendanceHistory={attendanceHistory}
+            onViewProfile={setViewingProfileStaff}
           />
         );
       case 'hr_matrix_timekeeping':

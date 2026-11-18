@@ -552,6 +552,268 @@ export function getEmployeeProfileMatrixData(
   };
 }
 
+function parseHhMmToMins(t?: string): number | null {
+  if (!t) return null;
+  const m = t.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (isNaN(h) || isNaN(min) || h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
+export function calculateMatrixDayHoursFromTimes(
+  inTime: string,
+  outTime: string,
+  shift: 'DAY' | 'NIGHT',
+  isSunday: boolean,
+  isHoliday: boolean
+): {
+  regularHours: number;
+  otDayHours: number;
+  otNightHours: number;
+  otSundayHours: number;
+  otSundayNightHours: number;
+  otHolidayHours: number;
+  otHolidayNightHours: number;
+  totalOtHours: number;
+  suggestedStatus: AttendanceStatus;
+} {
+  const inM = parseHhMmToMins(inTime);
+  const outM = parseHhMmToMins(outTime);
+
+  if (inM === null || outM === null) {
+    return {
+      regularHours: 0,
+      otDayHours: 0,
+      otNightHours: 0,
+      otSundayHours: 0,
+      otSundayNightHours: 0,
+      otHolidayHours: 0,
+      otHolidayNightHours: 0,
+      totalOtHours: 0,
+      suggestedStatus: isHoliday ? 'Nghỉ lễ' : isSunday ? 'Nghỉ chủ nhật' : 'Nghỉ phép',
+    };
+  }
+
+  let workedMins = 0;
+  if (shift === 'NIGHT') {
+    const adjustedOut = outM <= inM ? outM + 24 * 60 : outM;
+    let span = adjustedOut - inM;
+    // Trừ 60 phút nghỉ giữa ca đêm (20:00 -> 05:00 = 8h, 20:00 -> 08:00 = 11h)
+    if (span >= 6 * 60 && inM <= 23 * 60 && adjustedOut >= 25 * 60) {
+      span -= 60;
+    }
+    workedMins = Math.max(0, span);
+  } else {
+    let span = outM > inM ? outM - inM : 0;
+    // Trừ 60 phút nghỉ trưa (12:00 - 13:00)
+    if (inM < 12 * 60 && outM > 13 * 60) {
+      span -= 60;
+    }
+    workedMins = Math.max(0, span);
+  }
+
+  const totalHours = Math.round((workedMins / 60) * 10) / 10;
+
+  let regularHours = 0;
+  let otDayHours = 0;
+  let otNightHours = 0;
+  let otSundayHours = 0;
+  let otSundayNightHours = 0;
+  let otHolidayHours = 0;
+  let otHolidayNightHours = 0;
+
+  if (isHoliday) {
+    if (shift === 'NIGHT') otHolidayNightHours = totalHours;
+    else otHolidayHours = totalHours;
+  } else if (isSunday) {
+    if (shift === 'NIGHT') otSundayNightHours = totalHours;
+    else otSundayHours = totalHours;
+  } else {
+    regularHours = Math.min(8, totalHours);
+    const ot = Math.max(0, Math.round((totalHours - regularHours) * 10) / 10);
+    if (shift === 'NIGHT') otNightHours = ot;
+    else otDayHours = ot;
+  }
+
+  let suggestedStatus: AttendanceStatus = 'Đúng giờ';
+  if (shift === 'NIGHT') {
+    const adjustedOut = outM <= inM ? outM + 24 * 60 : outM;
+    if (inM > 20 * 60) suggestedStatus = 'Đi muộn';
+    else if (adjustedOut < 29 * 60) suggestedStatus = 'Về sớm'; // < 05:00
+  } else {
+    if (inM > 8 * 60) suggestedStatus = 'Đi muộn';
+    else if (outM < 17 * 60) suggestedStatus = 'Về sớm';
+  }
+
+  const totalOtHours = Math.round(
+    (otDayHours +
+      otNightHours +
+      otSundayHours +
+      otSundayNightHours +
+      otHolidayHours +
+      otHolidayNightHours) *
+      10
+  ) / 10;
+
+  return {
+    regularHours,
+    otDayHours,
+    otNightHours,
+    otSundayHours,
+    otSundayNightHours,
+    otHolidayHours,
+    otHolidayNightHours,
+    totalOtHours,
+    suggestedStatus,
+  };
+}
+
+export function updateEmployeeMatrixDayEntry(params: {
+  staff: StaffRecord;
+  allStaff: StaffRecord[];
+  year: number;
+  month: number;
+  day: number;
+  entryPatch: Partial<MatrixDayTimeEntry>;
+}): { ok: boolean; error?: string; sourceDepartment?: string } {
+  const { staff, allStaff, year, month, day, entryPatch } = params;
+
+  if (isDayBeforeJoinDate(year, month, day, staff.dateJoined)) {
+    return {
+      ok: false,
+      error: `Nhân viên ${staff.fullName} chưa vào làm vào ngày ${day}/${month} (${staff.dateJoined}).`,
+    };
+  }
+
+  const normalizedDept = (staff.department || 'MULTI').trim().toLowerCase();
+  const deptCandidates =
+    normalizedDept === 'multi'
+      ? ['multi', 'all', 'hr']
+      : Array.from(new Set(['multi', normalizedDept, 'all', 'hr']));
+
+  const existingDepts: string[] = [];
+  for (const deptKey of deptCandidates) {
+    try {
+      const raw = localStorage.getItem(getMatrixStorageKey(deptKey, year, month));
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as Record<string, MatrixEmployeeTimekeeping>;
+      if (parsed && findEmployeeKey(parsed, staff.employeeId)) {
+        existingDepts.push(deptKey);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const targetDepts =
+    existingDepts.length > 0
+      ? existingDepts
+      : [normalizedDept === 'multi' ? 'multi' : 'all'];
+
+  let blockedError: string | undefined;
+  let updatedCount = 0;
+  let lastSavedDept = '';
+
+  targetDepts.forEach((deptKey) => {
+    const deptUpper = deptKey.toUpperCase();
+    const targetDeptStaff =
+      deptUpper === 'MULTI'
+        ? allStaff.filter((s) => (s.department || 'MULTI').trim().toUpperCase() === 'MULTI')
+        : deptUpper === 'ALL' || deptUpper === 'HR'
+        ? allStaff
+        : allStaff.filter((s) => (s.department || '').trim().toUpperCase() === deptUpper);
+
+    const effectiveStaffList =
+      targetDeptStaff.some(
+        (s) => s.employeeId.trim().toLowerCase() === staff.employeeId.trim().toLowerCase()
+      )
+        ? targetDeptStaff
+        : [...targetDeptStaff, staff];
+
+    const { matrix, holidays } = loadOrInitDepartmentMatrix(
+      deptUpper,
+      year,
+      month,
+      effectiveStaffList,
+      false
+    );
+
+    const empKey = findEmployeeKey(matrix, staff.employeeId) || staff.employeeId;
+    const empRecord = matrix[empKey];
+    if (!empRecord) return;
+
+    if (empRecord.isLocked) {
+      if (empRecord.lockedDay === undefined || day >= empRecord.lockedDay) {
+        blockedError =
+          empRecord.lockedDay !== undefined
+            ? `Nhân viên ${staff.fullName} đã nghỉ việc từ ngày ${empRecord.lockedDay}. Không thể sửa giờ bảng công.`
+            : `Nhân viên ${staff.fullName} đang bị khóa chấm công trong tháng này.`;
+        return;
+      }
+    }
+
+    const isSunday = new Date(year, month - 1, day).getDay() === 0;
+    const existingEntry: MatrixDayTimeEntry = empRecord.days?.[day] || {
+      day,
+      shift: staff.shift || 'DAY',
+      regularHours: 0,
+      otDayHours: 0,
+      otNightHours: 0,
+      otSundayHours: 0,
+      otSundayNightHours: 0,
+      otHolidayHours: 0,
+      otHolidayNightHours: 0,
+      isHoliday: Boolean(holidays[day]),
+      status: holidays[day] ? 'Nghỉ lễ' : isSunday ? 'Nghỉ chủ nhật' : 'Đúng giờ',
+    };
+
+    const mergedEntry: MatrixDayTimeEntry = {
+      ...existingEntry,
+      ...entryPatch,
+      day,
+    };
+
+    const rawDays = {
+      ...(empRecord.days || {}),
+      [day]: mergedEntry,
+    };
+
+    const appliedDays = applyJoinDateAndLockRules(
+      rawDays,
+      staff,
+      year,
+      month,
+      empRecord.isLocked,
+      empRecord.lockedDay
+    );
+    const totals = recalculateStaffTotals(appliedDays);
+
+    const nextMatrix: Record<string, MatrixEmployeeTimekeeping> = {
+      ...matrix,
+      [empKey]: {
+        ...empRecord,
+        days: appliedDays,
+        ...totals,
+      },
+    };
+
+    saveDepartmentMatrix(deptUpper, year, month, nextMatrix, holidays, true);
+    updatedCount += 1;
+    lastSavedDept = deptUpper;
+  });
+
+  if (updatedCount === 0) {
+    return {
+      ok: false,
+      error: blockedError || `Không tìm thấy dữ liệu bảng công của ${staff.fullName}.`,
+    };
+  }
+
+  return { ok: true, sourceDepartment: lastSavedDept };
+}
+
 export function getAllStoredMatrixSnapshots(): Record<string, string> {
   const snapshots: Record<string, string> = {};
   try {
@@ -561,7 +823,8 @@ export function getAllStoredMatrixSnapshots(): Record<string, string> {
         key &&
         (key.startsWith('app_matrix_timekeeping_') ||
           key.startsWith('app_matrix_holidays_') ||
-          key.startsWith('app_matrix_meta_'))
+          key.startsWith('app_matrix_meta_') ||
+          key.startsWith('app_timekeeping_machine_swipes_'))
       ) {
         const val = localStorage.getItem(key);
         if (val !== null) snapshots[key] = val;
@@ -580,7 +843,8 @@ export function restoreStoredMatrixSnapshots(snapshots: Record<string, string> |
       if (
         (key.startsWith('app_matrix_timekeeping_') ||
           key.startsWith('app_matrix_holidays_') ||
-          key.startsWith('app_matrix_meta_')) &&
+          key.startsWith('app_matrix_meta_') ||
+          key.startsWith('app_timekeeping_machine_swipes_')) &&
         typeof val === 'string'
       ) {
         localStorage.setItem(key, val);

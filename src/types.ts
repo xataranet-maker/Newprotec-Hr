@@ -494,6 +494,25 @@ export interface TimekeepingRecord {
     temperature?: number;
     abnormal?: string;
     calculatedShift?: 'DAY' | 'NIGHT';
+    rawInTime?: string;
+    rawOutTime?: string;
+    inTime?: string;
+    outTime?: string;
+    otHours?: number;
+}
+
+export interface MachineSwipeRecord {
+    id: string; // `${employeeId}_${date}`
+    employeeId: string;
+    fullName?: string;
+    department?: string;
+    date: string; // "DD/MM/YYYY" or "YYYY-MM-DD"
+    rawInTime?: string;
+    rawOutTime?: string;
+    inTime?: string;
+    outTime?: string;
+    otHours?: number;
+    note?: string;
 }
 
 export interface AssetRecord {
