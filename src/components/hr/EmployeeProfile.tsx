@@ -12,12 +12,17 @@ import {
   AttendanceConfirmationRecord,
   EmployeeSalaryConfig,
   LeaveRegistrationRecord,
+  MachineSwipeRecord,
+  AttendanceStatus,
 } from '../../types';
 import {
   MATRIX_UPDATED_EVENT,
   getEmployeeProfileMatrixData,
   hasMatrixRealData,
   isDayBeforeJoinDate,
+  updateEmployeeMatrixDayEntry,
+  calculateMatrixDayHoursFromTimes,
+  dispatchMatrixUpdatedEvent,
 } from '../../lib/matrixTimekeeping';
 import {
   SALARY_NUMERIC_FIELDS,
@@ -39,6 +44,17 @@ import {
   getMonthKeyFromDate,
 } from './AbnormalAttendanceFormNPTFM008';
 import {
+  getMachineSwipeStorageKey,
+  calculateMachineTimes,
+  ComparisonRow,
+  DiscrepancyType,
+  normalizeTimeString,
+  timeToMinutes,
+  formatMinutes,
+  buildComparisonRowForEmployeeDay,
+  VI_DAYS,
+} from './HRTimekeeping';
+import {
   Briefcase,
   Phone,
   MapPin,
@@ -57,13 +73,18 @@ import {
   Hash,
   CalendarCheck,
   AlertCircle,
+  AlertTriangle,
   Lock,
   Printer,
+  Calendar,
+  Check,
+  RotateCcw,
 } from 'lucide-react';
 
 export interface EmployeeProfileProps {
   currentUser: UserAccount;
   staffInfo?: StaffRecord;
+  allStaff?: StaffRecord[];
   contracts: ContractRecord[];
   salarySlips: SalarySlipRecord[];
   payrollRecords: PayrollRecord[];
@@ -99,6 +120,7 @@ const PROFILE_TABS: { id: ProfileTab; label: string }[] = [
 export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   currentUser,
   staffInfo,
+  allStaff = [],
   contracts,
   salarySlips,
   payrollRecords,
@@ -182,6 +204,19 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       },
     [staffInfo, empId, empName, empDept, empPosition]
   );
+
+  const resolvedStaff: StaffRecord = useMemo(() => {
+    if (staffInfo) return staffInfo;
+    if (allStaff && allStaff.length > 0) {
+      const found = allStaff.find(
+        (s) =>
+          s.employeeId.trim().toLowerCase() === empId.trim().toLowerCase() ||
+          s.fullName.trim().toLowerCase() === empName.trim().toLowerCase()
+      );
+      if (found) return found;
+    }
+    return resolvedEmployeeForLeave;
+  }, [staffInfo, allStaff, empId, empName, resolvedEmployeeForLeave]);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -441,7 +476,174 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   );
 
   const myContracts = contracts.filter((c) => c.employeeId === empId);
-  const myRequests = attendanceRequests.filter((r) => r.employeeId === empId);
+  const myRequests = attendanceRequests.filter(
+    (r) => r.employeeId.trim().toLowerCase() === normalizedEmpId
+  );
+
+  // Machine Swipes records for selectedYear / selectedMonth
+  const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
+  const [swipeRecords, setSwipeRecords] = useState<Record<string, MachineSwipeRecord>>(() => {
+    try {
+      const saved = localStorage.getItem(swipeStorageKey);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(swipeStorageKey);
+      if (saved) {
+        setSwipeRecords(JSON.parse(saved));
+        return;
+      }
+    } catch {}
+    setSwipeRecords({});
+  }, [swipeStorageKey, matrixRefreshTick]);
+
+  const saveSwipes = (next: Record<string, MachineSwipeRecord>) => {
+    setSwipeRecords(next);
+    try {
+      localStorage.setItem(swipeStorageKey, JSON.stringify(next));
+      dispatchMatrixUpdatedEvent(empDept, selectedYear, selectedMonth);
+    } catch (e) {
+      console.error('Save swipes error', e);
+    }
+  };
+
+  // Day-by-day comparison rows between Bảng Chấm Công (BC) and Máy Quẹt Thẻ (MQT)
+  const comparisonRows = useMemo<ComparisonRow[]>(() => {
+    const rows: ComparisonRow[] = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      const swipeKey = `${resolvedStaff.employeeId.trim().toLowerCase()}_${day}`;
+      const swipeRec = swipeRecords[swipeKey];
+      const bcEntry = empMatrixDays[day];
+
+      const row = buildComparisonRowForEmployeeDay({
+        staff: resolvedStaff,
+        day,
+        selectedYear,
+        selectedMonth,
+        bcEntry,
+        holidayMap,
+        swipeRecord: swipeRec,
+      });
+      rows.push(row);
+    }
+    return rows;
+  }, [resolvedStaff, daysInMonth, selectedYear, selectedMonth, empMatrixDays, holidayMap, swipeRecords]);
+
+  // Filter ONLY abnormal / missing days per user requirement:
+  // "chỉ xuất hiện những ngày thiếu giờ vào hoặc giờ ra và sai dữ liệu giờ vào hoặc giờ ra của bảng chấm công"
+  const abnormalComparisonDays = useMemo<ComparisonRow[]>(() => {
+    return comparisonRows.filter((r) => {
+      if (r.discrepancyType === 'MATCH' || r.discrepancyType === 'OFF_DAY_MATCH') {
+        if (r.hasBcWork && (!r.bcInTime || !r.bcOutTime)) {
+          return true;
+        }
+        return false;
+      }
+      return true;
+    });
+  }, [comparisonRows]);
+
+  // State: Edit Bảng Chấm Công (BC)
+  const [editingBcDay, setEditingBcDay] = useState<ComparisonRow | null>(null);
+  const [editBcInTime, setEditBcInTime] = useState('');
+  const [editBcOutTime, setEditBcOutTime] = useState('');
+  const [editBcShift, setEditBcShift] = useState<'DAY' | 'NIGHT'>('DAY');
+  const [editBcRegularHours, setEditBcRegularHours] = useState<number>(8);
+  const [editBcOtHours, setEditBcOtHours] = useState<number>(0);
+  const [editBcStatus, setEditBcStatus] = useState<AttendanceStatus>('Đúng giờ');
+
+  // State: Explain modal (Phiếu NPT-FM-008)
+  const [explainingRow, setExplainingRow] = useState<ComparisonRow | null>(null);
+  const [showManualRequestForm, setShowManualRequestForm] = useState(false);
+
+  const openEditBc = (row: ComparisonRow) => {
+    setEditingBcDay(row);
+    setEditBcInTime(row.bcInTime || '');
+    setEditBcOutTime(row.bcOutTime || '');
+    setEditBcShift(row.shift);
+    setEditBcRegularHours(row.bcRegularHours || 0);
+    setEditBcOtHours(row.bcOtHours || 0);
+    setEditBcStatus(
+      (row.bcStatus as AttendanceStatus) ||
+        (row.isHoliday ? 'Nghỉ lễ' : row.isSunday ? 'Nghỉ chủ nhật' : 'Đúng giờ')
+    );
+  };
+
+  const applyBcPreset = (
+    inVal: string,
+    outVal: string,
+    shiftVal: 'DAY' | 'NIGHT'
+  ) => {
+    if (!editingBcDay) return;
+    setEditBcInTime(inVal);
+    setEditBcOutTime(outVal);
+    setEditBcShift(shiftVal);
+    const calc = calculateMatrixDayHoursFromTimes(
+      normalizeTimeString(inVal),
+      normalizeTimeString(outVal),
+      shiftVal,
+      editingBcDay.isSunday,
+      editingBcDay.isHoliday
+    );
+    setEditBcRegularHours(calc.regularHours);
+    setEditBcOtHours(calc.totalOtHours);
+    setEditBcStatus(calc.suggestedStatus);
+  };
+
+  const handleSaveBcEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBcDay) return;
+
+    const normIn = normalizeTimeString(editBcInTime);
+    const normOut = normalizeTimeString(editBcOutTime);
+    const regHours = Math.max(0, Math.min(8, Number(editBcRegularHours) || 0));
+    const otHours = Math.max(0, Math.round((Number(editBcOtHours) || 0) * 10) / 10);
+
+    const res = updateEmployeeMatrixDayEntry({
+      staff: resolvedStaff,
+      allStaff: allStaff && allStaff.length > 0 ? allStaff : [resolvedStaff],
+      year: selectedYear,
+      month: selectedMonth,
+      day: editingBcDay.day,
+      entryPatch: {
+        inTime: normIn,
+        outTime: normOut,
+        shift: editBcShift,
+        regularHours: editingBcDay.isHoliday || editingBcDay.isSunday ? 0 : regHours,
+        otDayHours: !editingBcDay.isHoliday && !editingBcDay.isSunday && editBcShift === 'DAY' ? otHours : 0,
+        otNightHours: !editingBcDay.isHoliday && !editingBcDay.isSunday && editBcShift === 'NIGHT' ? otHours : 0,
+        otSundayHours: !editingBcDay.isHoliday && editingBcDay.isSunday && editBcShift === 'DAY' ? otHours : 0,
+        otSundayNightHours: !editingBcDay.isHoliday && editingBcDay.isSunday && editBcShift === 'NIGHT' ? otHours : 0,
+        otHolidayHours: editingBcDay.isHoliday && editBcShift === 'DAY' ? otHours : 0,
+        otHolidayNightHours: editingBcDay.isHoliday && editBcShift === 'NIGHT' ? otHours : 0,
+        isHoliday: editingBcDay.isHoliday,
+        status: editBcStatus,
+      },
+    });
+
+    if (!res.ok) {
+      showToast(res.error || 'Không thể cập nhật bảng chấm công.');
+      return;
+    }
+
+    setMatrixRefreshTick((t) => t + 1);
+    setEditingBcDay(null);
+    showToast(
+      `Đã cập nhật giờ Bảng công ngày ${editingBcDay.dateStr} (${normIn || '--:--'} - ${normOut || '--:--'}) thành công!`
+    );
+  };
+
+  const findExistingRequest = (row: ComparisonRow) => {
+    return myRequests.find((r) => {
+      const matchEmp = r.employeeId.trim().toLowerCase() === normalizedEmpId;
+      const matchDate = r.date === row.dateIso || r.date === row.dateStr;
+      return matchEmp && matchDate;
+    });
+  };
   const handleConfirmMonthAttendance = () => {
     const existingIdx = attendanceConfirmations.findIndex(
       (c) => c.employeeId.trim().toLowerCase() === normalizedEmpId && c.month === monthKey
@@ -844,9 +1046,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                           <td className="py-2.5 px-3 text-center text-orange-400 font-bold">
                             {row.otHolidayNight > 0 ? `+${row.otHolidayNight}h` : '-'}
                           </td>
-                          <td className="py-2.5 px-3 text-center font-sans">
+                          <td className="py-2.5 px-3 text-center font-sans whitespace-nowrap">
                             <span
-                              className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                              className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-semibold border whitespace-nowrap ${
                                 row.statusTone === 'ot'
                                   ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/40'
                                   : row.statusTone === 'full'
@@ -865,7 +1067,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                               {row.statusLabel}
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-right font-sans">
+                          <td className="py-2.5 px-3 text-right font-sans whitespace-nowrap">
                             <button
                               type="button"
                               onClick={() => {
@@ -878,7 +1080,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                                 setOutTime(missingOut ? defOut : missingIn ? '' : row.outTime);
                                 setActiveTab('confirm');
                               }}
-                              className="text-[10px] text-slate-400 hover:text-cyan-300 underline cursor-pointer"
+                              className="text-[10px] text-slate-400 hover:text-cyan-300 underline cursor-pointer whitespace-nowrap"
                             >
                               Giải trình
                             </button>
@@ -927,178 +1129,781 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <form
-                  onSubmit={handleSendRequest}
-                  className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-3"
-                >
-                  <h3 className="font-bold text-sm text-white pb-2 border-b border-slate-800">
-                    Gửi Giải Trình Quên Quẹt Thẻ / Sai Công
-                  </h3>
-                  <div>
-                    <label className="block text-slate-400 mb-1">Ngày cần giải trình</label>
-                    <input
-                      type="date"
-                      value={reqDate}
-                      onChange={(e) => setReqDate(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono"
-                      required
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
+              {/* BẢNG ĐỐI SOÁT CÔNG BẤT THƯỜNG / THIẾU GIỜ (ÁP DỤNG THEO TAB DỮ LIỆU CÔNG) */}
+              <div className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
                     <div>
-                      <label className="block text-slate-400 mb-1">Giờ vào thực tế</label>
-                      <input
-                        type="time"
-                        value={inTime}
-                        onChange={(e) => setInTime(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Giờ ra thực tế</label>
-                      <input
-                        type="time"
-                        value={outTime}
-                        onChange={(e) => setOutTime(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono"
-                      />
+                      <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                        <span>Bảng Đối Soát Công Bất Thường &amp; Thiếu Giờ (Tháng {selectedMonth}/{selectedYear})</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                          abnormalComparisonDays.length > 0
+                            ? 'bg-amber-950/80 text-amber-300 border-amber-500/50'
+                            : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50'
+                        }`}>
+                          {abnormalComparisonDays.length} ngày phát sinh
+                        </span>
+                      </h3>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Áp dụng theo tab Dữ liệu công: chỉ xuất hiện những ngày thiếu giờ vào hoặc giờ ra và sai dữ liệu giờ vào hoặc giờ ra của bảng chấm công.
+                      </p>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">Phân loại lỗi (Phiếu NPT-FM-008)</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setReqCategory('PERSONAL')}
-                        className={`py-1.5 px-2.5 rounded-lg border text-[11px] font-semibold cursor-pointer ${
-                          reqCategory === 'PERSONAL'
-                            ? 'bg-cyan-600/80 border-cyan-400 text-white'
-                            : 'bg-slate-950 border-slate-800 text-slate-300'
-                        }`}
-                      >
-                        Lỗi cá nhân / 개인 실수
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setReqCategory('SYSTEM')}
-                        className={`py-1.5 px-2.5 rounded-lg border text-[11px] font-semibold cursor-pointer ${
-                          reqCategory === 'SYSTEM'
-                            ? 'bg-amber-600/80 border-amber-400 text-white'
-                            : 'bg-slate-950 border-slate-800 text-slate-300'
-                        }`}
-                      >
-                        Lỗi hệ thống / 시스템 오류
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">Lý do giải trình</label>
-                    <textarea
-                      rows={3}
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                      placeholder="Ví dụ: Quên quẹt thẻ vào ca, trực máy..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200"
-                      required
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setViewingAbnormalReq({
-                          id: Date.now(),
-                          employeeId: empId,
-                          fullName: empName,
-                          department: empDept,
-                          date: reqDate,
-                          inTime,
-                          outTime,
-                          reason: reason.trim() || 'Xác nhận chấm công bất thường',
-                          status: 'PENDING',
-                          requestDate: new Date().toLocaleDateString('vi-VN'),
-                          checkInChecked: Boolean(inTime),
-                          checkOutChecked: Boolean(outTime),
-                          reasonCategory: reqCategory,
-                          monthlyCount:
-                            myRequests.filter(
-                              (r) => getMonthKeyFromDate(r.date) === getMonthKeyFromDate(reqDate)
-                            ).length + 1,
-                        })
-                      }
-                      className="py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Printer className="w-3.5 h-3.5" />
-                      <span>Xem / In NPT-FM-008</span>
-                    </button>
-                    <button
-                      type="submit"
-                      className="py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Gửi Giải Trình</span>
-                    </button>
-                  </div>
-                </form>
 
-                <div className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-3">
-                  <h3 className="font-bold text-sm text-white pb-2 border-b border-slate-800">
-                    Lịch Sử Giải Trình &amp; Quẹt Thẻ ({myRequests.length + myTimekeeping.length})
-                  </h3>
-                  <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar">
-                    {myRequests.length === 0 && myTimekeeping.length === 0 ? (
-                      <div className="py-10 text-center text-slate-500">
-                        Chưa có đơn giải trình hoặc dữ liệu quẹt thẻ phát sinh.
-                      </div>
-                    ) : (
-                      <>
-                        {myRequests.map((r) => (
-                          <div key={r.id} className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1.5">
-                            <div className="flex justify-between items-center gap-2">
-                              <span className="font-bold text-slate-200 font-mono">{r.date}</span>
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => setViewingAbnormalReq(r)}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-600/40 text-cyan-300 text-[10px] font-semibold cursor-pointer"
-                                >
-                                  <Printer className="w-3 h-3" />
-                                  <span>In NPT-FM-008</span>
-                                </button>
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-mono ${
-                                    r.status === 'APPROVED'
-                                      ? 'bg-emerald-950 text-emerald-400'
-                                      : 'bg-amber-950 text-amber-400'
-                                  }`}
-                                >
-                                  {r.status}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="text-slate-400 font-mono text-[11px]">
-                              Vào: {r.inTime || '—'} · Ra: {r.outTime || '—'}
-                            </div>
-                            <p className="text-slate-300">{r.reason}</p>
-                          </div>
-                        ))}
-                        {myTimekeeping.map((t) => (
-                          <div key={t.id} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex justify-between items-center">
-                            <div>
-                              <div className="font-semibold text-slate-200">{t.date}</div>
-                              <div className="text-[10px] text-slate-400 font-mono">Giờ quẹt: {t.time}</div>
-                            </div>
-                            <span className="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 text-[10px]">
-                              {t.attendanceStatus}
-                            </span>
-                          </div>
-                        ))}
-                      </>
-                    )}
+                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                    <span className="text-[11px] text-slate-400">
+                      Nhân viên: <strong className="text-white">{resolvedStaff.fullName}</strong> ({resolvedStaff.employeeId})
+                    </span>
                   </div>
                 </div>
+
+                {abnormalComparisonDays.length === 0 ? (
+                  <div className="p-8 rounded-xl bg-emerald-950/20 border border-emerald-600/40 text-center space-y-2">
+                    <div className="w-12 h-12 rounded-full bg-emerald-900/60 border border-emerald-500/50 flex items-center justify-center mx-auto text-emerald-300">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-emerald-300 uppercase">
+                      Dữ Liệu Công Tháng {selectedMonth}/{selectedYear} Khớp Chuẩn 100%
+                    </h4>
+                    <p className="text-xs text-slate-300 max-w-lg mx-auto">
+                      Không có ngày nào thiếu giờ vào/ra hoặc sai lệch dữ liệu giữa Bảng chấm công và Máy quẹt thẻ.
+                      Bạn có thể yên tâm bấm nút &quot;Xác Nhận Đủ Công&quot; phía trên.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="w-full overflow-x-auto custom-scrollbar rounded-lg border border-slate-800/80">
+                    <table className="w-full min-w-[1560px] text-left border-collapse text-xs whitespace-nowrap">
+                      <thead className="bg-slate-950/90 text-[10px] uppercase tracking-wider text-slate-300 font-semibold">
+                        <tr className="border-b border-slate-800">
+                          <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-800 min-w-[120px] whitespace-nowrap">
+                            Ngày
+                          </th>
+                          <th rowSpan={2} className="py-2.5 px-2.5 text-center border-r border-slate-800 min-w-[55px] whitespace-nowrap">
+                            Thứ
+                          </th>
+                          <th rowSpan={2} className="py-2.5 px-3 text-center border-r border-slate-800 min-w-[95px] whitespace-nowrap">
+                            Ca Làm Việc
+                          </th>
+                          <th
+                            colSpan={3}
+                            className="py-1.5 px-3 text-center border-r border-slate-800 bg-amber-950/35 text-amber-300 font-bold border-b border-amber-800/40 whitespace-nowrap"
+                          >
+                            1. BẢNG CHẤM CÔNG (BC)
+                          </th>
+                          <th
+                            colSpan={3}
+                            className="py-1.5 px-3 text-center border-r border-slate-800 bg-blue-950/35 text-blue-300 font-bold border-b border-blue-800/40 whitespace-nowrap"
+                          >
+                            2. MÁY QUẸT THẺ (MQT)
+                          </th>
+                          <th rowSpan={2} className="py-2.5 px-3 text-center border-r border-slate-800 min-w-[140px] text-white font-bold whitespace-nowrap">
+                            Trạng Thái Thiếu Giờ
+                          </th>
+                          <th rowSpan={2} className="py-2.5 px-4 border-r border-slate-800 min-w-[360px] text-white font-bold whitespace-nowrap">
+                            Chi Tiết Sai Lệch
+                          </th>
+                          <th rowSpan={2} className="py-2.5 px-3 text-right min-w-[200px] whitespace-nowrap">
+                            Thao Tác / Giải Trình
+                          </th>
+                        </tr>
+                        <tr className="border-b border-slate-800 text-[10px] text-slate-400">
+                          <th className="py-2 px-3 text-center border-r border-slate-800 bg-amber-950/15 text-amber-300 min-w-[95px] whitespace-nowrap">
+                            Giờ Vào (BC)
+                          </th>
+                          <th className="py-2 px-3 text-center border-r border-slate-800 bg-amber-950/15 text-amber-300 min-w-[95px] whitespace-nowrap">
+                            Giờ Ra (BC)
+                          </th>
+                          <th className="py-2 px-3 text-center border-r border-slate-800 bg-amber-950/15 text-amber-400 font-bold min-w-[95px] whitespace-nowrap">
+                            Tăng Ca (BC)
+                          </th>
+                          <th className="py-2 px-3 text-center border-r border-slate-800 bg-blue-950/15 text-blue-300 min-w-[145px] whitespace-nowrap">
+                            Giờ Vào (MQT)
+                          </th>
+                          <th className="py-2 px-3 text-center border-r border-slate-800 bg-blue-950/15 text-blue-300 min-w-[145px] whitespace-nowrap">
+                            Giờ Ra (MQT)
+                          </th>
+                          <th className="py-2 px-3 text-center border-r border-slate-800 bg-blue-950/15 text-cyan-300 font-bold min-w-[100px] whitespace-nowrap">
+                            Tăng Ca (MQT)
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {abnormalComparisonDays.map((row) => {
+                          const existingReq = findExistingRequest(row);
+                          const isNight = row.shift === 'NIGHT';
+
+                          const t = row.discrepancyType;
+                          let badgeColor = 'bg-slate-900 text-slate-300 border-slate-700';
+                          if (t === 'MISSING_IN') badgeColor = 'bg-rose-950/80 text-rose-300 border-rose-500/50';
+                          else if (t === 'MISSING_OUT') badgeColor = 'bg-amber-950/80 text-amber-300 border-amber-500/50';
+                          else if (t === 'MISSING_BOTH') badgeColor = 'bg-red-950/80 text-red-300 border-red-500/50';
+                          else if (t === 'LATE_IN') badgeColor = 'bg-amber-950/70 text-amber-300 border-amber-500/40';
+                          else if (t === 'EARLY_OUT') badgeColor = 'bg-orange-950/70 text-orange-300 border-orange-500/40';
+                          else if (t === 'LATE_AND_EARLY') badgeColor = 'bg-rose-950/70 text-rose-300 border-rose-500/40';
+                          else if (t === 'OT_MISMATCH') badgeColor = 'bg-purple-950/70 text-purple-300 border-purple-500/40';
+                          else if (t === 'UNSCHEDULED_SWIPE') badgeColor = 'bg-sky-950/70 text-sky-300 border-sky-500/40';
+
+                          return (
+                            <tr key={row.rowId} className="hover:bg-slate-900/40 transition-colors">
+                              {/* 1. Ngày */}
+                              <td className="py-2.5 px-3 border-r border-slate-800/60 whitespace-nowrap">
+                                <div className="inline-flex items-center gap-1.5 font-bold text-white font-mono">
+                                  <span>{row.dateStr}</span>
+                                  {row.isHoliday && (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/30 font-sans">
+                                      Lễ
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* 2. Thứ */}
+                              <td className="py-2.5 px-2.5 text-center border-r border-slate-800/60 whitespace-nowrap">
+                                <span
+                                  className={`inline-block text-[11px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                                    row.isSunday
+                                      ? 'bg-red-950/80 text-red-300 border border-red-500/40'
+                                      : 'text-slate-300'
+                                  }`}
+                                >
+                                  {row.dayOfWeek}
+                                </span>
+                              </td>
+
+                              {/* 3. Ca làm việc */}
+                              <td className="py-2.5 px-3 text-center border-r border-slate-800/60 whitespace-nowrap">
+                                <span
+                                  className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                    isNight
+                                      ? 'bg-purple-950/80 text-purple-300 border border-purple-500/40'
+                                      : 'bg-amber-950/60 text-amber-300 border border-amber-500/40'
+                                  }`}
+                                >
+                                  {row.shiftLabel}
+                                </span>
+                              </td>
+
+                              {/* 4. Giờ Vào (BC) */}
+                              <td className="py-2.5 px-3 text-center font-mono border-r border-slate-800/60 bg-amber-950/5 whitespace-nowrap">
+                                {row.bcInTime ? (
+                                  <span className="font-semibold text-amber-200">{row.bcInTime}</span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded bg-rose-950/80 text-rose-300 border border-rose-500/40 text-[10px] font-sans font-bold">
+                                    Thiếu vào
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* 5. Giờ Ra (BC) */}
+                              <td className="py-2.5 px-3 text-center font-mono border-r border-slate-800/60 bg-amber-950/5 whitespace-nowrap">
+                                {row.bcOutTime ? (
+                                  <span className="font-semibold text-amber-200">{row.bcOutTime}</span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-500/40 text-[10px] font-sans font-bold">
+                                    Thiếu ra
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* 6. Tăng Ca (BC) */}
+                              <td className="py-2.5 px-3 text-center font-mono border-r border-slate-800/60 bg-amber-950/10 whitespace-nowrap">
+                                <strong className={row.bcOtHours > 0 ? 'text-amber-300' : 'text-slate-500'}>
+                                  {row.bcOtHours > 0 ? `+${row.bcOtHours}h` : '0h'}
+                                </strong>
+                              </td>
+
+                              {/* 7. Giờ Vào (MQT) */}
+                              <td className="py-2.5 px-3 text-center font-mono border-r border-slate-800/60 bg-blue-950/5 whitespace-nowrap">
+                                {row.mqtInTime ? (
+                                  <span className="inline-flex items-center gap-1">
+                                    <span
+                                      className={`font-semibold ${
+                                        row.isClampedIn ? 'text-cyan-300' : 'text-emerald-400'
+                                      }`}
+                                    >
+                                      {row.mqtInTime}
+                                    </span>
+                                    {row.isClampedIn && row.rawInTime && (
+                                      <span className="text-[10px] text-slate-400 font-sans">
+                                        (Gốc: <span className="font-mono text-slate-300">{row.rawInTime}</span>)
+                                      </span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded bg-rose-950/80 text-rose-300 border border-rose-500/40 text-[10px] font-sans font-bold">
+                                    Chưa quẹt vào
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* 8. Giờ Ra (MQT) */}
+                              <td className="py-2.5 px-3 text-center font-mono border-r border-slate-800/60 bg-blue-950/5 whitespace-nowrap">
+                                {row.mqtOutTime ? (
+                                  <span className="inline-flex items-center gap-1">
+                                    <span
+                                      className={`font-semibold ${
+                                        row.isClampedOut ? 'text-cyan-300' : 'text-emerald-400'
+                                      }`}
+                                    >
+                                      {row.mqtOutTime}
+                                    </span>
+                                    {row.isClampedOut && row.rawOutTime && (
+                                      <span className="text-[10px] text-slate-400 font-sans">
+                                        (Gốc: <span className="font-mono text-slate-300">{row.rawOutTime}</span>)
+                                      </span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-500/40 text-[10px] font-sans font-bold">
+                                    Chưa quẹt ra
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* 9. Tăng Ca (MQT) */}
+                              <td className="py-2.5 px-3 text-center font-mono border-r border-slate-800/60 bg-blue-950/10 whitespace-nowrap">
+                                <strong className={row.mqtOtHours > 0 ? 'text-emerald-400' : 'text-slate-500'}>
+                                  {row.mqtOtHours > 0 ? `+${row.mqtOtHours}h` : '0h'}
+                                </strong>
+                              </td>
+
+                              {/* 10. Trạng thái thiếu giờ */}
+                              <td className="py-2.5 px-3 text-center border-r border-slate-800/60 whitespace-nowrap">
+                                <span className={`inline-block px-2.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap ${badgeColor}`}>
+                                  {row.discrepancyLabel}
+                                </span>
+                              </td>
+
+                              {/* 11. Chi tiết sai lệch (trên 1 dòng) */}
+                              <td className="py-2.5 px-4 border-r border-slate-800/60 whitespace-nowrap">
+                                <span className="text-[11px] text-slate-300 font-sans">
+                                  {row.discrepancyDetail}
+                                </span>
+                              </td>
+
+                              {/* 12. Thao tác (trên 1 dòng) */}
+                              <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                <div className="inline-flex items-center justify-end gap-1.5 whitespace-nowrap">
+                                  {/* Sửa Bảng Công */}
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditBc(row)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 hover:text-cyan-200 text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap"
+                                    title="Sửa giờ vào hoặc giờ ra của Bảng Chấm Công"
+                                  >
+                                    <Edit3 className="w-3 h-3 shrink-0" />
+                                    <span>Sửa BC</span>
+                                  </button>
+
+                                  {/* Giải trình NPT-FM-008 hoặc Xem lại */}
+                                  {existingReq ? (
+                                    <div className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                      <span
+                                        className={`px-2 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap ${
+                                          existingReq.status === 'APPROVED'
+                                            ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                                            : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'
+                                        }`}
+                                      >
+                                        {existingReq.status === 'APPROVED' ? 'Đã duyệt' : 'Chờ duyệt'}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setViewingAbnormalReq(existingReq)}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap"
+                                        title="Xem & in lại phiếu NPT-FM-008"
+                                      >
+                                        <Printer className="w-3 h-3 shrink-0" />
+                                        <span>Xem / In lại</span>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setExplainingRow(row)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600/90 hover:bg-amber-500 border border-amber-400 text-white text-[11px] font-bold cursor-pointer transition-colors shadow-sm whitespace-nowrap"
+                                      title="Lập phiếu xác nhận công bất thường NPT-FM-008"
+                                    >
+                                      <FileText className="w-3 h-3 shrink-0" />
+                                      <span>Giải trình</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
+
+              {/* LỊCH SỬ PHIẾU GIẢI TRÌNH CÔNG BẤT THƯỜNG (MẪU NPT-FM-008) */}
+              <div className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-cyan-400" />
+                    <h3 className="font-bold text-sm text-white">
+                      Lịch Sử Giải Trình Chấm Công Bất Thường (Mẫu NPT-FM-008)
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-300 text-[10px] font-mono">
+                      {myRequests.length} phiếu
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualRequestForm(!showManualRequestForm)}
+                    className="text-[11px] text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                  >
+                    {showManualRequestForm ? 'Đóng form thủ công' : '+ Lập đơn giải trình ngày khác'}
+                  </button>
+                </div>
+
+                {/* Form giải trình thủ công (cho ngày khác ngoài danh sách) */}
+                {showManualRequestForm && (
+                  <form
+                    onSubmit={handleSendRequest}
+                    className="p-3 rounded-lg bg-slate-950 border border-cyan-500/30 space-y-3 mb-3 animate-fade-in"
+                  >
+                    <div className="font-bold text-xs text-cyan-300">
+                      Nộp phiếu giải trình thủ công (Ngày ngoài danh sách tự động)
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">Ngày cần giải trình</label>
+                        <input
+                          type="date"
+                          value={reqDate}
+                          onChange={(e) => setReqDate(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono text-xs"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">Giờ vào thực tế</label>
+                        <input
+                          type="time"
+                          value={inTime}
+                          onChange={(e) => setInTime(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">Giờ ra thực tế</label>
+                        <input
+                          type="time"
+                          value={outTime}
+                          onChange={(e) => setOutTime(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono text-xs"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">Phân loại lỗi</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setReqCategory('PERSONAL')}
+                            className={`py-1.5 px-2 rounded-lg border text-[11px] font-semibold cursor-pointer ${
+                              reqCategory === 'PERSONAL'
+                                ? 'bg-cyan-600/80 border-cyan-400 text-white'
+                                : 'bg-slate-900 border-slate-800 text-slate-400'
+                            }`}
+                          >
+                            Lỗi cá nhân
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReqCategory('SYSTEM')}
+                            className={`py-1.5 px-2 rounded-lg border text-[11px] font-semibold cursor-pointer ${
+                              reqCategory === 'SYSTEM'
+                                ? 'bg-amber-600/80 border-amber-400 text-white'
+                                : 'bg-slate-900 border-slate-800 text-slate-400'
+                            }`}
+                          >
+                            Lỗi hệ thống
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">Lý do giải trình</label>
+                        <input
+                          type="text"
+                          value={reason}
+                          onChange={(e) => setReason(e.target.value)}
+                          placeholder="Ví dụ: Quên quẹt thẻ vào ca..."
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowManualRequestForm(false)}
+                        className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold cursor-pointer"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold cursor-pointer"
+                      >
+                        Gửi Đơn Giải Trình
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
+                  {myRequests.length === 0 ? (
+                    <div className="py-8 text-center text-slate-500">
+                      Chưa có đơn giải trình nào được nộp cho mã nhân viên {empId}.
+                    </div>
+                  ) : (
+                    myRequests.map((r) => (
+                      <div
+                        key={r.id}
+                        className="p-3 rounded-lg bg-slate-950 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition-colors"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white font-mono">{r.date}</span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                r.status === 'APPROVED'
+                                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/40'
+                                  : 'bg-amber-950 text-amber-400 border border-amber-500/40'
+                              }`}
+                            >
+                              {r.status === 'APPROVED' ? 'Đã duyệt' : 'Chờ duyệt'}
+                            </span>
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-900 text-slate-400 border border-slate-800">
+                              {r.reasonCategory === 'SYSTEM' ? 'Lỗi hệ thống' : 'Lỗi cá nhân'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-400 font-mono">
+                            Giờ xác nhận: <strong className="text-slate-200">Vào {r.inTime || '--:--'}</strong> · <strong className="text-slate-200">Ra {r.outTime || '--:--'}</strong>
+                          </div>
+                          <p className="text-xs text-slate-300">
+                            <span className="text-slate-400">Lý do: </span>{r.reason}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setViewingAbnormalReq(r)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-600/40 text-cyan-300 text-xs font-semibold cursor-pointer transition-colors"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span>Xem / In lại Phiếu NPT-FM-008</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* MODAL SỬA GIỜ BẢNG CHẤM CÔNG (BC) */}
+              {editingBcDay && (
+                <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                  <div className="bg-[#0f172a] border border-cyan-500/40 rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 rounded-xl bg-cyan-950/80 border border-cyan-500/50 text-cyan-400">
+                          <Edit3 className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-white">
+                            Sửa Giờ Bảng Chấm Công (BC)
+                          </h3>
+                          <p className="text-[11px] text-slate-400">
+                            Ngày {editingBcDay.dateStr} ({editingBcDay.dayOfWeek}) · {resolvedStaff.fullName} ({resolvedStaff.employeeId})
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditingBcDay(null)}
+                        className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    {/* Quick presets */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">
+                        Điền nhanh theo chuẩn ca làm việc:
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            applyBcPreset(
+                              editingBcDay.shift === 'NIGHT' ? '20:00' : '08:00',
+                              editingBcDay.shift === 'NIGHT' ? '05:00' : '17:00',
+                              editingBcDay.shift
+                            )
+                          }
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px] text-left cursor-pointer transition-colors"
+                        >
+                          <div className="font-bold text-cyan-300">Chuẩn 8h làm việc</div>
+                          <div className="text-[10px] text-slate-400">
+                            {editingBcDay.shift === 'NIGHT' ? '20:00 - 05:00' : '08:00 - 17:00'} (8h công)
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            applyBcPreset(
+                              editingBcDay.shift === 'NIGHT' ? '20:00' : '08:00',
+                              editingBcDay.shift === 'NIGHT' ? '08:00' : '20:00',
+                              editingBcDay.shift
+                            )
+                          }
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px] text-left cursor-pointer transition-colors"
+                        >
+                          <div className="font-bold text-emerald-300">Tăng ca 11h (Chuẩn + 3h TC)</div>
+                          <div className="text-[10px] text-slate-400">
+                            {editingBcDay.shift === 'NIGHT' ? '20:00 - 08:00' : '08:00 - 20:00'} (8h + 3h TC)
+                          </div>
+                        </button>
+                      </div>
+
+                      {(editingBcDay.mqtInTime || editingBcDay.mqtOutTime) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const defIn = editingBcDay.shift === 'NIGHT' ? '20:00' : '08:00';
+                            const defOut = editingBcDay.shift === 'NIGHT' ? '05:00' : '17:00';
+                            applyBcPreset(
+                              editingBcDay.mqtInTime || defIn,
+                              editingBcDay.mqtOutTime || defOut,
+                              editingBcDay.shift
+                            );
+                          }}
+                          className="w-full mt-2 px-2.5 py-1.5 rounded-lg bg-cyan-950/40 hover:bg-cyan-950/80 border border-cyan-600/40 text-cyan-300 text-[11px] text-left flex items-center justify-between cursor-pointer transition-colors"
+                        >
+                          <div>
+                            <span className="font-bold">Lấy theo giờ máy quẹt thẻ: </span>
+                            <span className="font-mono">{editingBcDay.mqtInTime || '--:--'} - {editingBcDay.mqtOutTime || '--:--'}</span>
+                          </div>
+                          <span className="text-[10px] text-cyan-400 underline">Áp dụng ngay &rarr;</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <form onSubmit={handleSaveBcEdit} className="space-y-3.5">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] text-slate-400 mb-1">
+                            Ca làm việc
+                          </label>
+                          <select
+                            value={editBcShift}
+                            onChange={(e) => {
+                              const s = e.target.value as 'DAY' | 'NIGHT';
+                              setEditBcShift(s);
+                              const calc = calculateMatrixDayHoursFromTimes(
+                                normalizeTimeString(editBcInTime),
+                                normalizeTimeString(editBcOutTime),
+                                s,
+                                editingBcDay.isSunday,
+                                editingBcDay.isHoliday
+                              );
+                              setEditBcRegularHours(calc.regularHours);
+                              setEditBcOtHours(calc.totalOtHours);
+                              setEditBcStatus(calc.suggestedStatus);
+                            }}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs"
+                          >
+                            <option value="DAY">Ca Ngày (08:00 - 17:00/20:00)</option>
+                            <option value="NIGHT">Ca Đêm (20:00 - 05:00/08:00)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-slate-400 mb-1">
+                            Trạng thái đề xuất
+                          </label>
+                          <input
+                            type="text"
+                            value={editBcStatus}
+                            onChange={(e) => setEditBcStatus(e.target.value as AttendanceStatus)}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] text-slate-400 mb-1">
+                            Giờ vào Bảng công (Check-in) *
+                          </label>
+                          <input
+                            type="time"
+                            value={editBcInTime}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditBcInTime(val);
+                              const calc = calculateMatrixDayHoursFromTimes(
+                                normalizeTimeString(val),
+                                normalizeTimeString(editBcOutTime),
+                                editBcShift,
+                                editingBcDay.isSunday,
+                                editingBcDay.isHoliday
+                              );
+                              setEditBcRegularHours(calc.regularHours);
+                              setEditBcOtHours(calc.totalOtHours);
+                              setEditBcStatus(calc.suggestedStatus);
+                            }}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono text-xs focus:border-cyan-500 outline-none"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] text-slate-400 mb-1">
+                            Giờ ra Bảng công (Check-out) *
+                          </label>
+                          <input
+                            type="time"
+                            value={editBcOutTime}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditBcOutTime(val);
+                              const calc = calculateMatrixDayHoursFromTimes(
+                                normalizeTimeString(editBcInTime),
+                                normalizeTimeString(val),
+                                editBcShift,
+                                editingBcDay.isSunday,
+                                editingBcDay.isHoliday
+                              );
+                              setEditBcRegularHours(calc.regularHours);
+                              setEditBcOtHours(calc.totalOtHours);
+                              setEditBcStatus(calc.suggestedStatus);
+                            }}
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono text-xs focus:border-cyan-500 outline-none"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      {/* Live Calculation preview */}
+                      <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+                        <div>
+                          <span className="text-slate-400">Giờ chuẩn: </span>
+                          <strong className="text-white font-mono">{editBcRegularHours}h</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Tăng ca: </span>
+                          <strong className="text-cyan-400 font-mono">
+                            {editBcOtHours > 0 ? `+${editBcOtHours}h` : '0h'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Tổng làm: </span>
+                          <strong className="text-emerald-400 font-mono">
+                            {Math.round((editBcRegularHours + editBcOtHours) * 10) / 10}h
+                          </strong>
+                        </div>
+                      </div>
+
+                      <p className="text-[10px] text-slate-400 leading-relaxed italic">
+                        * Khi lưu, hệ thống sẽ tự động cập nhật cả Bảng chấm công MultiAuto và Bảng chấm công Toàn nhà máy, tính lại tổng giờ và đồng bộ dữ liệu phiếu lương.
+                      </p>
+
+                      <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setEditingBcDay(null)}
+                          className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 font-semibold cursor-pointer"
+                        >
+                          Hủy
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-lg shadow-cyan-600/30"
+                        >
+                          <Save className="w-4 h-4" />
+                          <span>Lưu Bảng Chấm Công</span>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* MODAL GIẢI TRÌNH CHẤM CÔNG BẤT THƯỜNG (NPT-FM-008) CHO HÀNG PHÁT SINH */}
+              {explainingRow && (
+                <AbnormalAttendanceModal
+                  mode="explain"
+                  sourceContext={{
+                    staff: resolvedStaff,
+                    dateStr: explainingRow.dateStr,
+                    dayOfWeek: explainingRow.dayOfWeek,
+                    shift: explainingRow.shift,
+                    bcInTime: explainingRow.bcInTime,
+                    bcOutTime: explainingRow.bcOutTime,
+                    bcOtHours: explainingRow.bcOtHours,
+                    rawInTime: explainingRow.rawInTime,
+                    rawOutTime: explainingRow.rawOutTime,
+                    mqtInTime: explainingRow.mqtInTime,
+                    mqtOutTime: explainingRow.mqtOutTime,
+                    discrepancyType: explainingRow.discrepancyType,
+                    discrepancyLabel: explainingRow.discrepancyLabel,
+                    discrepancyDetail: explainingRow.discrepancyDetail,
+                  }}
+                  existingRequests={myRequests}
+                  onClose={() => setExplainingRow(null)}
+                  onSubmitExplanation={({
+                    request,
+                    applyFixToMachine,
+                    confirmedInTime,
+                    confirmedOutTime,
+                  }) => {
+                    onRequestCorrection(request);
+                    if (applyFixToMachine && explainingRow) {
+                      const key = `${resolvedStaff.employeeId.trim().toLowerCase()}_${explainingRow.day}`;
+                      const existingSwipe = swipeRecords[key];
+                      const nextIn =
+                        normalizeTimeString(confirmedInTime) ||
+                        existingSwipe?.rawInTime ||
+                        explainingRow.rawInTime ||
+                        '';
+                      const nextOut =
+                        normalizeTimeString(confirmedOutTime) ||
+                        existingSwipe?.rawOutTime ||
+                        explainingRow.rawOutTime ||
+                        '';
+
+                      const nextSwipes = {
+                        ...swipeRecords,
+                        [key]: {
+                          id: key,
+                          employeeId: resolvedStaff.employeeId,
+                          fullName: resolvedStaff.fullName,
+                          department: resolvedStaff.department || 'MULTI',
+                          date: explainingRow.dateStr,
+                          rawInTime: nextIn,
+                          rawOutTime: nextOut,
+                          note: `Xác nhận NPT-FM-008: ${request.reason}`,
+                        },
+                      };
+                      saveSwipes(nextSwipes);
+                    }
+                    setExplainingRow(null);
+                    showToast(
+                      `Đã gửi giải trình chấm công bất thường ngày ${explainingRow.dateStr}!`
+                    );
+                  }}
+                />
+              )}
+
+              {/* MODAL XEM / IN LẠI PHIẾU NPT-FM-008 */}
               {viewingAbnormalReq && (
                 <AbnormalAttendanceModal
                   mode="view"

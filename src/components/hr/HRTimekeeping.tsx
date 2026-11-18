@@ -6,6 +6,7 @@ import {
   AttendanceRecord,
   MachineSwipeRecord,
   AttendanceStatus,
+  MatrixDayTimeEntry,
 } from '../../types';
 import {
   Clock,
@@ -112,10 +113,10 @@ export interface ComparisonRow {
   otDifference: number; // mqtOt - bcOt
 }
 
-const VI_DAYS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+export const VI_DAYS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 
 // Storage key for machine swipe records by month/year
-const getMachineSwipeStorageKey = (year: number, month: number) =>
+export const getMachineSwipeStorageKey = (year: number, month: number) =>
   `app_timekeeping_machine_swipes_${year}_${month}`;
 
 interface ParsedPunchDateTime {
@@ -313,7 +314,7 @@ function parsePunchDateTime(
 /**
  * Helper to convert "HH:mm" to minutes from 00:00
  */
-function timeToMinutes(t?: string): number | null {
+export function timeToMinutes(t?: string): number | null {
   if (!t) return null;
   const s = t.trim();
   const m = s.match(/^(\d{1,2}):(\d{2})$/);
@@ -327,7 +328,7 @@ function timeToMinutes(t?: string): number | null {
 /**
  * Standardize time string to "HH:mm"
  */
-function normalizeTimeString(raw?: any): string {
+export function normalizeTimeString(raw?: any): string {
   if (raw === undefined || raw === null || raw === '') return '';
   if (typeof raw === 'number') {
     // Excel decimal fraction of day or full serial datetime
@@ -356,7 +357,7 @@ function normalizeTimeString(raw?: any): string {
 /**
  * Format minutes into readable Vietnamese string e.g. "30 phút" or "1h 15p"
  */
-function formatMinutes(mins: number): string {
+export function formatMinutes(mins: number): string {
   if (mins <= 0) return '0p';
   if (mins < 60) return `${mins} phút`;
   const h = Math.floor(mins / 60);
@@ -486,6 +487,202 @@ export function calculateMachineTimes(
     mqtOt,
     isClampedIn,
     isClampedOut,
+  };
+}
+
+/**
+ * Build comparison row for a single employee on a given day
+ * Reusable across HRTimekeeping and EmployeeProfile
+ */
+export function buildComparisonRowForEmployeeDay(params: {
+  staff: StaffRecord;
+  day: number;
+  selectedYear: number;
+  selectedMonth: number;
+  bcEntry?: MatrixDayTimeEntry;
+  holidayMap?: Record<number, boolean>;
+  swipeRecord?: MachineSwipeRecord;
+}): ComparisonRow {
+  const { staff, day, selectedYear, selectedMonth, bcEntry, holidayMap = {}, swipeRecord } = params;
+
+  const dateObj = new Date(selectedYear, selectedMonth - 1, day);
+  const dayOfWeekNum = dateObj.getDay();
+  const dayOfWeek = VI_DAYS[dayOfWeekNum];
+  const isSunday = dayOfWeekNum === 0;
+  const isHoliday = Boolean(holidayMap[day]);
+  const dateStr = `${String(day).padStart(2, '0')}/${String(selectedMonth).padStart(2, '0')}/${selectedYear}`;
+  const dateIso = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  const effectiveShift: 'DAY' | 'NIGHT' = bcEntry?.shift || staff.shift || 'DAY';
+  const shiftLabel = effectiveShift === 'NIGHT' ? 'Ca Đêm (20:00 - 08:00)' : 'Ca Ngày (08:00 - 20:00)';
+
+  // 1. DATA FROM BẢNG CHẤM CÔNG (BC)
+  const bcInTime = bcEntry?.inTime ? normalizeTimeString(bcEntry.inTime) : '';
+  const bcOutTime = bcEntry?.outTime ? normalizeTimeString(bcEntry.outTime) : '';
+  const bcOtHours = bcEntry
+    ? Math.round(
+        ((bcEntry.otDayHours || 0) +
+          (bcEntry.otNightHours || 0) +
+          (bcEntry.otSundayHours || 0) +
+          (bcEntry.otSundayNightHours || 0) +
+          (bcEntry.otHolidayHours || 0) +
+          (bcEntry.otHolidayNightHours || 0)) *
+          10
+      ) / 10
+    : 0;
+  const bcStatus = bcEntry?.status || '';
+  const isResigned = (bcStatus as string) === 'Đã thôi việc' || (bcStatus as string) === 'Đã nghỉ việc';
+  const hasBcSundayHours =
+    (bcEntry?.otSundayHours || 0) > 0 || (bcEntry?.otSundayNightHours || 0) > 0;
+  const isSundayOff =
+    isSunday &&
+    (!bcEntry ||
+      (!bcEntry.inTime && !bcEntry.outTime && !hasBcSundayHours) ||
+      bcStatus === 'Nghỉ chủ nhật');
+  const hasBcWork = Boolean(
+    !isResigned &&
+      !isSundayOff &&
+      (bcInTime || bcOutTime || (bcEntry?.regularHours || 0) > 0 || bcOtHours > 0)
+  );
+
+  // 2. DATA FROM MÁY QUẸT THẺ (MQT)
+  const rawInTime = swipeRecord?.rawInTime || '';
+  const rawOutTime = swipeRecord?.rawOutTime || '';
+  const hasMqtSwipe = Boolean(rawInTime || rawOutTime);
+
+  // Compute MQT times using user rules
+  const calc = calculateMachineTimes(rawInTime, rawOutTime, effectiveShift, isSunday || isHoliday);
+  const mqtInTime = calc.mqtIn;
+  const mqtOutTime = calc.mqtOut;
+  const mqtOtHours = calc.mqtOt;
+
+  // 3. COMPARE & ANALYZE DISCREPANCIES
+  let discrepancyType: DiscrepancyType = 'MATCH';
+  let discrepancyLabel = 'Khớp chuẩn';
+  let discrepancyDetail = 'Dữ liệu quẹt thẻ khớp 100% với bảng chấm công.';
+  let lateMinutes = 0;
+  let earlyMinutes = 0;
+  let otDifference = 0;
+
+  if (!hasBcWork) {
+    // Ngày không có lịch làm việc theo bảng công (Nghỉ CN, Nghỉ lễ, Thôi việc)
+    if (!hasMqtSwipe) {
+      discrepancyType = 'OFF_DAY_MATCH';
+      discrepancyLabel = isSunday ? 'Nghỉ CN' : isHoliday ? 'Nghỉ Lễ' : 'Nghỉ Theo Lịch';
+      discrepancyDetail = isSunday
+        ? 'Nghỉ Chủ Nhật theo quy định.'
+        : isHoliday
+        ? 'Nghỉ Lễ theo lịch nhà máy.'
+        : isResigned
+        ? 'Nhân viên đã thôi việc.'
+        : 'Nghỉ theo lịch phân công.';
+    } else {
+      discrepancyType = 'UNSCHEDULED_SWIPE';
+      discrepancyLabel = 'Quẹt ngoài lịch';
+      discrepancyDetail = `Có quẹt thẻ ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'}`;
+    }
+  } else {
+    // Bảng công có ca làm việc cần quẹt thẻ
+    if (!rawInTime && !rawOutTime) {
+      discrepancyType = 'MISSING_BOTH';
+      discrepancyLabel = 'Chưa quẹt thẻ';
+      discrepancyDetail = `Máy quẹt thẻ chưa ghi nhận giờ vào và giờ ra (BC yêu cầu: ${bcInTime || '08:00'} - ${bcOutTime || '20:00'}).`;
+    } else if (!rawInTime && rawOutTime) {
+      discrepancyType = 'MISSING_IN';
+      discrepancyLabel = 'Thiếu giờ vào';
+      discrepancyDetail = `Thiếu giờ vào trên máy quẹt thẻ (Bảng công ghi nhận vào lúc ${bcInTime || (effectiveShift === 'NIGHT' ? '20:00' : '08:00')}).`;
+    } else if (rawInTime && !rawOutTime) {
+      discrepancyType = 'MISSING_OUT';
+      discrepancyLabel = 'Thiếu giờ ra';
+      discrepancyDetail = `Thiếu giờ ra trên máy quẹt thẻ (Bảng công ghi nhận ra lúc ${bcOutTime || (effectiveShift === 'NIGHT' ? '08:00' : '20:00')}).`;
+    } else {
+      // Có cả giờ vào và giờ ra trên máy quẹt thẻ -> So sánh chi tiết (xử lý ca đêm qua nửa đêm)
+      const toShiftMins = (mins: number | null, isOut: boolean): number | null => {
+        if (mins === null) return null;
+        if (effectiveShift === 'NIGHT' && (isOut ? mins <= 720 : mins < 720)) {
+          return mins + 1440;
+        }
+        return mins;
+      };
+      const bcInM = toShiftMins(
+        timeToMinutes(bcInTime) ?? (effectiveShift === 'NIGHT' ? 1200 : 480),
+        false
+      );
+      const mqtInM = toShiftMins(timeToMinutes(mqtInTime), false);
+      const bcOutM = toShiftMins(
+        timeToMinutes(bcOutTime) ?? (effectiveShift === 'NIGHT' ? 480 : 1200),
+        true
+      );
+      const mqtOutM = toShiftMins(timeToMinutes(mqtOutTime), true);
+
+      // Đi muộn
+      if (mqtInM !== null && bcInM !== null && mqtInM > bcInM) {
+        lateMinutes = mqtInM - bcInM;
+      }
+
+      // Về sớm
+      if (mqtOutM !== null && bcOutM !== null && mqtOutM < bcOutM) {
+        earlyMinutes = bcOutM - mqtOutM;
+      }
+
+      otDifference = Math.round((mqtOtHours - bcOtHours) * 10) / 10;
+
+      if (lateMinutes > 0 && earlyMinutes > 0) {
+        discrepancyType = 'LATE_AND_EARLY';
+        discrepancyLabel = 'Muộn & Về sớm';
+        discrepancyDetail = `Đi muộn ${formatMinutes(lateMinutes)} (MQT: ${mqtInTime} vs BC: ${bcInTime}) & Về sớm ${formatMinutes(earlyMinutes)} (MQT: ${mqtOutTime} vs BC: ${bcOutTime}).`;
+      } else if (lateMinutes > 0) {
+        discrepancyType = 'LATE_IN';
+        discrepancyLabel = 'Đi muộn';
+        discrepancyDetail = `Vào trễ ${formatMinutes(lateMinutes)} (MQT: ${mqtInTime} vs BC: ${bcInTime}).`;
+      } else if (earlyMinutes > 0) {
+        discrepancyType = 'EARLY_OUT';
+        discrepancyLabel = 'Về sớm';
+        discrepancyDetail = `Về sớm ${formatMinutes(earlyMinutes)} (MQT: ${mqtOutTime} vs BC: ${bcOutTime}).`;
+      } else if (Math.abs(otDifference) >= 0.2) {
+        discrepancyType = 'OT_MISMATCH';
+        discrepancyLabel = 'Lệch tăng ca';
+        discrepancyDetail = `Lệch tăng ca: Bảng công ${bcOtHours}h vs Máy quẹt ${mqtOtHours}h (Chênh ${otDifference > 0 ? '+' : ''}${otDifference}h).`;
+      } else {
+        discrepancyType = 'MATCH';
+        discrepancyLabel = 'Khớp chuẩn';
+        discrepancyDetail = 'Dữ liệu quẹt thẻ khớp 100% với bảng chấm công.';
+      }
+    }
+  }
+
+  return {
+    rowId: `${staff.employeeId}_${day}`,
+    staff,
+    day,
+    dateStr,
+    dateIso,
+    dayOfWeek,
+    isSunday,
+    isHoliday,
+    shift: effectiveShift,
+    shiftLabel,
+    bcInTime,
+    bcOutTime,
+    bcRegularHours: bcEntry?.regularHours || 0,
+    bcOtHours,
+    bcStatus,
+    hasBcWork,
+    rawInTime,
+    rawOutTime,
+    mqtInTime,
+    mqtOutTime,
+    mqtOtHours,
+    hasMqtSwipe,
+    isClampedIn: calc.isClampedIn,
+    isClampedOut: calc.isClampedOut,
+    rawNote: swipeRecord?.note,
+    discrepancyType,
+    discrepancyLabel,
+    discrepancyDetail,
+    lateMinutes,
+    earlyMinutes,
+    otDifference,
   };
 }
 
@@ -629,188 +826,21 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       const holidayMap = matrixData.holidays || {};
 
       for (let day = 1; day <= daysInMonth; day++) {
-        const dateObj = new Date(selectedYear, selectedMonth - 1, day);
-        const dayOfWeekNum = dateObj.getDay();
-        const dayOfWeek = VI_DAYS[dayOfWeekNum];
-        const isSunday = dayOfWeekNum === 0;
-        const isHoliday = Boolean(holidayMap[day]);
-        const dateStr = `${String(day).padStart(2, '0')}/${String(selectedMonth).padStart(2, '0')}/${selectedYear}`;
-        const dateIso = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
-        const bcEntry = daysMap[day];
-        const effectiveShift: 'DAY' | 'NIGHT' = bcEntry?.shift || staff.shift || 'DAY';
-        const shiftLabel = effectiveShift === 'NIGHT' ? 'Ca Đêm (20:00 - 08:00)' : 'Ca Ngày (08:00 - 20:00)';
-
-        // 1. DATA FROM BẢNG CHẤM CÔNG (BC)
-        const bcInTime = bcEntry?.inTime ? normalizeTimeString(bcEntry.inTime) : '';
-        const bcOutTime = bcEntry?.outTime ? normalizeTimeString(bcEntry.outTime) : '';
-        const bcOtHours = bcEntry
-          ? Math.round(
-              ((bcEntry.otDayHours || 0) +
-                (bcEntry.otNightHours || 0) +
-                (bcEntry.otSundayHours || 0) +
-                (bcEntry.otSundayNightHours || 0) +
-                (bcEntry.otHolidayHours || 0) +
-                (bcEntry.otHolidayNightHours || 0)) *
-                10
-            ) / 10
-          : 0;
-        const bcStatus = bcEntry?.status || '';
-        const isResigned = (bcStatus as string) === 'Đã thôi việc' || (bcStatus as string) === 'Đã nghỉ việc';
-        const hasBcSundayHours =
-          (bcEntry?.otSundayHours || 0) > 0 || (bcEntry?.otSundayNightHours || 0) > 0;
-        const isSundayOff =
-          isSunday &&
-          (!bcEntry ||
-            (!bcEntry.inTime && !bcEntry.outTime && !hasBcSundayHours) ||
-            bcStatus === 'Nghỉ chủ nhật');
-        const hasBcWork = Boolean(
-          !isResigned &&
-            !isSundayOff &&
-            (bcInTime || bcOutTime || (bcEntry?.regularHours || 0) > 0 || bcOtHours > 0)
-        );
-
-        // 2. DATA FROM MÁY QUẸT THẺ (MQT)
         const swipeKey = `${staff.employeeId.trim().toLowerCase()}_${day}`;
         const swipeRec = swipeRecords[swipeKey];
-        const rawInTime = swipeRec?.rawInTime || '';
-        const rawOutTime = swipeRec?.rawOutTime || '';
-        const hasMqtSwipe = Boolean(rawInTime || rawOutTime);
+        const bcEntry = daysMap[day];
 
-        // Compute MQT times using user rules
-        const calc = calculateMachineTimes(rawInTime, rawOutTime, effectiveShift, isSunday || isHoliday);
-        const mqtInTime = calc.mqtIn;
-        const mqtOutTime = calc.mqtOut;
-        const mqtOtHours = calc.mqtOt;
-
-        // 3. COMPARE & ANALYZE DISCREPANCIES
-        let discrepancyType: DiscrepancyType = 'MATCH';
-        let discrepancyLabel = 'Khớp chuẩn';
-        let discrepancyDetail = 'Dữ liệu quẹt thẻ khớp 100% với bảng chấm công.';
-        let lateMinutes = 0;
-        let earlyMinutes = 0;
-        let otDifference = 0;
-
-        if (!hasBcWork) {
-          // Ngày không có lịch làm việc theo bảng công (Nghỉ CN, Nghỉ lễ, Thôi việc)
-          if (!hasMqtSwipe) {
-            discrepancyType = 'OFF_DAY_MATCH';
-            discrepancyLabel = isSunday ? 'Nghỉ CN' : isHoliday ? 'Nghỉ Lễ' : 'Nghỉ Theo Lịch';
-            discrepancyDetail = isSunday
-              ? 'Nghỉ Chủ Nhật theo quy định.'
-              : isHoliday
-              ? 'Nghỉ Lễ theo lịch nhà máy.'
-              : isResigned
-              ? 'Nhân viên đã thôi việc.'
-              : 'Nghỉ theo lịch phân công.';
-          } else {
-            discrepancyType = 'UNSCHEDULED_SWIPE';
-            discrepancyLabel = 'Quẹt ngoài lịch';
-            discrepancyDetail = `Có quẹt thẻ ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'}`;
-          }
-        } else {
-          // Bảng công có ca làm việc cần quẹt thẻ
-          if (!rawInTime && !rawOutTime) {
-            discrepancyType = 'MISSING_BOTH';
-            discrepancyLabel = 'Chưa quẹt thẻ';
-            discrepancyDetail = `Máy quẹt thẻ chưa ghi nhận giờ vào và giờ ra (BC yêu cầu: ${bcInTime || '08:00'} - ${bcOutTime || '20:00'}).`;
-          } else if (!rawInTime && rawOutTime) {
-            discrepancyType = 'MISSING_IN';
-            discrepancyLabel = 'Thiếu giờ vào';
-            discrepancyDetail = `Thiếu giờ vào trên máy quẹt thẻ (Bảng công ghi nhận vào lúc ${bcInTime || (effectiveShift === 'NIGHT' ? '20:00' : '08:00')}).`;
-          } else if (rawInTime && !rawOutTime) {
-            discrepancyType = 'MISSING_OUT';
-            discrepancyLabel = 'Thiếu giờ ra';
-            discrepancyDetail = `Thiếu giờ ra trên máy quẹt thẻ (Bảng công ghi nhận ra lúc ${bcOutTime || (effectiveShift === 'NIGHT' ? '08:00' : '20:00')}).`;
-          } else {
-            // Có cả giờ vào và giờ ra trên máy quẹt thẻ -> So sánh chi tiết (xử lý ca đêm qua nửa đêm)
-            const toShiftMins = (mins: number | null, isOut: boolean): number | null => {
-              if (mins === null) return null;
-              if (effectiveShift === 'NIGHT' && (isOut ? mins <= 720 : mins < 720)) {
-                return mins + 1440;
-              }
-              return mins;
-            };
-            const bcInM = toShiftMins(
-              timeToMinutes(bcInTime) ?? (effectiveShift === 'NIGHT' ? 1200 : 480),
-              false
-            );
-            const mqtInM = toShiftMins(timeToMinutes(mqtInTime), false);
-            const bcOutM = toShiftMins(
-              timeToMinutes(bcOutTime) ?? (effectiveShift === 'NIGHT' ? 480 : 1200),
-              true
-            );
-            const mqtOutM = toShiftMins(timeToMinutes(mqtOutTime), true);
-
-            // Đi muộn
-            if (mqtInM !== null && bcInM !== null && mqtInM > bcInM) {
-              lateMinutes = mqtInM - bcInM;
-            }
-
-            // Về sớm
-            if (mqtOutM !== null && bcOutM !== null && mqtOutM < bcOutM) {
-              earlyMinutes = bcOutM - mqtOutM;
-            }
-
-            otDifference = Math.round((mqtOtHours - bcOtHours) * 10) / 10;
-
-            if (lateMinutes > 0 && earlyMinutes > 0) {
-              discrepancyType = 'LATE_AND_EARLY';
-              discrepancyLabel = 'Muộn & Về sớm';
-              discrepancyDetail = `Đi muộn ${formatMinutes(lateMinutes)} (MQT: ${mqtInTime} vs BC: ${bcInTime}) & Về sớm ${formatMinutes(earlyMinutes)} (MQT: ${mqtOutTime} vs BC: ${bcOutTime}).`;
-            } else if (lateMinutes > 0) {
-              discrepancyType = 'LATE_IN';
-              discrepancyLabel = 'Đi muộn';
-              discrepancyDetail = `Vào trễ ${formatMinutes(lateMinutes)} (MQT: ${mqtInTime} vs BC: ${bcInTime}).`;
-            } else if (earlyMinutes > 0) {
-              discrepancyType = 'EARLY_OUT';
-              discrepancyLabel = 'Về sớm';
-              discrepancyDetail = `Về sớm ${formatMinutes(earlyMinutes)} (MQT: ${mqtOutTime} vs BC: ${bcOutTime}).`;
-            } else if (Math.abs(otDifference) >= 0.2) {
-              discrepancyType = 'OT_MISMATCH';
-              discrepancyLabel = 'Lệch tăng ca';
-              discrepancyDetail = `Lệch tăng ca: Bảng công ${bcOtHours}h vs Máy quẹt ${mqtOtHours}h (Chênh ${otDifference > 0 ? '+' : ''}${otDifference}h).`;
-            } else {
-              discrepancyType = 'MATCH';
-              discrepancyLabel = 'Khớp chuẩn';
-              discrepancyDetail = 'Dữ liệu quẹt thẻ khớp 100% với bảng chấm công.';
-            }
-          }
-        }
-
-        rows.push({
-          rowId: `${staff.employeeId}_${day}`,
-          staff,
-          day,
-          dateStr,
-          dateIso,
-          dayOfWeek,
-          isSunday,
-          isHoliday,
-          shift: effectiveShift,
-          shiftLabel,
-          bcInTime,
-          bcOutTime,
-          bcRegularHours: bcEntry?.regularHours || 0,
-          bcOtHours,
-          bcStatus,
-          hasBcWork,
-          rawInTime,
-          rawOutTime,
-          mqtInTime,
-          mqtOutTime,
-          mqtOtHours,
-          hasMqtSwipe,
-          isClampedIn: calc.isClampedIn,
-          isClampedOut: calc.isClampedOut,
-          rawNote: swipeRec?.note,
-          discrepancyType,
-          discrepancyLabel,
-          discrepancyDetail,
-          lateMinutes,
-          earlyMinutes,
-          otDifference,
-        });
+        rows.push(
+          buildComparisonRowForEmployeeDay({
+            staff,
+            day,
+            selectedYear,
+            selectedMonth,
+            bcEntry,
+            holidayMap,
+            swipeRecord: swipeRec,
+          })
+        );
       }
     });
 
@@ -2258,9 +2288,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       {/* Main Reconciliation Table */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
         <div className="w-full overflow-x-auto overflow-y-auto custom-scrollbar max-h-[72vh]">
-          <table className="w-full min-w-[1400px] text-left text-xs border-collapse">
+          <table className="w-full min-w-[1800px] text-left text-xs border-collapse whitespace-nowrap">
             {/* Multi-level Table Header */}
-            <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider sticky top-0 z-20 shadow-md">
+            <thead className="bg-slate-950 text-slate-300 uppercase text-[10px] tracking-wider sticky top-0 z-20 shadow-md whitespace-nowrap">
               <tr className="border-b border-slate-800">
                 <th
                   rowSpan={2}
@@ -2274,16 +2304,16 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                 >
                   Nhân Viên
                 </th>
-                <th rowSpan={2} className="py-2.5 px-2.5 border-r border-slate-800 min-w-[150px]">
+                <th rowSpan={2} className="py-2.5 px-2.5 border-r border-slate-800 min-w-[160px]">
                   Vị Trí / Chức Vụ
                 </th>
                 <th rowSpan={2} className="py-2.5 px-2.5 text-center border-r border-slate-800 min-w-[110px]">
                   Ca Làm Việc
                 </th>
-                <th rowSpan={2} className="py-2.5 px-2.5 text-center border-r border-slate-800 min-w-[90px]">
+                <th rowSpan={2} className="py-2.5 px-2.5 text-center border-r border-slate-800 min-w-[100px]">
                   Ngày
                 </th>
-                <th rowSpan={2} className="py-2.5 px-2 text-center border-r border-slate-800 w-[46px]">
+                <th rowSpan={2} className="py-2.5 px-2 text-center border-r border-slate-800 w-[50px]">
                   Thứ
                 </th>
 
@@ -2314,35 +2344,35 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
 
               <tr className="border-b border-slate-800 text-[9px] text-slate-400">
                 {/* 3 Cột Bảng Chấm Công */}
-                <th className="py-2 px-2 text-center border-r border-slate-800 bg-amber-950/20 text-amber-300">
+                <th className="py-2 px-3 text-center border-r border-slate-800 bg-amber-950/20 text-amber-300 min-w-[95px]">
                   Giờ Vào (BC)
                 </th>
-                <th className="py-2 px-2 text-center border-r border-slate-800 bg-amber-950/20 text-amber-300">
+                <th className="py-2 px-3 text-center border-r border-slate-800 bg-amber-950/20 text-amber-300 min-w-[95px]">
                   Giờ Ra (BC)
                 </th>
-                <th className="py-2 px-2 text-center border-r border-slate-800 bg-amber-950/20 text-amber-400 font-bold">
+                <th className="py-2 px-3 text-center border-r border-slate-800 bg-amber-950/20 text-amber-400 font-bold min-w-[95px]">
                   Tăng Ca (BC)
                 </th>
 
                 {/* 3 Cột Máy Quẹt Thẻ */}
-                <th className="py-2 px-2 text-center border-r border-slate-800 bg-blue-950/20 text-blue-300">
+                <th className="py-2 px-3 text-center border-r border-slate-800 bg-blue-950/20 text-blue-300 min-w-[140px]">
                   Giờ Vào (MQT)
                 </th>
-                <th className="py-2 px-2 text-center border-r border-slate-800 bg-blue-950/20 text-blue-300">
+                <th className="py-2 px-3 text-center border-r border-slate-800 bg-blue-950/20 text-blue-300 min-w-[140px]">
                   Giờ Ra (MQT)
                 </th>
-                <th className="py-2 px-2 text-center border-r border-slate-800 bg-blue-950/20 text-cyan-300 font-bold">
+                <th className="py-2 px-3 text-center border-r border-slate-800 bg-blue-950/20 text-cyan-300 font-bold min-w-[95px]">
                   Tăng Ca (MQT)
                 </th>
 
                 {/* Phân tích */}
-                <th className="py-2 px-2.5 text-center border-r border-slate-800 min-w-[130px] bg-slate-950 text-white font-bold">
+                <th className="py-2 px-3 text-center border-r border-slate-800 min-w-[140px] bg-slate-950 text-white font-bold">
                   Trạng Thái Đối Soát
                 </th>
-                <th className="py-2 px-3 border-r border-slate-800 min-w-[260px] bg-slate-950 text-white font-bold">
+                <th className="py-2 px-4 border-r border-slate-800 min-w-[360px] bg-slate-950 text-white font-bold">
                   Chi Tiết Phân Tích Sai Lệch
                 </th>
-                <th className="py-2 px-2 text-center min-w-[90px] bg-slate-950 text-slate-300">
+                <th className="py-2 px-3 text-center min-w-[180px] bg-slate-950 text-slate-300">
                   Thao Tác
                 </th>
               </tr>
@@ -2483,11 +2513,11 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
 
                       {/* --- CỘT 4: GIỜ VÀO (MÁY QUẸT THẺ) --- */}
                       <td
-                        className="py-2 px-2 text-center font-mono border-r border-slate-800 bg-blue-950/5"
+                        className="py-2 px-3 text-center font-mono border-r border-slate-800 bg-blue-950/5 whitespace-nowrap"
                         title={row.rawNote || undefined}
                       >
                         {row.mqtInTime ? (
-                          <div className="flex flex-col items-center">
+                          <div className="inline-flex items-center justify-center gap-1 whitespace-nowrap">
                             <span
                               className={`font-semibold ${
                                 isMissingIn
@@ -2500,15 +2530,15 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                               {row.mqtInTime}
                             </span>
                             {row.isClampedIn && (
-                              <span className="text-[9px] text-cyan-400/80 font-mono tracking-tighter" title={`Quẹt thực tế: ${row.rawInTime} (Đã quy chuẩn theo ca)`}>
+                              <span className="text-[10px] text-cyan-400/80 font-mono" title={`Quẹt thực tế: ${row.rawInTime} (Đã quy chuẩn theo ca)`}>
                                 (Gốc: {row.rawInTime})
                               </span>
                             )}
                           </div>
                         ) : (
                           <span
-                            className={`text-xs font-bold ${
-                              row.hasBcWork ? 'text-rose-400 bg-rose-950/40 px-1 rounded' : 'text-slate-600'
+                            className={`text-xs font-bold whitespace-nowrap ${
+                              row.hasBcWork ? 'text-rose-400 bg-rose-950/40 px-1.5 py-0.5 rounded' : 'text-slate-600'
                             }`}
                           >
                             {row.hasBcWork ? 'Thiếu vào' : '—'}
@@ -2518,11 +2548,11 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
 
                       {/* --- CỘT 5: GIỜ RA (MÁY QUẸT THẺ) --- */}
                       <td
-                        className="py-2 px-2 text-center font-mono border-r border-slate-800 bg-blue-950/5"
+                        className="py-2 px-3 text-center font-mono border-r border-slate-800 bg-blue-950/5 whitespace-nowrap"
                         title={row.rawNote || undefined}
                       >
                         {row.mqtOutTime ? (
-                          <div className="flex flex-col items-center">
+                          <div className="inline-flex items-center justify-center gap-1 whitespace-nowrap">
                             <span
                               className={`font-semibold ${
                                 isMissingOut
@@ -2535,15 +2565,15 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                               {row.mqtOutTime}
                             </span>
                             {row.isClampedOut && (
-                              <span className="text-[9px] text-cyan-400/80 font-mono tracking-tighter" title={`Quẹt thực tế: ${row.rawOutTime} (Đã quy chuẩn theo ca)`}>
+                              <span className="text-[10px] text-cyan-400/80 font-mono" title={`Quẹt thực tế: ${row.rawOutTime} (Đã quy chuẩn theo ca)`}>
                                 (Gốc: {row.rawOutTime})
                               </span>
                             )}
                           </div>
                         ) : (
                           <span
-                            className={`text-xs font-bold ${
-                              row.hasBcWork ? 'text-rose-400 bg-rose-950/40 px-1 rounded' : 'text-slate-600'
+                            className={`text-xs font-bold whitespace-nowrap ${
+                              row.hasBcWork ? 'text-rose-400 bg-rose-950/40 px-1.5 py-0.5 rounded' : 'text-slate-600'
                             }`}
                           >
                             {row.hasBcWork ? 'Thiếu ra' : '—'}
@@ -2620,9 +2650,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                       </td>
 
                       {/* --- CHI TIẾT PHÂN TÍCH SAI LỆCH --- */}
-                      <td className="py-2 px-3 border-r border-slate-800 text-xs">
-                        <div
-                          className={`line-clamp-2 leading-relaxed ${
+                      <td className="py-2 px-4 border-r border-slate-800 text-xs whitespace-nowrap">
+                        <span
+                          className={`whitespace-nowrap ${
                             isMissingIn || isMissingOut || isMissingBoth
                               ? 'text-rose-300 font-medium'
                               : isLateOrEarly
@@ -2636,7 +2666,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                           title={row.discrepancyDetail}
                         >
                           {row.discrepancyDetail}
-                        </div>
+                        </span>
                       </td>
 
                       {/* --- THAO TÁC (SỬA BC / SỬA MQT / GIẢI TRÌNH) --- */}

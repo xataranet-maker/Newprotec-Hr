@@ -622,6 +622,7 @@ export default function App() {
         <EmployeeProfile
           currentUser={currentUser}
           staffInfo={allStaff.find((s) => s.employeeId === currentUser.employeeId)}
+          allStaff={allStaff}
           contracts={contracts}
           salarySlips={salarySlipRecords}
           payrollRecords={payrollRecords}
@@ -663,6 +664,7 @@ export default function App() {
           <EmployeeProfile
             currentUser={currentUser}
             staffInfo={allStaff.find((s) => s.employeeId === currentUser.employeeId)}
+            allStaff={allStaff}
             contracts={contracts}
             salarySlips={salarySlipRecords}
             payrollRecords={payrollRecords}
@@ -998,6 +1000,7 @@ export default function App() {
               department: resolvedStaff.department || 'MULTI',
             }}
             staffInfo={resolvedStaff}
+            allStaff={allStaff}
             contracts={contracts}
             salarySlips={salarySlipRecords}
             payrollRecords={payrollRecords}
