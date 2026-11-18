@@ -32,6 +32,9 @@ import {
   FileUp,
   ArrowRight,
   CalendarClock,
+  FileText,
+  Eye,
+  Printer,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -41,6 +44,10 @@ import {
   calculateMatrixDayHoursFromTimes,
   updateEmployeeMatrixDayEntry,
 } from '../../lib/matrixTimekeeping';
+import {
+  AbnormalAttendanceHistorySection,
+  AbnormalAttendanceModal,
+} from './AbnormalAttendanceFormNPTFM008';
 
 interface HRTimekeepingProps {
   data: TimekeepingRecord[];
@@ -407,10 +414,23 @@ export function calculateMachineTimes(
       }
     }
 
-    // Tính tăng ca máy quẹt thẻ ca đêm:
-    // Ca đêm chuẩn: 20:00 - 05:00 (8h). Sau 05:00 (>= 15 phút) tính tăng ca tối đa đến 08:00 (3h).
-    if (mqtOut) {
-      const finalOutMins = timeToMinutes(mqtOut);
+    const finalInMins = timeToMinutes(mqtIn);
+    const finalOutMins = timeToMinutes(mqtOut);
+
+    if (isSundayOrHoliday) {
+      // Ngày Chủ Nhật / Ngày Lễ (Ca đêm): tính đúng theo quy chuẩn 20:00 -> 05:00 = 8h, sau 05:00 tính thêm tăng ca (20:00 -> 08:00 = 11h)
+      if (finalInMins !== null && finalOutMins !== null) {
+        const adjOut = finalOutMins <= finalInMins ? finalOutMins + 24 * 60 : finalOutMins;
+        const cappedOut = Math.min(32 * 60, adjOut); // Tối đa 08:00 sáng hôm sau (32:00)
+        const effectiveOut = cappedOut > 1740 && cappedOut - 1740 < 15 ? 1740 : cappedOut;
+        let span = Math.max(0, effectiveOut - finalInMins);
+        if (span >= 6 * 60 && finalInMins <= 23 * 60 && effectiveOut >= 25 * 60) {
+          span -= 60;
+        }
+        mqtOt = Math.round((span / 60) * 10) / 10;
+      }
+    } else {
+      // Ngày thường (Ca đêm): 20:00 - 05:00 (8h). Sau 05:00 (>= 15 phút) tính tăng ca tối đa đến 08:00 (3h).
       if (finalOutMins !== null && finalOutMins > 300 && finalOutMins <= 720) {
         const otMins = Math.min(480, finalOutMins) - 300;
         if (otMins >= 15) {
@@ -435,10 +455,22 @@ export function calculateMachineTimes(
       }
     }
 
-    // Tính tăng ca máy quẹt thẻ ca ngày:
-    // Ca ngày chuẩn: 08:00 - 17:00 (8h). Sau 17:00 (>= 15 phút) tính tăng ca tối đa đến 20:00 (3h).
-    if (mqtOut) {
-      const finalOutMins = timeToMinutes(mqtOut);
+    const finalInMins = timeToMinutes(mqtIn);
+    const finalOutMins = timeToMinutes(mqtOut);
+
+    if (isSundayOrHoliday) {
+      // Ngày Chủ Nhật / Ngày Lễ (Ca ngày): 08:00 -> 17:00 = 8h, sau 17:00 tính thêm tăng ca (08:00 -> 20:00 = 11h)
+      if (finalInMins !== null && finalOutMins !== null) {
+        const cappedOut = Math.min(1200, finalOutMins); // Tối đa 20:00
+        const effectiveOut = cappedOut > 1020 && cappedOut - 1020 < 15 ? 1020 : cappedOut;
+        let span = Math.max(0, effectiveOut - finalInMins);
+        if (finalInMins < 12 * 60 && effectiveOut > 13 * 60) {
+          span -= 60;
+        }
+        mqtOt = Math.round((span / 60) * 10) / 10;
+      }
+    } else {
+      // Ngày thường (Ca ngày): 08:00 - 17:00 (8h). Sau 17:00 (>= 15 phút) tính tăng ca tối đa đến 20:00 (3h).
       if (finalOutMins !== null && finalOutMins > 1020) {
         const otMins = Math.min(1200, finalOutMins) - 1020;
         if (otMins >= 15) {
@@ -446,11 +478,6 @@ export function calculateMachineTimes(
         }
       }
     }
-  }
-
-  // Ngày chủ nhật / ngày lễ nếu làm toàn bộ ca tính tăng ca
-  if (isSundayOrHoliday && normIn && normOut && inMins !== null && outMins !== null) {
-    mqtOt = 11;
   }
 
   return {
@@ -497,9 +524,11 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
   const [bcEditOtHours, setBcEditOtHours] = useState<number>(0);
   const [bcEditStatus, setBcEditStatus] = useState<AttendanceStatus>('Đúng giờ');
 
-  // Modal explanation request
+  // Modal explanation request (Phiếu xác nhận công bất thường NPT-FM-008)
   const [requestModalRow, setRequestModalRow] = useState<ComparisonRow | null>(null);
-  const [reqReason, setReqReason] = useState('');
+  const [viewingAbnormalRequest, setViewingAbnormalRequest] =
+    useState<AttendanceCorrectionRequest | null>(null);
+  const [showRequestsHistoryModal, setShowRequestsHistoryModal] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -628,7 +657,13 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
           : 0;
         const bcStatus = bcEntry?.status || '';
         const isResigned = (bcStatus as string) === 'Đã thôi việc' || (bcStatus as string) === 'Đã nghỉ việc';
-        const isSundayOff = isSunday && (!bcEntry || !bcEntry.inTime || bcStatus === 'Nghỉ chủ nhật');
+        const hasBcSundayHours =
+          (bcEntry?.otSundayHours || 0) > 0 || (bcEntry?.otSundayNightHours || 0) > 0;
+        const isSundayOff =
+          isSunday &&
+          (!bcEntry ||
+            (!bcEntry.inTime && !bcEntry.outTime && !hasBcSundayHours) ||
+            bcStatus === 'Nghỉ chủ nhật');
         const hasBcWork = Boolean(
           !isResigned &&
             !isSundayOff &&
@@ -688,11 +723,24 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             discrepancyLabel = 'Thiếu giờ ra';
             discrepancyDetail = `Thiếu giờ ra trên máy quẹt thẻ (Bảng công ghi nhận ra lúc ${bcOutTime || (effectiveShift === 'NIGHT' ? '08:00' : '20:00')}).`;
           } else {
-            // Có cả giờ vào và giờ ra trên máy quẹt thẻ -> So sánh chi tiết
-            const bcInM = timeToMinutes(bcInTime) || (effectiveShift === 'NIGHT' ? 1200 : 480);
-            const mqtInM = timeToMinutes(mqtInTime);
-            const bcOutM = timeToMinutes(bcOutTime) || (effectiveShift === 'NIGHT' ? 480 : 1200);
-            const mqtOutM = timeToMinutes(mqtOutTime);
+            // Có cả giờ vào và giờ ra trên máy quẹt thẻ -> So sánh chi tiết (xử lý ca đêm qua nửa đêm)
+            const toShiftMins = (mins: number | null, isOut: boolean): number | null => {
+              if (mins === null) return null;
+              if (effectiveShift === 'NIGHT' && (isOut ? mins <= 720 : mins < 720)) {
+                return mins + 1440;
+              }
+              return mins;
+            };
+            const bcInM = toShiftMins(
+              timeToMinutes(bcInTime) ?? (effectiveShift === 'NIGHT' ? 1200 : 480),
+              false
+            );
+            const mqtInM = toShiftMins(timeToMinutes(mqtInTime), false);
+            const bcOutM = toShiftMins(
+              timeToMinutes(bcOutTime) ?? (effectiveShift === 'NIGHT' ? 480 : 1200),
+              true
+            );
+            const mqtOutM = toShiftMins(timeToMinutes(mqtOutTime), true);
 
             // Đi muộn
             if (mqtInM !== null && bcInM !== null && mqtInM > bcInM) {
@@ -1743,28 +1791,61 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     );
   };
 
-  // --- ACTIONS: CREATE ATTENDANCE REQUEST ---
-  const handleCreateRequest = (e: React.FormEvent) => {
-    e.preventDefault();
+  // --- ACTIONS: CREATE / CONFIRM ABNORMAL ATTENDANCE (NPT-FM-008) ---
+  const handleSubmitAbnormalExplanation = ({
+    request,
+    applyFixToMachine,
+    confirmedInTime,
+    confirmedOutTime,
+  }: {
+    request: AttendanceCorrectionRequest;
+    applyFixToMachine: boolean;
+    confirmedInTime: string;
+    confirmedOutTime: string;
+  }) => {
     const updater = onRequestCorrection || onUpdateRequest;
-    if (!requestModalRow || !updater) return;
+    if (!requestModalRow) return;
 
-    const newReq: AttendanceCorrectionRequest = {
-      id: Date.now(),
-      employeeId: requestModalRow.staff.employeeId,
-      fullName: requestModalRow.staff.fullName,
-      date: requestModalRow.dateStr,
-      inTime: requestModalRow.mqtInTime || requestModalRow.bcInTime || '08:00',
-      outTime: requestModalRow.mqtOutTime || requestModalRow.bcOutTime || '20:00',
-      reason: reqReason.trim() || `Giải trình sai lệch quẹt thẻ: ${requestModalRow.discrepancyLabel}`,
-      status: 'PENDING',
-      requestDate: new Date().toLocaleDateString('vi-VN'),
-    };
+    if (updater) {
+      updater([request, ...attendanceRequests]);
+    }
 
-    updater([newReq, ...attendanceRequests]);
+    if (applyFixToMachine) {
+      const key = `${requestModalRow.staff.employeeId.trim().toLowerCase()}_${requestModalRow.day}`;
+      const existingSwipe = swipeRecords[key];
+      const nextIn =
+        normalizeTimeString(confirmedInTime) ||
+        existingSwipe?.rawInTime ||
+        requestModalRow.rawInTime ||
+        '';
+      const nextOut =
+        normalizeTimeString(confirmedOutTime) ||
+        existingSwipe?.rawOutTime ||
+        requestModalRow.rawOutTime ||
+        '';
+
+      const nextSwipes = {
+        ...swipeRecords,
+        [key]: {
+          id: key,
+          employeeId: requestModalRow.staff.employeeId,
+          fullName: requestModalRow.staff.fullName,
+          department: requestModalRow.staff.department,
+          date: requestModalRow.dateStr,
+          rawInTime: nextIn,
+          rawOutTime: nextOut,
+          note: `Xác nhận NPT-FM-008: ${request.reason}`,
+        },
+      };
+      saveSwipes(nextSwipes);
+      showToast(
+        `Đã lưu phiếu NPT-FM-008 & cập nhật giờ (${nextIn || '--:--'} - ${nextOut || '--:--'}) cho ${requestModalRow.staff.fullName}!`
+      );
+    } else {
+      showToast(`Đã tạo phiếu giải trình NPT-FM-008 cho ${requestModalRow.staff.fullName}!`);
+    }
+
     setRequestModalRow(null);
-    setReqReason('');
-    showToast(`Đã tạo yêu cầu giải trình công cho ${requestModalRow.staff.fullName}!`);
   };
 
   return (
@@ -1880,6 +1961,16 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>Xuất Báo Cáo</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowRequestsHistoryModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900/90 text-rose-200 border border-rose-700/60 text-xs font-bold cursor-pointer transition-colors"
+              title="Xem & in lại danh sách Phiếu xác nhận chấm công bất thường (NPT-FM-008)"
+            >
+              <FileText className="w-3.5 h-3.5 text-rose-400" />
+              <span>Phiếu NPT-FM-008 ({attendanceRequests.length})</span>
             </button>
 
             {Object.keys(swipeRecords).length > 0 && (
@@ -2579,12 +2670,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                           {(isMissingIn || isMissingOut || isMissingBoth || isLateOrEarly || isOtMismatch || row.discrepancyType === 'UNSCHEDULED_SWIPE') && (
                             <button
                               type="button"
-                              onClick={() => {
-                                setRequestModalRow(row);
-                                setReqReason(row.discrepancyDetail);
-                              }}
+                              onClick={() => setRequestModalRow(row)}
                               className="px-1.5 py-1 rounded bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-700/60 text-[10px] font-semibold cursor-pointer transition-colors"
-                              title="Tạo đơn giải trình công cho HC-NS"
+                              title="Mở phiếu xác nhận chấm công bất thường (NPT-FM-008) & sửa giờ công"
                             >
                               Giải trình
                             </button>
@@ -2599,6 +2687,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
           </table>
         </div>
       </div>
+
+      {/* LỊCH SỬ TẤT CẢ NHÂN VIÊN ĐÃ XÁC NHẬN GIẢI TRÌNH CÔNG & ĐÃ IN (CHỈ XEM & IN LẠI) */}
+      <AbnormalAttendanceHistorySection attendanceRequests={attendanceRequests} />
 
       {/* MODAL 1: CHỈNH SỬA THỦ CÔNG GIỜ QUẸT THẺ */}
       {editingRow && (
@@ -2698,74 +2789,119 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
         </div>
       )}
 
-      {/* MODAL 2: TẠO GIẢI TRÌNH CÔNG TỚI HC & NS */}
+      {/* MODAL 2: PHIẾU XÁC NHẬN CHẤM CÔNG BẤT THƯỜNG (NPT-FM-008) GỘP TRONG NÚT GIẢI TRÌNH */}
       {requestModalRow && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-rose-600/20 border border-rose-500/40 text-rose-400 flex items-center justify-center">
-                  <AlertTriangle className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white uppercase">Tạo Đơn Giải Trình Công</h3>
-                  <p className="text-[11px] text-slate-400">
-                    Gửi tới phòng Hành chính Nhân sự xem xét duyệt công
-                  </p>
-                </div>
+        <AbnormalAttendanceModal
+          mode="explain"
+          sourceContext={{
+            staff: requestModalRow.staff,
+            dateStr: requestModalRow.dateStr,
+            dayOfWeek: requestModalRow.dayOfWeek,
+            shift: requestModalRow.shift,
+            bcInTime: requestModalRow.bcInTime,
+            bcOutTime: requestModalRow.bcOutTime,
+            bcOtHours: requestModalRow.bcOtHours,
+            rawInTime: requestModalRow.rawInTime,
+            rawOutTime: requestModalRow.rawOutTime,
+            mqtInTime: requestModalRow.mqtInTime,
+            mqtOutTime: requestModalRow.mqtOutTime,
+            discrepancyType: requestModalRow.discrepancyType,
+            discrepancyLabel: requestModalRow.discrepancyLabel,
+            discrepancyDetail: requestModalRow.discrepancyDetail,
+          }}
+          existingRequests={attendanceRequests}
+          onClose={() => setRequestModalRow(null)}
+          onSubmitExplanation={handleSubmitAbnormalExplanation}
+        />
+      )}
+
+      {/* MODAL XEM / IN LẠI PHIẾU NPT-FM-008 TỪ LỊCH SỬ */}
+      {viewingAbnormalRequest && (
+        <AbnormalAttendanceModal
+          mode="view"
+          existingRequest={viewingAbnormalRequest}
+          existingRequests={attendanceRequests}
+          onClose={() => setViewingAbnormalRequest(null)}
+        />
+      )}
+
+      {/* MODAL DANH SÁCH LỊCH SỬ PHIẾU NPT-FM-008 */}
+      {showRequestsHistoryModal && (
+        <div
+          className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowRequestsHistoryModal(false)}
+        >
+          <div
+            className="bg-[#080f1e] border border-slate-700 rounded-2xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3.5 bg-[#050b16] border-b border-slate-800">
+              <div className="flex items-center gap-2 text-sm font-bold text-white uppercase">
+                <FileText className="w-4 h-4 text-rose-400" />
+                <span>Lịch Sử Phiếu Xác Nhận Chấm Công Bất Thường (NPT-FM-008)</span>
               </div>
               <button
                 type="button"
-                onClick={() => setRequestModalRow(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
+                onClick={() => setShowRequestsHistoryModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1">
-              <div>
-                Nhân viên: <strong className="text-white">{requestModalRow.staff.fullName}</strong> ({requestModalRow.staff.employeeId})
-              </div>
-              <div className="text-slate-400">
-                Ngày: <span className="font-mono text-cyan-300 font-bold">{requestModalRow.dateStr}</span> ({requestModalRow.dayOfWeek})
-              </div>
-              <div className="text-rose-400 font-medium">
-                Vấn đề phát hiện: {requestModalRow.discrepancyLabel}
-              </div>
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar text-xs">
+              {attendanceRequests.length === 0 ? (
+                <div className="py-12 text-center text-slate-500">
+                  Chưa có phiếu xác nhận chấm công bất thường nào được tạo.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {attendanceRequests.map((req) => (
+                    <div
+                      key={req.id}
+                      className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-white uppercase">{req.fullName}</span>
+                          <span className="font-mono text-cyan-400">({req.employeeId})</span>
+                          <span className="font-mono text-amber-300 font-semibold">
+                            Ngày: {req.date}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                              req.status === 'APPROVED'
+                                ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
+                                : 'bg-amber-950 text-amber-300 border border-amber-700/50'
+                            }`}
+                          >
+                            {req.status === 'APPROVED' ? 'Đã xác nhận sửa' : req.status}
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-mono text-slate-400">
+                          Vào: <strong className="text-slate-200">{req.inTime || '—'}</strong> · Ra:{' '}
+                          <strong className="text-slate-200">{req.outTime || '—'}</strong> ·{' '}
+                          {req.reasonCategory === 'SYSTEM' ? 'Lỗi hệ thống' : 'Lỗi cá nhân'}
+                        </div>
+                        <p className="text-slate-300">{req.reason}</p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setViewingAbnormalRequest(req)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold cursor-pointer transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>Xem / In NPT-FM-008</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-
-            <form onSubmit={handleCreateRequest} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">
-                  Lý Do Giải Trình &amp; Đề Xuất Giờ Vào - Ra Thực Tế
-                </label>
-                <textarea
-                  rows={3}
-                  value={reqReason}
-                  onChange={(e) => setReqReason(e.target.value)}
-                  placeholder="Nhập chi tiết lý do (ví dụ: thẻ bị lỗi đầu đọc lúc 07:45, ra về lúc 20:00 có tổ trưởng chứng nhận...)"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
-                  required
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setRequestModalRow(null)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
-                >
-                  Đóng
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold cursor-pointer"
-                >
-                  Gửi Giải Trình
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

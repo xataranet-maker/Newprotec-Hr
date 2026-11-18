@@ -37,3 +37,55 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* NPT-FM-007 Leave Form Print Isolation */
+#npt-fm007-print-root {
+  display: none;
+}
+
+@media print {
+  body.printing-npt-fm007 {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  body.printing-npt-fm007 #root {
+    display: none !important;
+  }
+  body.printing-npt-fm007 #npt-fm007-print-root {
+    display: block !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+}
+
+/* NPT-FM-008 Abnormal Attendance Confirmation Print Isolation */
+#npt-fm008-print-root {
+  display: none;
+}
+
+@media print {
+  body.printing-npt-fm008 {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  body.printing-npt-fm008 #root {
+    display: none !important;
+  }
+  body.printing-npt-fm008 #npt-fm008-print-root {
+    display: block !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+

@@ -21,6 +21,7 @@ import {
   HardDriveDownload,
   CalendarCheck2,
   ShieldCheck,
+  CalendarPlus,
 } from 'lucide-react';
 
 export const ribbonData: RibbonTab[] = [
@@ -80,6 +81,7 @@ export const ribbonData: RibbonTab[] = [
           { id: 'hr_matrix_timekeeping', label: 'BẢNG CÔNG MA TRẬN', icon: CalendarDays, isLarge: true, color: 'text-amber-400' },
           { id: 'hr_attendance_confirm', label: 'XÁC NHẬN CÔNG', icon: CalendarCheck2, isLarge: true, color: 'text-cyan-400' },
           { id: 'hr_overtime', label: 'ĐK TĂNG CA', icon: Timer, isLarge: false, color: 'text-orange-400' },
+          { id: 'hr_leave_register', label: 'ĐĂNG KÝ PHÉP', icon: CalendarPlus, isLarge: true, color: 'text-cyan-400' },
           { id: 'hr_leaves', label: 'NGHỈ PHÉP', icon: Plane, isLarge: false, color: 'text-cyan-400' },
           { id: 'hr_payroll', label: 'BẢNG CÔNG', icon: ClipboardCheck, isLarge: false, color: 'text-emerald-400' },
           { id: 'hr_salary_slip', label: 'PHIẾU LƯƠNG', icon: Banknote, isLarge: true, color: 'text-emerald-400' },

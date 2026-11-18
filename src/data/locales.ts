@@ -25,6 +25,8 @@ export const translations: Record<Language, Record<string, string>> = {
     'ĐĂNG XUẤT': 'ĐĂNG XUẤT',
     'ĐỒNG BỘ': 'ĐỒNG BỘ',
     'BẢO MẬT LƯƠNG': 'BẢO MẬT LƯƠNG',
+    'ĐĂNG KÝ PHÉP': 'ĐĂNG KÝ PHÉP',
+    'NGHỈ PHÉP': 'NGHỈ PHÉP',
   },
   ko: {
     'HOME': '홈',
@@ -50,6 +52,8 @@ export const translations: Record<Language, Record<string, string>> = {
     'ĐĂNG XUẤT': '로그아웃',
     'ĐỒNG BỘ': '동기화',
     'BẢO MẬT LƯƠNG': '급여 보안',
+    'ĐĂNG KÝ PHÉP': '휴가 신청',
+    'NGHỈ PHÉP': '휴가 현황',
   },
   en: {
     'HOME': 'HOME',
@@ -75,5 +79,7 @@ export const translations: Record<Language, Record<string, string>> = {
     'ĐĂNG XUẤT': 'LOG OUT',
     'ĐỒNG BỘ': 'SYNC',
     'BẢO MẬT LƯƠNG': 'PAYROLL SECURITY',
+    'ĐĂNG KÝ PHÉP': 'LEAVE REGISTRATION',
+    'NGHỈ PHÉP': 'LEAVE BALANCE',
   },
 };

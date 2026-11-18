@@ -77,6 +77,11 @@ export interface AttendanceRecord {
     lateMinutes?: number;
     earlyMinutes?: number;
     note?: string;
+    manualIn?: string;
+    manualOut?: string;
+    earlyIn?: string;
+    sundayDayOT?: number;
+    sundayNightOT?: number;
 }
 
 export interface MachineActivityLog {
@@ -206,6 +211,7 @@ export interface StaffRecord {
   earlyOut?: string;
   lateMinutes?: number;
   earlyMinutes?: number;
+  isLocked?: boolean;
 }
 
 export interface AccessoryRecord {
@@ -599,6 +605,14 @@ export interface AttendanceCorrectionRequest {
     status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CHECKING';
     requestDate: string;
     adminResponse?: string;
+    department?: string;
+    checkInChecked?: boolean;
+    checkOutChecked?: boolean;
+    reasonCategory?: 'SYSTEM' | 'PERSONAL';
+    monthlyCount?: number;
+    isPrinted?: boolean;
+    printedAt?: string;
+    confirmedAt?: string;
 }
 
 export interface DeviceHistoryLog {
@@ -652,6 +666,9 @@ export interface MatrixDayTimeEntry {
     isHoliday?: boolean;         // Đánh dấu ngày lễ
     status?: AttendanceStatus;
     note?: string;
+    isAutoDefault?: boolean;     // Dữ liệu tự sinh mặc định (có thể ẩn nếu trước ngày vào làm)
+    isRestored?: boolean;        // Dữ liệu khôi phục từ file backup
+    isManual?: boolean;          // Dữ liệu chỉnh sửa/nhập tay
 }
 
 export interface MatrixEmployeeTimekeeping {
@@ -684,4 +701,31 @@ export interface SalarySecurityConfig {
     updatedAt?: string;
     updatedBy?: string;
 }
+
+export type LeaveRegistrationType =
+    | 'Nghỉ phép'
+    | 'Nghỉ nửa phép'
+    | 'Nghỉ việc riêng'
+    | 'Nghỉ cưới'
+    | 'Về sớm'
+    | 'Nghỉ ốm';
+
+export interface LeaveRegistrationRecord {
+    id: number;
+    employeeId: string;
+    fullName: string;
+    department: string;
+    position: string;
+    leaveType: LeaveRegistrationType;
+    fromDate: string; // YYYY-MM-DD
+    toDate: string;   // YYYY-MM-DD
+    fromTime: string; // HH:mm
+    toTime: string;   // HH:mm
+    days: number;
+    reason: string;
+    status?: 'REGISTERED' | 'PENDING' | 'APPROVED';
+    createdAt: string;
+    createdBy?: string;
+}
+
 

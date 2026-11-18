@@ -1,4 +1,5 @@
 import {
+  AttendanceRecord,
   AttendanceStatus,
   MatrixDayTimeEntry,
   MatrixEmployeeTimekeeping,
@@ -21,6 +22,33 @@ export function isMatrixEntryWorking(entry: MatrixDayTimeEntry | undefined): boo
   const totalHours = getMatrixEntryTotalHours(entry);
   if (totalHours > 0) return true;
   if (entry.inTime && entry.outTime) return true;
+  return false;
+}
+
+export function hasMatrixRealData(entry: MatrixDayTimeEntry | undefined): boolean {
+  if (!entry) return false;
+  if (entry.isAutoDefault) return false;
+  if (entry.isRestored || entry.isManual) return true;
+  if (getMatrixEntryTotalHours(entry) > 0) return true;
+  if (entry.inTime?.trim() || entry.outTime?.trim()) return true;
+  const st = String(entry.status || '').trim();
+  if (
+    st === 'Nghỉ phép' ||
+    st === 'Nghỉ cưới' ||
+    st === 'Nghỉ tang' ||
+    st === 'FAMILY' ||
+    st === 'Nghỉ ốm' ||
+    st === 'Vắng mặt' ||
+    st === 'Nghỉ KL' ||
+    st === 'Nghỉ lễ' ||
+    st === 'Đi muộn' ||
+    st === 'Về sớm' ||
+    st === 'PRESENT' ||
+    st === 'Đủ công' ||
+    st === 'Đúng giờ'
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -189,6 +217,7 @@ export function buildDefaultEmployeeMonthDays(
       otHolidayNightHours,
       isHoliday,
       status,
+      isAutoDefault: true,
     };
   }
 
@@ -276,21 +305,10 @@ export function applyJoinDateAndLockRules(
     const isSun = new Date(year, month - 1, day).getDay() === 0;
 
     if (isBeforeJoin) {
-      if (existing) {
-        nextDays[day] = {
-          ...existing,
-          inTime: '',
-          outTime: '',
-          regularHours: 0,
-          otDayHours: 0,
-          otNightHours: 0,
-          otSundayHours: 0,
-          otSundayNightHours: 0,
-          otHolidayHours: 0,
-          otHolidayNightHours: 0,
-          isHoliday: false,
-          status: '' as AttendanceStatus,
-        };
+      // Giữ nguyên dữ liệu chấm công thực tế (từ file backup khôi phục, import hoặc chỉnh sửa thủ công)
+      // Chỉ loại bỏ các ô tự sinh mặc định / Nghỉ chủ nhật tự sinh trước ngày vào làm
+      if (existing && hasMatrixRealData(existing)) {
+        nextDays[day] = existing;
       }
     } else if (isAfterLock) {
       nextDays[day] = {
@@ -599,16 +617,18 @@ export function calculateMatrixDayHoursFromTimes(
   let workedMins = 0;
   if (shift === 'NIGHT') {
     const adjustedOut = outM <= inM ? outM + 24 * 60 : outM;
-    let span = adjustedOut - inM;
+    const effectiveOut = adjustedOut > 29 * 60 && adjustedOut - 29 * 60 < 15 ? 29 * 60 : adjustedOut;
+    let span = Math.max(0, effectiveOut - inM);
     // Trừ 60 phút nghỉ giữa ca đêm (20:00 -> 05:00 = 8h, 20:00 -> 08:00 = 11h)
-    if (span >= 6 * 60 && inM <= 23 * 60 && adjustedOut >= 25 * 60) {
+    if (span >= 6 * 60 && inM <= 23 * 60 && effectiveOut >= 25 * 60) {
       span -= 60;
     }
     workedMins = Math.max(0, span);
   } else {
-    let span = outM > inM ? outM - inM : 0;
+    const effectiveOut = outM > 17 * 60 && outM - 17 * 60 < 15 ? 17 * 60 : outM;
+    let span = effectiveOut > inM ? effectiveOut - inM : 0;
     // Trừ 60 phút nghỉ trưa (12:00 - 13:00)
-    if (inM < 12 * 60 && outM > 13 * 60) {
+    if (inM < 12 * 60 && effectiveOut > 13 * 60) {
       span -= 60;
     }
     workedMins = Math.max(0, span);
@@ -679,13 +699,6 @@ export function updateEmployeeMatrixDayEntry(params: {
   entryPatch: Partial<MatrixDayTimeEntry>;
 }): { ok: boolean; error?: string; sourceDepartment?: string } {
   const { staff, allStaff, year, month, day, entryPatch } = params;
-
-  if (isDayBeforeJoinDate(year, month, day, staff.dateJoined)) {
-    return {
-      ok: false,
-      error: `Nhân viên ${staff.fullName} chưa vào làm vào ngày ${day}/${month} (${staff.dateJoined}).`,
-    };
-  }
 
   const normalizedDept = (staff.department || 'MULTI').trim().toLowerCase();
   const deptCandidates =
@@ -773,6 +786,8 @@ export function updateEmployeeMatrixDayEntry(params: {
       ...existingEntry,
       ...entryPatch,
       day,
+      isManual: true,
+      isAutoDefault: false,
     };
 
     const rawDays = {
@@ -858,3 +873,531 @@ export function restoreStoredMatrixSnapshots(snapshots: Record<string, string> |
     console.error('Error restoring matrix snapshots', e);
   }
 }
+
+export function deleteEmployeeFromAllMatrixStorage(employeeId: string) {
+  const target = employeeId.trim().toLowerCase();
+  if (!target) return;
+
+  const updatedEvents: Array<{ dept: string; year: number; month: number }> = [];
+
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k) keys.push(k);
+    }
+
+    keys.forEach((key) => {
+      if (key.startsWith('app_matrix_timekeeping_')) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return;
+          const parsed = JSON.parse(raw) as Record<string, MatrixEmployeeTimekeeping>;
+          if (!parsed || typeof parsed !== 'object') return;
+
+          let changed = false;
+          const nextMatrix: Record<string, MatrixEmployeeTimekeeping> = {};
+          Object.entries(parsed).forEach(([empKey, rec]) => {
+            const matchKey = empKey.trim().toLowerCase() === target;
+            const matchRec = rec?.employeeId?.trim().toLowerCase() === target;
+            if (matchKey || matchRec) {
+              changed = true;
+            } else {
+              nextMatrix[empKey] = rec;
+            }
+          });
+
+          if (changed) {
+            localStorage.setItem(key, JSON.stringify(nextMatrix));
+            const m = key.match(/^app_matrix_timekeeping_(.+)_(\d{4})_(\d{1,2})$/);
+            if (m) {
+              const dept = m[1].toUpperCase();
+              const year = Number(m[2]);
+              const month = Number(m[3]);
+              localStorage.setItem(getMatrixMetaStorageKey(dept, year, month), String(Date.now()));
+              updatedEvents.push({ dept, year, month });
+            }
+          }
+        } catch (err) {
+          console.error('Error purging employee from matrix storage', key, err);
+        }
+      } else if (key.startsWith('app_timekeeping_machine_swipes_')) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return;
+          const parsed = JSON.parse(raw) as Record<string, { employeeId?: string }>;
+          if (!parsed || typeof parsed !== 'object') return;
+
+          let changed = false;
+          const nextSwipes: Record<string, unknown> = {};
+          Object.entries(parsed).forEach(([swipeKey, rec]) => {
+            const keyPrefixMatch = swipeKey.trim().toLowerCase().startsWith(`${target}_`);
+            const empMatch = rec?.employeeId?.trim().toLowerCase() === target;
+            if (keyPrefixMatch || empMatch) {
+              changed = true;
+            } else {
+              nextSwipes[swipeKey] = rec;
+            }
+          });
+
+          if (changed) {
+            localStorage.setItem(key, JSON.stringify(nextSwipes));
+          }
+        } catch (err) {
+          console.error('Error purging employee from swipe storage', key, err);
+        }
+      }
+    });
+
+    if (typeof window !== 'undefined') {
+      if (updatedEvents.length > 0) {
+        updatedEvents.forEach(({ dept, year, month }) => {
+          dispatchMatrixUpdatedEvent(dept, year, month);
+        });
+      } else {
+        const now = new Date();
+        dispatchMatrixUpdatedEvent('multi', now.getFullYear(), now.getMonth() + 1);
+      }
+    }
+  } catch (e) {
+    console.error('Error deleting employee matrix storage', e);
+  }
+}
+
+export interface FlatAttendanceBackupRow {
+  employeeId: string;
+  note: string;
+  shift: 'DAY' | 'NIGHT';
+  date: string; // YYYY-MM-DD
+  id: string; // YYYY-MM-DD_employeeId
+  status: string;
+  overtime: number;
+  lateIn: string;
+  manualOut: string;
+  earlyIn: string;
+  manualIn: string;
+  sundayNightOT: number | '';
+  sundayDayOT: number | '';
+  earlyOut: string;
+}
+
+export function parseBackupNumber(raw: any): number {
+  if (raw === undefined || raw === null || raw === '') return 0;
+  if (typeof raw === 'number') return isNaN(raw) ? 0 : raw;
+  const cleaned = String(raw).trim().replace(',', '.');
+  const num = Number(cleaned);
+  return isNaN(num) ? 0 : num;
+}
+
+export function parseBackupDateToIso(raw: any): {
+  iso: string;
+  year: number;
+  month: number;
+  day: number;
+} | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+
+  const makeRes = (y: number, m: number, d: number) => {
+    if (y < 1900 || y > 2200 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+    const dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+    return {
+      iso: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+      year: y,
+      month: m,
+      day: d,
+    };
+  };
+
+  if (raw instanceof Date && !isNaN(raw.getTime())) {
+    return makeRes(raw.getFullYear(), raw.getMonth() + 1, raw.getDate());
+  }
+
+  if (typeof raw === 'number' && raw > 1000) {
+    const utcDate = new Date(Math.round((raw - 25569) * 86400 * 1000));
+    return makeRes(utcDate.getUTCFullYear(), utcDate.getUTCMonth() + 1, utcDate.getUTCDate());
+  }
+
+  const s = String(raw).trim().replace(/^'+/, '');
+  if (!s) return null;
+
+  // YYYY-MM-DD or YYYY/MM/DD
+  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m) {
+    return makeRes(Number(m[1]), Number(m[2]), Number(m[3]));
+  }
+
+  // DD/MM/YYYY or MM/DD/YYYY (fallback when middle segment > 12)
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (m) {
+    let p1 = Number(m[1]);
+    let p2 = Number(m[2]);
+    if (p2 > 12 && p1 <= 12) {
+      const tmp = p1;
+      p1 = p2;
+      p2 = tmp;
+    }
+    return makeRes(Number(m[3]), p2, p1);
+  }
+
+  return null;
+}
+
+function addMinutesToHhMm(baseHhMm: string, addHours: number): string {
+  const m = baseHhMm.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return baseHhMm;
+  const baseMins = Number(m[1]) * 60 + Number(m[2]);
+  const totalMins = (baseMins + Math.round(addHours * 60)) % (24 * 60);
+  const hh = Math.floor(totalMins / 60);
+  const mm = totalMins % 60;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+export function exportFlatAttendanceBackupRows(
+  allStaff: StaffRecord[],
+  attendanceHistory: AttendanceRecord[] = []
+): FlatAttendanceBackupRow[] {
+  const rowMap = new Map<string, FlatAttendanceBackupRow>();
+
+  // 1. Seed from attendanceHistory first
+  attendanceHistory.forEach((rec) => {
+    const parsed = parseBackupDateToIso(rec.date);
+    const empId = String(rec.employeeId || '').trim();
+    if (!parsed || !empId) return;
+    const key = `${parsed.iso}_${empId.toLowerCase()}`;
+    rowMap.set(key, {
+      employeeId: empId,
+      note: rec.note || '',
+      shift: rec.shift === 'NIGHT' ? 'NIGHT' : 'DAY',
+      date: parsed.iso,
+      id: `${parsed.iso}_${empId}`,
+      status: String(rec.status || 'PRESENT'),
+      overtime: Number(rec.overtime || 0),
+      lateIn: rec.lateIn || '',
+      manualOut: rec.manualOut || '',
+      earlyIn: rec.earlyIn || '',
+      manualIn: rec.manualIn || '',
+      sundayNightOT: rec.sundayNightOT !== undefined ? rec.sundayNightOT : '',
+      sundayDayOT: rec.sundayDayOT !== undefined ? rec.sundayDayOT : '',
+      earlyOut: rec.earlyOut || '',
+    });
+  });
+
+  // 2. Scan all stored matrix months (prefer 'multi', then 'all', then others)
+  const matrixKeys: Array<{ key: string; dept: string; year: number; month: number }> = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith('app_matrix_timekeeping_')) continue;
+      const m = k.match(/^app_matrix_timekeeping_(.+)_(\d{4})_(\d{1,2})$/);
+      if (m) {
+        matrixKeys.push({
+          key: k,
+          dept: m[1].toLowerCase(),
+          year: Number(m[2]),
+          month: Number(m[3]),
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Scan matrix keys error', e);
+  }
+
+  // Sort so non-multi load first and multi overwrites with highest authority
+  matrixKeys.sort((a, b) => {
+    const rank = (d: string) => (d === 'multi' ? 3 : d === 'all' ? 2 : 1);
+    return rank(a.dept) - rank(b.dept);
+  });
+
+  matrixKeys.forEach(({ key, year, month }) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const matrix = JSON.parse(raw) as Record<string, MatrixEmployeeTimekeeping>;
+      if (!matrix || typeof matrix !== 'object') return;
+
+      Object.values(matrix).forEach((empRec) => {
+        const empId = String(empRec.employeeId || '').trim();
+        if (!empId || !empRec.days) return;
+
+        Object.values(empRec.days).forEach((entry) => {
+          if (!entry || !entry.day) return;
+          const statusStr = String(entry.status || '').trim();
+          const hasHours = getMatrixEntryTotalHours(entry) > 0;
+          if (!statusStr && !hasHours && !entry.inTime && !entry.outTime) return;
+
+          const dateIso = `${year}-${String(month).padStart(2, '0')}-${String(entry.day).padStart(2, '0')}`;
+          const mapKey = `${dateIso}_${empId.toLowerCase()}`;
+          const existing = rowMap.get(mapKey);
+
+          const shift: 'DAY' | 'NIGHT' = entry.shift || empRec.shift || 'DAY';
+          const isWorkingStatus =
+            statusStr === 'Đúng giờ' ||
+            statusStr === 'Đủ công' ||
+            statusStr === 'PRESENT' ||
+            (statusStr === '' && hasHours);
+
+          const mappedStatus = isWorkingStatus ? 'PRESENT' : statusStr || 'PRESENT';
+          const otRegular = Math.round(((entry.otDayHours || 0) + (entry.otNightHours || 0)) * 10) / 10;
+          const otHol = Math.round(((entry.otHolidayHours || 0) + (entry.otHolidayNightHours || 0)) * 10) / 10;
+          const sunDay = entry.otSundayHours ? Math.round(entry.otSundayHours * 10) / 10 : '';
+          const sunNight = entry.otSundayNightHours ? Math.round(entry.otSundayNightHours * 10) / 10 : '';
+          const totalOtField = Math.round((otRegular + otHol) * 10) / 10;
+
+          rowMap.set(mapKey, {
+            employeeId: empId,
+            note: entry.note || existing?.note || '',
+            shift,
+            date: dateIso,
+            id: `${dateIso}_${empId}`,
+            status: mappedStatus,
+            overtime: totalOtField || existing?.overtime || 0,
+            lateIn: existing?.lateIn || (statusStr === 'Đi muộn' ? entry.inTime || '' : ''),
+            manualOut: existing?.manualOut || entry.outTime || '',
+            earlyIn: existing?.earlyIn || '',
+            manualIn: existing?.manualIn || entry.inTime || '',
+            sundayNightOT: sunNight !== '' ? sunNight : existing?.sundayNightOT ?? '',
+            sundayDayOT: sunDay !== '' ? sunDay : existing?.sundayDayOT ?? '',
+            earlyOut: existing?.earlyOut || (statusStr === 'Về sớm' ? entry.outTime || '' : ''),
+          });
+        });
+      });
+    } catch (e) {
+      console.error('Export flat attendance read error', e);
+    }
+  });
+
+  // Sort by employeeId and date descending/ascending cleanly
+  const rows = Array.from(rowMap.values());
+  const staffOrder = new Map<string, number>();
+  allStaff.forEach((s, i) => staffOrder.set(s.employeeId.trim().toLowerCase(), i));
+
+  rows.sort((a, b) => {
+    const idxA = staffOrder.get(a.employeeId.trim().toLowerCase()) ?? 99999;
+    const idxB = staffOrder.get(b.employeeId.trim().toLowerCase()) ?? 99999;
+    if (idxA !== idxB) return idxA - idxB;
+    return a.date.localeCompare(b.date);
+  });
+
+  return rows;
+}
+
+export function restoreFlatAttendanceBackupRows(
+  rawRows: Record<string, any>[],
+  staffList: StaffRecord[]
+): {
+  attendanceHistory: AttendanceRecord[];
+  restoredMonths: string[];
+  restoredCount: number;
+} {
+  const attendanceHistory: AttendanceRecord[] = [];
+  const staffById = new Map<string, StaffRecord>();
+  staffList.forEach((s) => staffById.set(s.employeeId.trim().toLowerCase(), s));
+
+  // Group entries by `${year}_${month}` -> empId -> MatrixDayTimeEntry[]
+  const byMonth = new Map<
+    string,
+    {
+      year: number;
+      month: number;
+      empDays: Map<string, Map<number, MatrixDayTimeEntry>>;
+    }
+  >();
+
+  rawRows.forEach((row) => {
+    const empId = String(row.employeeId ?? row.EMPLOYEEID ?? row['Mã NV'] ?? '').trim();
+    if (!empId) return;
+
+    const parsedDate = parseBackupDateToIso(row.date ?? row.DATE ?? row['Ngày']);
+    if (!parsedDate) return;
+
+    const shiftRaw = String(row.shift ?? row.SHIFT ?? '').trim().toUpperCase();
+    const matchedStaff = staffById.get(empId.toLowerCase());
+    const shift: 'DAY' | 'NIGHT' =
+      shiftRaw === 'NIGHT' || shiftRaw === 'ĐÊM' || shiftRaw === 'CA ĐÊM'
+        ? 'NIGHT'
+        : shiftRaw === 'DAY' || shiftRaw === 'NGÀY' || shiftRaw === 'CA NGÀY'
+        ? 'DAY'
+        : matchedStaff?.shift || 'DAY';
+
+    const statusRaw = String(row.status ?? row.STATUS ?? 'PRESENT').trim();
+    const overtime = parseBackupNumber(row.overtime ?? row.OVERTIME);
+    const sundayDayOT = parseBackupNumber(row.sundayDayOT ?? row.SUNDAYDAYOT);
+    const sundayNightOT = parseBackupNumber(row.sundayNightOT ?? row.SUNDAYNIGHTOT);
+    const lateIn = String(row.lateIn ?? row.LATEIN ?? '').trim();
+    const earlyOut = String(row.earlyOut ?? row.EARLYOUT ?? '').trim();
+    const manualIn = String(row.manualIn ?? row.MANUALIN ?? '').trim();
+    const manualOut = String(row.manualOut ?? row.MANUALOUT ?? '').trim();
+    const earlyIn = String(row.earlyIn ?? row.EARLYIN ?? '').trim();
+    const note = String(row.note ?? row.NOTE ?? '').trim();
+
+    const attRecord: AttendanceRecord = {
+      id: String(row.id || `${parsedDate.iso}_${empId}`),
+      date: parsedDate.iso,
+      employeeId: empId,
+      shift,
+      status: (statusRaw || 'PRESENT') as AttendanceStatus,
+      overtime,
+      lateIn: lateIn || undefined,
+      earlyOut: earlyOut || undefined,
+      manualIn: manualIn || undefined,
+      manualOut: manualOut || undefined,
+      earlyIn: earlyIn || undefined,
+      sundayDayOT: row.sundayDayOT !== undefined && row.sundayDayOT !== '' ? sundayDayOT : undefined,
+      sundayNightOT: row.sundayNightOT !== undefined && row.sundayNightOT !== '' ? sundayNightOT : undefined,
+      note: note || undefined,
+    };
+    attendanceHistory.push(attRecord);
+
+    // Map into MatrixDayTimeEntry
+    const monthKey = `${parsedDate.year}_${parsedDate.month}`;
+    if (!byMonth.has(monthKey)) {
+      byMonth.set(monthKey, {
+        year: parsedDate.year,
+        month: parsedDate.month,
+        empDays: new Map(),
+      });
+    }
+    const bucket = byMonth.get(monthKey)!;
+    const empKeyLower = empId.toLowerCase();
+    if (!bucket.empDays.has(empKeyLower)) {
+      bucket.empDays.set(empKeyLower, new Map());
+    }
+
+    const isSunday = new Date(parsedDate.year, parsedDate.month - 1, parsedDate.day).getDay() === 0;
+    const normStatusUpper = statusRaw.toUpperCase();
+    const isOffStatus =
+      normStatusUpper === 'NGHỈ CHỦ NHẬT' ||
+      normStatusUpper === 'NGHỈ KL' ||
+      normStatusUpper === 'NGHỈ PHÉP' ||
+      normStatusUpper === 'NGHỈ ỐM' ||
+      normStatusUpper === 'NGHỈ LỄ' ||
+      normStatusUpper === 'NGHỈ CƯỚI' ||
+      normStatusUpper === 'NGHỈ TANG' ||
+      normStatusUpper === 'VẮNG MẶT' ||
+      normStatusUpper === 'ĐÃ NGHỈ VIỆC' ||
+      normStatusUpper === 'ĐÃ THÔI VIỆC' ||
+      normStatusUpper === 'LEAVE' ||
+      normStatusUpper === 'SICK';
+
+    let matrixStatus: AttendanceStatus = 'Đúng giờ';
+    if (normStatusUpper === 'PRESENT' || normStatusUpper === 'ĐỦ CÔNG' || normStatusUpper === 'ĐÚNG GIỜ') {
+      matrixStatus = lateIn ? 'Đi muộn' : earlyOut ? 'Về sớm' : 'Đúng giờ';
+    } else if (normStatusUpper === 'ĐÃ THÔI VIỆC') {
+      matrixStatus = 'Đã nghỉ việc';
+    } else if (statusRaw) {
+      matrixStatus = statusRaw as AttendanceStatus;
+    }
+
+    let inTime = '';
+    let outTime = '';
+    let regularHours = 0;
+    let otDayHours = 0;
+    let otNightHours = 0;
+    let otSundayHours = 0;
+    let otSundayNightHours = 0;
+
+    if (!isOffStatus) {
+      if (isSunday || sundayDayOT > 0 || sundayNightOT > 0) {
+        otSundayHours = sundayDayOT || (shift === 'DAY' ? overtime : 0);
+        otSundayNightHours = sundayNightOT || (shift === 'NIGHT' ? overtime : 0);
+        const sunTotal = otSundayHours + otSundayNightHours;
+        inTime = manualIn || lateIn || (sunTotal > 0 ? (shift === 'NIGHT' ? '20:00' : '08:00') : '');
+        outTime =
+          manualOut ||
+          earlyOut ||
+          (sunTotal > 0 ? (shift === 'NIGHT' ? '08:00' : '20:00') : '');
+      } else {
+        regularHours = 8;
+        if (shift === 'NIGHT') {
+          otNightHours = overtime;
+          inTime = manualIn || lateIn || '20:00';
+          outTime = manualOut || earlyOut || addMinutesToHhMm('05:00', overtime);
+        } else {
+          otDayHours = overtime;
+          inTime = manualIn || lateIn || '08:00';
+          outTime = manualOut || earlyOut || addMinutesToHhMm('17:00', overtime);
+        }
+      }
+    } else if (isSunday && (sundayDayOT > 0 || sundayNightOT > 0)) {
+      otSundayHours = sundayDayOT;
+      otSundayNightHours = sundayNightOT;
+      matrixStatus = 'Đúng giờ';
+      inTime = manualIn || (shift === 'NIGHT' ? '20:00' : '08:00');
+      outTime = manualOut || (shift === 'NIGHT' ? '08:00' : '20:00');
+    }
+
+    bucket.empDays.get(empKeyLower)!.set(parsedDate.day, {
+      day: parsedDate.day,
+      inTime,
+      outTime,
+      shift,
+      regularHours,
+      otDayHours,
+      otNightHours,
+      otSundayHours,
+      otSundayNightHours,
+      otHolidayHours: 0,
+      otHolidayNightHours: 0,
+      isHoliday: normStatusUpper === 'NGHỈ LỄ',
+      status: matrixStatus,
+      note: note || undefined,
+      isRestored: true,
+      isAutoDefault: false,
+    });
+  });
+
+  // Apply restored days into MULTI and ALL matrices
+  const restoredMonths: string[] = [];
+  byMonth.forEach(({ year, month, empDays }) => {
+    ['MULTI', 'ALL'].forEach((dept) => {
+      const { matrix, holidays } = loadOrInitDepartmentMatrix(dept, year, month, staffList, false);
+      const nextMatrix: Record<string, MatrixEmployeeTimekeeping> = { ...matrix };
+
+      empDays.forEach((daysMap, empLower) => {
+        const matchedStaff = staffById.get(empLower);
+        const existingKey = findEmployeeKey(nextMatrix, empLower) || matchedStaff?.employeeId || empLower.toUpperCase();
+        const currentRec: MatrixEmployeeTimekeeping = nextMatrix[existingKey] || {
+          employeeId: matchedStaff?.employeeId || existingKey,
+          fullName: matchedStaff?.fullName || existingKey,
+          department: matchedStaff?.department || dept,
+          position: matchedStaff?.position || 'OP',
+          shift: matchedStaff?.shift || 'DAY',
+          isLocked: Boolean(matchedStaff?.isLocked),
+          days: {},
+          totalWorkHours: 0,
+          totalDayOt: 0,
+          totalNightOt: 0,
+          totalSundayOt: 0,
+        };
+
+        const mergedDays: Record<number, MatrixDayTimeEntry> = { ...(currentRec.days || {}) };
+        daysMap.forEach((entry, dayNum) => {
+          mergedDays[dayNum] = entry;
+        });
+
+        const appliedDays = matchedStaff
+          ? applyJoinDateAndLockRules(mergedDays, matchedStaff, year, month, currentRec.isLocked, currentRec.lockedDay)
+          : mergedDays;
+        const totals = recalculateStaffTotals(appliedDays);
+
+        nextMatrix[existingKey] = {
+          ...currentRec,
+          isLocked: matchedStaff?.isLocked !== undefined ? matchedStaff.isLocked : currentRec.isLocked,
+          days: appliedDays,
+          ...totals,
+        };
+      });
+
+      saveDepartmentMatrix(dept, year, month, nextMatrix, holidays, true);
+    });
+    restoredMonths.push(`${month}/${year}`);
+  });
+
+  return {
+    attendanceHistory,
+    restoredMonths,
+    restoredCount: attendanceHistory.length,
+  };
+}
+

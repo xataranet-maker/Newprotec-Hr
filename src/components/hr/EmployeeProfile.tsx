@@ -11,10 +11,12 @@ import {
   AttendanceCorrectionRequest,
   AttendanceConfirmationRecord,
   EmployeeSalaryConfig,
+  LeaveRegistrationRecord,
 } from '../../types';
 import {
   MATRIX_UPDATED_EVENT,
   getEmployeeProfileMatrixData,
+  hasMatrixRealData,
   isDayBeforeJoinDate,
 } from '../../lib/matrixTimekeeping';
 import {
@@ -28,6 +30,14 @@ import {
   calculatePitAboveThreshold,
 } from '../../lib/salaryConfig';
 import { SalarySlipModal } from './SalarySlipModal';
+import {
+  LeaveRegistrationWorkbench,
+  computeAnnualLeaveUsed,
+} from './LeaveFormNPTFM007';
+import {
+  AbnormalAttendanceModal,
+  getMonthKeyFromDate,
+} from './AbnormalAttendanceFormNPTFM008';
 import {
   Briefcase,
   Phone,
@@ -48,24 +58,8 @@ import {
   CalendarCheck,
   AlertCircle,
   Lock,
+  Printer,
 } from 'lucide-react';
-
-interface LeaveRequestItem {
-  id: number;
-  employeeId: string;
-  leaveType:
-    | 'Phép năm'
-    | 'Nghỉ ốm'
-    | 'Việc riêng'
-    | 'Nghỉ cưới'
-    | 'Nghỉ tang (Người nhà mất)'
-    | 'Không lương';
-  startDate: string;
-  days: number;
-  reason: string;
-  status: 'PENDING' | 'APPROVED';
-  createdAt: string;
-}
 
 export interface EmployeeProfileProps {
   currentUser: UserAccount;
@@ -81,6 +75,9 @@ export interface EmployeeProfileProps {
   attendanceConfirmations: AttendanceConfirmationRecord[];
   onUpdateAttendanceConfirmation: (conf: AttendanceConfirmationRecord[]) => void;
   salaryConfigs?: EmployeeSalaryConfig[];
+  leaveRecords?: LeaveRegistrationRecord[];
+  onAddLeaveRecord?: (record: LeaveRegistrationRecord) => void;
+  onDeleteLeaveRecord?: (id: number) => void;
   onUpdateStaffInfo: (st: StaffRecord) => void;
   onUpdateAvatar?: (url: string) => void;
   viewerHasSalaryAccess?: boolean;
@@ -112,6 +109,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   attendanceConfirmations,
   onUpdateAttendanceConfirmation,
   salaryConfigs = [],
+  leaveRecords = [],
+  onAddLeaveRecord,
+  onDeleteLeaveRecord,
   onUpdateStaffInfo,
   viewerHasSalaryAccess = true,
   isModal = false,
@@ -151,40 +151,37 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
   // Attendance correction request state
   const [reqDate, setReqDate] = useState(now.toISOString().split('T')[0]);
-  const [inTime, setInTime] = useState('08:00');
-  const [outTime, setOutTime] = useState('20:00');
+  const [inTime, setInTime] = useState(staffInfo?.shift === 'NIGHT' ? '20:00' : '08:00');
+  const [outTime, setOutTime] = useState(staffInfo?.shift === 'NIGHT' ? '05:00' : '17:00');
+  const [reqCategory, setReqCategory] = useState<'PERSONAL' | 'SYSTEM'>('PERSONAL');
   const [reason, setReason] = useState('');
+  const [viewingAbnormalReq, setViewingAbnormalReq] =
+    useState<AttendanceCorrectionRequest | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  // Leave request state (persisted per employee in localStorage)
+  // Employee identity resolved for synchronized leave & attendance tabs
   const empId = staffInfo?.employeeId || currentUser.employeeId || currentUser.username || 'NV001';
   const empName = staffInfo?.fullName || currentUser.fullName || empId;
   const empDept = staffInfo?.department || currentUser.department || 'MULTI';
   const empPosition = staffInfo?.position || 'Nhân viên';
 
-  const leaveStorageKey = `app_employee_leaves_${empId}`;
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequestItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(leaveStorageKey);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // ignore
-    }
-    return [];
-  });
-  const [leaveType, setLeaveType] = useState<LeaveRequestItem['leaveType']>('Phép năm');
-  const [leaveDate, setLeaveDate] = useState(now.toISOString().split('T')[0]);
-  const [leaveDays, setLeaveDays] = useState<number>(1);
-  const [leaveReason, setLeaveReason] = useState('');
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(leaveStorageKey);
-      setLeaveRequests(saved ? JSON.parse(saved) : []);
-    } catch {
-      setLeaveRequests([]);
-    }
-  }, [leaveStorageKey]);
+  const resolvedEmployeeForLeave: StaffRecord = useMemo(
+    () =>
+      staffInfo || {
+        id: Date.now(),
+        employeeId: empId,
+        fullName: empName,
+        department: empDept,
+        position: empPosition,
+        dateJoined: '',
+        dob: '',
+        hometown: '',
+        phone: '',
+        attendance: 'UNMARKED',
+        shift: 'DAY',
+      },
+    [staffInfo, empId, empName, empDept, empPosition]
+  );
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -306,13 +303,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         day,
         staffInfo?.dateJoined
       );
+      const hideAsBeforeJoin = isBeforeJoin && !hasMatrixRealData(entry);
       const isResigned =
         entry?.status === 'Đã nghỉ việc' || (entry?.status as string) === 'Đã thôi việc';
 
       let statusLabel = 'Chưa chấm công';
       let statusTone: 'ot' | 'full' | 'late' | 'early' | 'leave' | 'sunday' | 'holiday' | 'empty' = 'empty';
 
-      if (isBeforeJoin) {
+      if (hideAsBeforeJoin) {
         statusLabel = '';
         statusTone = 'empty';
       } else if (isResigned) {
@@ -355,8 +353,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         isSunday,
         isHoliday,
         shift: entry?.shift || staffInfo?.shift || 'DAY',
-        inTime: isBeforeJoin || isResigned ? '' : entry?.inTime || '--:--',
-        outTime: isBeforeJoin || isResigned ? '' : entry?.outTime || '--:--',
+        inTime: hideAsBeforeJoin || isResigned ? '' : entry?.inTime || '--:--',
+        outTime: hideAsBeforeJoin || isResigned ? '' : entry?.outTime || '--:--',
         regularHours: reg,
         totalHrs: Math.round(totalHrs * 10) / 10,
         totalOtDayRow: Math.round(totalOtDayRow * 10) / 10,
@@ -465,10 +463,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       department: empDept,
       days: confirmDays,
       unexcusedAbsence: 0,
-      remainingLeave: Math.max(
-        0,
-        12 - leaveRequests.filter((r) => r.leaveType === 'Phép năm').reduce((s, r) => s + r.days, 0)
-      ),
+      remainingLeave: Math.max(0, 12 - computeAnnualLeaveUsed(leaveRecords, empId)),
       isConfirmed: true,
       confirmedAt: new Date().toLocaleString('vi-VN'),
       confirmedBy: empName,
@@ -486,44 +481,36 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     e.preventDefault();
     if (!reason.trim()) return;
 
+    const monthKeyReq = getMonthKeyFromDate(reqDate);
+    const monthCount =
+      myRequests.filter((r) => getMonthKeyFromDate(r.date) === monthKeyReq).length + 1;
+
     onRequestCorrection({
       id: Date.now(),
       employeeId: empId,
       fullName: empName,
+      department: empDept,
       date: reqDate,
       inTime,
       outTime,
       reason: reason.trim(),
       status: 'PENDING',
       requestDate: new Date().toLocaleDateString('vi-VN'),
+      checkInChecked: Boolean(inTime),
+      checkOutChecked: Boolean(outTime),
+      reasonCategory: reqCategory,
+      monthlyCount: monthCount,
     });
 
     setReason('');
-    showToast('Đã gửi yêu cầu giải trình công tới HC & NS!');
+    showToast('Đã gửi phiếu xác nhận chấm công bất thường (NPT-FM-008) tới HC & NS!');
   };
 
-  const handleSubmitLeave = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!leaveReason.trim()) return;
-    const nextItem: LeaveRequestItem = {
-      id: Date.now(),
-      employeeId: empId,
-      leaveType,
-      startDate: leaveDate,
-      days: leaveDays,
-      reason: leaveReason.trim(),
-      status: 'PENDING',
-      createdAt: new Date().toLocaleDateString('vi-VN'),
-    };
-    const nextList = [nextItem, ...leaveRequests];
-    setLeaveRequests(nextList);
-    try {
-      localStorage.setItem(leaveStorageKey, JSON.stringify(nextList));
-    } catch {
-      // ignore
+  const handleProfileAddLeave = (rec: LeaveRegistrationRecord) => {
+    if (onAddLeaveRecord) {
+      onAddLeaveRecord(rec);
     }
-    setLeaveReason('');
-    showToast('Đã gửi đơn đăng ký nghỉ phép!');
+    showToast('Đã đăng ký & lưu đơn xin phép đồng bộ lên hệ thống HC & NS!');
   };
 
   const handleSaveStaffEdit = (e: React.FormEvent) => {
@@ -883,6 +870,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                               type="button"
                               onClick={() => {
                                 setReqDate(row.dateIso);
+                                const defIn = staffInfo?.shift === 'NIGHT' ? '20:00' : '08:00';
+                                const defOut = staffInfo?.shift === 'NIGHT' ? '05:00' : '17:00';
+                                const missingIn = !row.inTime || row.inTime === '--:--';
+                                const missingOut = !row.outTime || row.outTime === '--:--';
+                                setInTime(missingIn ? defIn : missingOut ? '' : row.inTime);
+                                setOutTime(missingOut ? defOut : missingIn ? '' : row.outTime);
                                 setActiveTab('confirm');
                               }}
                               className="text-[10px] text-slate-400 hover:text-cyan-300 underline cursor-pointer"
@@ -973,6 +966,33 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     </div>
                   </div>
                   <div>
+                    <label className="block text-slate-400 mb-1">Phân loại lỗi (Phiếu NPT-FM-008)</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setReqCategory('PERSONAL')}
+                        className={`py-1.5 px-2.5 rounded-lg border text-[11px] font-semibold cursor-pointer ${
+                          reqCategory === 'PERSONAL'
+                            ? 'bg-cyan-600/80 border-cyan-400 text-white'
+                            : 'bg-slate-950 border-slate-800 text-slate-300'
+                        }`}
+                      >
+                        Lỗi cá nhân / 개인 실수
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReqCategory('SYSTEM')}
+                        className={`py-1.5 px-2.5 rounded-lg border text-[11px] font-semibold cursor-pointer ${
+                          reqCategory === 'SYSTEM'
+                            ? 'bg-amber-600/80 border-amber-400 text-white'
+                            : 'bg-slate-950 border-slate-800 text-slate-300'
+                        }`}
+                      >
+                        Lỗi hệ thống / 시스템 오류
+                      </button>
+                    </div>
+                  </div>
+                  <div>
                     <label className="block text-slate-400 mb-1">Lý do giải trình</label>
                     <textarea
                       rows={3}
@@ -983,13 +1003,43 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                       required
                     />
                   </div>
-                  <button
-                    type="submit"
-                    className="w-full py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Gửi Giải Trình</span>
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setViewingAbnormalReq({
+                          id: Date.now(),
+                          employeeId: empId,
+                          fullName: empName,
+                          department: empDept,
+                          date: reqDate,
+                          inTime,
+                          outTime,
+                          reason: reason.trim() || 'Xác nhận chấm công bất thường',
+                          status: 'PENDING',
+                          requestDate: new Date().toLocaleDateString('vi-VN'),
+                          checkInChecked: Boolean(inTime),
+                          checkOutChecked: Boolean(outTime),
+                          reasonCategory: reqCategory,
+                          monthlyCount:
+                            myRequests.filter(
+                              (r) => getMonthKeyFromDate(r.date) === getMonthKeyFromDate(reqDate)
+                            ).length + 1,
+                        })
+                      }
+                      className="py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Xem / In NPT-FM-008</span>
+                    </button>
+                    <button
+                      type="submit"
+                      className="py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Gửi Giải Trình</span>
+                    </button>
+                  </div>
                 </form>
 
                 <div className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-3">
@@ -1004,21 +1054,31 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     ) : (
                       <>
                         {myRequests.map((r) => (
-                          <div key={r.id} className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
-                            <div className="flex justify-between items-center">
+                          <div key={r.id} className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1.5">
+                            <div className="flex justify-between items-center gap-2">
                               <span className="font-bold text-slate-200 font-mono">{r.date}</span>
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-mono ${
-                                  r.status === 'APPROVED'
-                                    ? 'bg-emerald-950 text-emerald-400'
-                                    : 'bg-amber-950 text-amber-400'
-                                }`}
-                              >
-                                {r.status}
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingAbnormalReq(r)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-600/40 text-cyan-300 text-[10px] font-semibold cursor-pointer"
+                                >
+                                  <Printer className="w-3 h-3" />
+                                  <span>In NPT-FM-008</span>
+                                </button>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-mono ${
+                                    r.status === 'APPROVED'
+                                      ? 'bg-emerald-950 text-emerald-400'
+                                      : 'bg-amber-950 text-amber-400'
+                                  }`}
+                                >
+                                  {r.status}
+                                </span>
+                              </div>
                             </div>
                             <div className="text-slate-400 font-mono text-[11px]">
-                              Vào: {r.inTime} · Ra: {r.outTime}
+                              Vào: {r.inTime || '—'} · Ra: {r.outTime || '—'}
                             </div>
                             <p className="text-slate-300">{r.reason}</p>
                           </div>
@@ -1039,121 +1099,28 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   </div>
                 </div>
               </div>
+              {viewingAbnormalReq && (
+                <AbnormalAttendanceModal
+                  mode="view"
+                  existingRequest={viewingAbnormalReq}
+                  existingRequests={myRequests}
+                  onClose={() => setViewingAbnormalReq(null)}
+                />
+              )}
             </div>
           )}
 
-          {/* TAB 3: ĐĂNG KÝ PHÉP */}
+          {/* TAB 3: ĐĂNG KÝ PHÉP (ĐỒNG BỘ VỚI HC & NS - MẪU NPT-FM-007) */}
           {activeTab === 'leave' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
-              <form
-                onSubmit={handleSubmitLeave}
-                className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-3"
-              >
-                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                  <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                    <Plane className="w-4 h-4 text-cyan-400" />
-                    <span>Đăng Ký Nghỉ Phép</span>
-                  </h3>
-                  <span className="text-[11px] font-mono text-cyan-400">
-                    Phép năm còn:{' '}
-                    {Math.max(
-                      0,
-                      12 - leaveRequests.filter((r) => r.leaveType === 'Phép năm').reduce((s, r) => s + r.days, 0)
-                    )}{' '}
-                    ngày
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 mb-1">Loại Nghỉ</label>
-                  <select
-                    value={leaveType}
-                    onChange={(e) => setLeaveType(e.target.value as LeaveRequestItem['leaveType'])}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200"
-                  >
-                    <option value="Phép năm">Nghỉ phép năm</option>
-                    <option value="Nghỉ cưới">Nghỉ phép cưới (Hiếu hỷ)</option>
-                    <option value="Nghỉ tang (Người nhà mất)">Nghỉ tang / Người nhà mất (Hiếu hỷ)</option>
-                    <option value="Nghỉ ốm">Nghỉ ốm</option>
-                    <option value="Việc riêng">Nghỉ việc riêng</option>
-                    <option value="Không lương">Nghỉ không lương</option>
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-slate-400 mb-1">Ngày bắt đầu</label>
-                    <input
-                      type="date"
-                      value={leaveDate}
-                      onChange={(e) => setLeaveDate(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-400 mb-1">Số ngày nghỉ</label>
-                    <input
-                      type="number"
-                      min={0.5}
-                      max={30}
-                      step={0.5}
-                      value={leaveDays}
-                      onChange={(e) => setLeaveDays(Number(e.target.value))}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 mb-1">Lý do xin nghỉ</label>
-                  <textarea
-                    rows={3}
-                    value={leaveReason}
-                    onChange={(e) => setLeaveReason(e.target.value)}
-                    placeholder="Nhập lý do xin nghỉ phép..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200"
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold cursor-pointer"
-                >
-                  Gửi Đơn Xin Nghỉ
-                </button>
-              </form>
-
-              <div className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-3">
-                <h3 className="font-bold text-sm text-white pb-2 border-b border-slate-800">
-                  Danh Sách Đơn Nghỉ Phép ({leaveRequests.length})
-                </h3>
-                {leaveRequests.length === 0 ? (
-                  <div className="py-10 text-center text-slate-500">
-                    Chưa có đơn nghỉ phép nào được đăng ký.
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-72 overflow-y-auto custom-scrollbar">
-                    {leaveRequests.map((l) => (
-                      <div key={l.id} className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-white">
-                            {l.leaveType} ({l.days} ngày)
-                          </span>
-                          <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-300 text-[10px] font-mono">
-                            {l.status}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-cyan-400 font-mono">Ngày: {l.startDate}</div>
-                        <p className="text-slate-300">{l.reason}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <LeaveRegistrationWorkbench
+              allStaff={[resolvedEmployeeForLeave]}
+              leaveRecords={leaveRecords}
+              onAddLeaveRecord={handleProfileAddLeave}
+              onDeleteLeaveRecord={onDeleteLeaveRecord}
+              lockedEmployee={resolvedEmployeeForLeave}
+              createdByLabel={currentUser.role === 'staff' ? 'Hồ sơ NV' : 'HC & NS'}
+              compact
+            />
           )}
 
           {/* TAB 4: LƯƠNG & PHIẾU */}

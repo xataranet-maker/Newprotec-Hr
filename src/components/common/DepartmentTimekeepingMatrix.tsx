@@ -38,6 +38,7 @@ import {
   saveDepartmentMatrix,
   isDayBeforeJoinDate,
   applyJoinDateAndLockRules,
+  hasMatrixRealData,
   MATRIX_UPDATED_EVENT,
 } from '../../lib/matrixTimekeeping';
 
@@ -491,6 +492,12 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
       const days = { ...current.days };
       monthDaysMeta.forEach(({ day, isSunday, isHoliday }) => {
+        if (
+          isDayBeforeJoinDate(selectedYear, selectedMonth, day, staff.dateJoined) &&
+          !hasMatrixRealData(days[day])
+        ) {
+          return;
+        }
         if (isHoliday) {
           days[day] = {
             day,
@@ -565,11 +572,12 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
   // Open cell editor
   const openEditCell = (staff: StaffRecord, meta: DayHeaderMeta) => {
-    if (isDayBeforeJoinDate(selectedYear, selectedMonth, meta.day, staff.dateJoined)) {
+    const record = matrixData[staff.employeeId];
+    const existingForDay = record?.days?.[meta.day];
+    if (isDayBeforeJoinDate(selectedYear, selectedMonth, meta.day, staff.dateJoined) && !hasMatrixRealData(existingForDay)) {
       showToast(`Nhân viên ${staff.fullName} chưa vào làm vào ngày ${meta.day} (${staff.dateJoined}).`);
       return;
     }
-    const record = matrixData[staff.employeeId];
     if (record?.isLocked) {
       if (record.lockedDay !== undefined) {
         if (meta.day >= record.lockedDay) {
@@ -811,7 +819,11 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
     const updatedDays = {
       ...currentStaffData.days,
-      [day]: updatedEntry,
+      [day]: {
+        ...updatedEntry,
+        isManual: true,
+        isAutoDefault: false,
+      },
     };
 
     const totals = recalculateStaffTotals(updatedDays);
@@ -941,7 +953,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
           (d?.otHolidayHours || 0) +
           (d?.otHolidayNightHours || 0);
 
-        const hasWorkingData = !isBeforeJoin && !isResigned && (hasInTime || hasOutTime || totalHours > 0);
+        const hideAsBeforeJoin = isBeforeJoin && !hasMatrixRealData(d);
+        const hasWorkingData = !hideAsBeforeJoin && !isResigned && (hasInTime || hasOutTime || totalHours > 0);
 
         // Determine night shift vs day shift
         const isNight =
@@ -1275,6 +1288,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               otHolidayNightHours,
               isHoliday: isHol,
               status,
+              isManual: true,
+              isAutoDefault: false,
             };
           });
 
@@ -1804,15 +1819,16 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
                     {/* Day Cells */}
                     {monthDaysMeta.map((m) => {
+                      const rawEntry = days[m.day];
                       const isBeforeJoin = isDayBeforeJoinDate(
                         selectedYear,
                         selectedMonth,
                         m.day,
                         staff.dateJoined
                       );
-                      const rawEntry = days[m.day];
+                      const hideAsBeforeJoin = isBeforeJoin && !hasMatrixRealData(rawEntry);
                       const isResigned = Boolean(
-                        !isBeforeJoin &&
+                        !hideAsBeforeJoin &&
                           ((record?.isLocked &&
                             record?.lockedDay !== undefined &&
                             m.day >= record.lockedDay) ||
@@ -1831,7 +1847,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         otHolidayHours: 0,
                         otHolidayNightHours: 0,
                         isHoliday: m.isHoliday,
-                        status: (isBeforeJoin || isResigned
+                        status: (hideAsBeforeJoin || isResigned
                           ? ''
                           : m.isHoliday
                           ? 'Nghỉ lễ'
@@ -1863,7 +1879,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           key={m.day}
                           onClick={() => openEditCell(staff, m)}
                           className={`py-1.5 px-1.5 text-center border-r border-slate-800/80 cursor-pointer transition-colors relative hover:ring-1 hover:ring-cyan-400 ${
-                            isBeforeJoin
+                            hideAsBeforeJoin
                               ? 'bg-slate-950/70 hover:bg-slate-900/60'
                               : isResigned
                               ? 'bg-slate-950/60 hover:bg-slate-900/60'
@@ -1876,7 +1892,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                               : 'hover:bg-slate-800'
                           }`}
                           title={
-                            isBeforeJoin
+                            hideAsBeforeJoin
                               ? `${staff.fullName} - Chưa vào làm (vào làm từ ${staff.dateJoined})`
                               : isResigned
                               ? `${staff.fullName} - Đã nghỉ việc từ ngày ${record?.lockedDay || m.day}`
@@ -1885,7 +1901,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                                 })`
                           }
                         >
-                          {isBeforeJoin ? (
+                          {hideAsBeforeJoin ? (
                             <div className="text-[10px] font-mono py-1 select-none">&nbsp;</div>
                           ) : isResigned ? (
                             isSunday || isHolidayCell ? (

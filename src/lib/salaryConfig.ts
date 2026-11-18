@@ -260,29 +260,57 @@ const getBereavementWeddingLeaveRequestsInMonth = (
 ): { days: number; labels: string[] } => {
   if (typeof window === 'undefined' || !employeeId) return { days: 0, labels: [] };
   try {
-    const raw = localStorage.getItem(`app_employee_leaves_${employeeId}`);
-    if (!raw) return { days: 0, labels: [] };
-    const list = JSON.parse(raw) as Array<{
+    const normEmpId = employeeId.trim().toLowerCase();
+    const combined: Array<{
+      id?: number;
       leaveType?: string;
       startDate?: string;
+      fromDate?: string;
       days?: number;
-    }>;
-    if (!Array.isArray(list)) return { days: 0, labels: [] };
+    }> = [];
+
+    const globalRaw = localStorage.getItem('app_leave_registrations');
+    if (globalRaw) {
+      const globalList = JSON.parse(globalRaw);
+      if (Array.isArray(globalList)) {
+        globalList.forEach((item: any) => {
+          if (String(item?.employeeId || '').trim().toLowerCase() === normEmpId) {
+            combined.push(item);
+          }
+        });
+      }
+    }
+
+    const raw = localStorage.getItem(`app_employee_leaves_${employeeId}`);
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        const seenIds = new Set(combined.map((x) => x.id).filter(Boolean));
+        list.forEach((item: any) => {
+          if (!item?.id || !seenIds.has(item.id)) {
+            combined.push(item);
+          }
+        });
+      }
+    }
+
+    if (combined.length === 0) return { days: 0, labels: [] };
 
     const monthStart = new Date(year, month - 1, 1);
     const monthEnd = new Date(year, month, 0);
     let totalDays = 0;
     const labelSet = new Set<string>();
 
-    list.forEach((item) => {
+    combined.forEach((item) => {
       if (
         item.leaveType !== 'Nghỉ cưới' &&
         item.leaveType !== 'Nghỉ tang (Người nhà mất)'
       ) {
         return;
       }
-      if (!item.startDate) return;
-      const [yStr, mStr, dStr] = item.startDate.split('-');
+      const dateStr = item.fromDate || item.startDate;
+      if (!dateStr) return;
+      const [yStr, mStr, dStr] = dateStr.split('-');
       const sy = Number(yStr);
       const sm = Number(mStr);
       const sd = Number(dStr);

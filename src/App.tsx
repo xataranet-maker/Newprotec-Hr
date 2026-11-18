@@ -13,6 +13,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import {
   MATRIX_UPDATED_EVENT,
+  deleteEmployeeFromAllMatrixStorage,
   getAllStoredMatrixSnapshots,
   restoreStoredMatrixSnapshots,
 } from './lib/matrixTimekeeping';
@@ -35,6 +36,11 @@ import { HRAssets } from './components/hr/HRAssets';
 import { HRDocuments } from './components/hr/HRDocuments';
 import { HRTraining } from './components/hr/HRTraining';
 import { HRAttendanceConfirmation } from './components/hr/HRAttendanceConfirmation';
+import {
+  LeaveRegistrationWorkbench,
+  LEAVE_REGISTRATIONS_STORAGE_KEY,
+  migrateLegacyEmployeeLeaves,
+} from './components/hr/LeaveFormNPTFM007';
 
 // --- ADMIN ---
 import { AdminUserManagement } from './components/admin/AdminUserManagement';
@@ -59,6 +65,7 @@ import {
   AttendanceConfirmationRecord,
   ProductionPlan,
   SalarySecurityConfig,
+  LeaveRegistrationRecord,
 } from './types';
 import {
   SALARY_SECURITY_STORAGE_KEY,
@@ -148,6 +155,21 @@ export default function App() {
   const [salarySecurity, setSalarySecurity] = useState<SalarySecurityConfig>(() =>
     normalizeSalarySecurityConfig(loadFromStorage(SALARY_SECURITY_STORAGE_KEY, null))
   );
+  const [leaveRecords, setLeaveRecords] = useState<LeaveRegistrationRecord[]>(() => {
+    const existing = loadFromStorage(LEAVE_REGISTRATIONS_STORAGE_KEY, []) as LeaveRegistrationRecord[];
+    const initialMulti = loadFromStorage(
+      'app_staff_records',
+      INITIAL_STAFF.filter((s) => s.department === 'MULTI')
+    ) as StaffRecord[];
+    const initialHr = loadFromStorage(
+      'app_hr_staff',
+      INITIAL_STAFF.filter((s) => s.department === 'HR')
+    ) as StaffRecord[];
+    return migrateLegacyEmployeeLeaves(
+      Array.isArray(existing) ? existing : [],
+      [...initialMulti, ...initialHr]
+    );
+  });
   const [matrixVersion, setMatrixVersion] = useState(0);
 
   useEffect(() => {
@@ -177,6 +199,7 @@ export default function App() {
     localStorage.setItem('app_attendance_requests', JSON.stringify(attendanceRequests));
     localStorage.setItem('app_production_plans', JSON.stringify(productionPlans));
     localStorage.setItem(SALARY_SECURITY_STORAGE_KEY, JSON.stringify(salarySecurity));
+    localStorage.setItem(LEAVE_REGISTRATIONS_STORAGE_KEY, JSON.stringify(leaveRecords));
   }, [
     userAccounts,
     language,
@@ -197,6 +220,7 @@ export default function App() {
     attendanceRequests,
     productionPlans,
     salarySecurity,
+    leaveRecords,
   ]);
 
   const allStaff = useMemo(() => [...staffRecords, ...hrStaff], [staffRecords, hrStaff]);
@@ -272,6 +296,7 @@ export default function App() {
       attendanceRequests,
       productionPlans,
       salarySecurity,
+      leaveRecords,
       matrixSnapshots: getAllStoredMatrixSnapshots(),
       language,
     }),
@@ -294,6 +319,7 @@ export default function App() {
       attendanceRequests,
       productionPlans,
       salarySecurity,
+      leaveRecords,
       matrixVersion,
       language,
     ]
@@ -325,6 +351,7 @@ export default function App() {
     if (Array.isArray(s.documentRecords)) setDocumentRecords(s.documentRecords);
     if (Array.isArray(s.attendanceRequests)) setAttendanceRequests(s.attendanceRequests);
     if (Array.isArray(s.productionPlans)) setProductionPlans(s.productionPlans);
+    if (Array.isArray(s.leaveRecords)) setLeaveRecords(s.leaveRecords);
     if (s.salarySecurity && typeof s.salarySecurity === 'object') {
       setSalarySecurity(normalizeSalarySecurityConfig(s.salarySecurity));
     }
@@ -489,6 +516,71 @@ export default function App() {
     [currentUser, allStaff, handleUpdateStaffInfo]
   );
 
+  const handleDeleteStaffCompletely = useCallback((staff: StaffRecord) => {
+    const normId = staff.employeeId.trim().toLowerCase();
+    const targetNumericId = staff.id;
+
+    setStaffRecords((prev) =>
+      prev.filter((s) => s.employeeId.trim().toLowerCase() !== normId && s.id !== targetNumericId)
+    );
+    setHrStaff((prev) =>
+      prev.filter((s) => s.employeeId.trim().toLowerCase() !== normId && s.id !== targetNumericId)
+    );
+    setAttendanceHistory((prev) =>
+      prev.filter((r) => r.employeeId.trim().toLowerCase() !== normId)
+    );
+    setOvertimeRecords((prev) =>
+      prev.filter((r) => r.employeeId.trim().toLowerCase() !== normId && r.staffId !== targetNumericId)
+    );
+    setAttendanceConfirmations((prev) =>
+      prev.filter((c) => c.employeeId.trim().toLowerCase() !== normId)
+    );
+    setContracts((prev) =>
+      prev.filter((c) => c.employeeId.trim().toLowerCase() !== normId)
+    );
+    setSalarySlipRecords((prev) =>
+      prev.filter((s) => s.employeeId.trim().toLowerCase() !== normId)
+    );
+    setSalaryConfigs((prev) =>
+      prev.filter((c) => c.employeeId.trim().toLowerCase() !== normId)
+    );
+    setTimekeepingRecords((prev) =>
+      prev.filter((t) => t.employeeId.trim().toLowerCase() !== normId)
+    );
+    setAttendanceRequests((prev) =>
+      prev.filter((req) => req.employeeId.trim().toLowerCase() !== normId)
+    );
+    setLeaveRecords((prev) =>
+      prev.filter((r) => r.employeeId.trim().toLowerCase() !== normId)
+    );
+    try {
+      localStorage.removeItem(`app_employee_leaves_${staff.employeeId}`);
+    } catch {
+      // ignore
+    }
+    setUserAccounts((prev) =>
+      prev.filter(
+        (u) =>
+          u.username.toLowerCase() === 'admin' ||
+          !u.employeeId ||
+          u.employeeId.trim().toLowerCase() !== normId
+      )
+    );
+    setViewingProfileStaff((prev) =>
+      prev && prev.employeeId.trim().toLowerCase() === normId ? null : prev
+    );
+
+    deleteEmployeeFromAllMatrixStorage(staff.employeeId);
+  }, []);
+
+  const handleAddLeaveRecord = useCallback((record: LeaveRegistrationRecord) => {
+    setLeaveRecords((prev) => [record, ...prev]);
+  }, []);
+
+  const handleDeleteLeaveRecord = useCallback((id: number) => {
+    setLeaveRecords((prev) => prev.filter((r) => r.id !== id));
+  }, []);
+
   const handleLogin = useCallback((user: UserAccount) => {
     setViewingProfileStaff(null);
     setCurrentUser(user);
@@ -531,6 +623,9 @@ export default function App() {
           attendanceConfirmations={attendanceConfirmations}
           onUpdateAttendanceConfirmation={setAttendanceConfirmations}
           salaryConfigs={salaryConfigs}
+          leaveRecords={leaveRecords}
+          onAddLeaveRecord={handleAddLeaveRecord}
+          onDeleteLeaveRecord={handleDeleteLeaveRecord}
           onUpdateStaffInfo={handleUpdateStaffInfo}
           onUpdateAvatar={handleUpdateAvatar}
         />
@@ -569,6 +664,9 @@ export default function App() {
             attendanceConfirmations={attendanceConfirmations}
             onUpdateAttendanceConfirmation={setAttendanceConfirmations}
             salaryConfigs={salaryConfigs}
+            leaveRecords={leaveRecords}
+            onAddLeaveRecord={handleAddLeaveRecord}
+            onDeleteLeaveRecord={handleDeleteLeaveRecord}
             onUpdateStaffInfo={handleUpdateStaffInfo}
             onUpdateAvatar={handleUpdateAvatar}
           />
@@ -641,6 +739,7 @@ export default function App() {
             attendanceConfirmations={attendanceConfirmations}
             onUpdateAttendanceConfirmation={setAttendanceConfirmations}
             onViewProfile={setViewingProfileStaff}
+            onDeleteStaff={handleDeleteStaffCompletely}
           />
         );
       case 'hr_add_staff':
@@ -707,8 +806,24 @@ export default function App() {
             onUpdateOvertime={setOvertimeRecords}
           />
         );
+      case 'hr_leave_register':
+        return (
+          <LeaveRegistrationWorkbench
+            allStaff={allStaff}
+            leaveRecords={leaveRecords}
+            onAddLeaveRecord={handleAddLeaveRecord}
+            onDeleteLeaveRecord={handleDeleteLeaveRecord}
+            createdByLabel="HC & NS"
+          />
+        );
       case 'hr_leaves':
-        return <HRLeaves allStaff={allStaff} />;
+        return (
+          <HRLeaves
+            allStaff={allStaff}
+            leaveRecords={leaveRecords}
+            onNavigateToRegister={() => setActiveItem('hr_leave_register')}
+          />
+        );
       case 'hr_payroll':
         return (
           <HRPayroll
@@ -741,11 +856,20 @@ export default function App() {
           <BackupRestore
             moduleName="HC & NS"
             language={language}
+            staffRecords={staffRecords}
+            hrStaff={hrStaff}
+            onRestoreStaff={(multi, hr) => {
+              setStaffRecords(multi);
+              setHrStaff(hr);
+            }}
+            attendanceHistory={attendanceHistory}
+            onRestoreAttendance={setAttendanceHistory}
             customData={{
               HR_CONTRACTS: { data: contracts, setter: setContracts },
               HR_PAYROLLS: { data: payrollRecords, setter: setPayrollRecords },
               HR_SLIPS: { data: salarySlipRecords, setter: setSalarySlipRecords },
               HR_SALARY_CONFIGS: { data: salaryConfigs, setter: setSalaryConfigs },
+              HR_LEAVES: { data: leaveRecords, setter: setLeaveRecords },
               HR_ANN_GRP: { data: announcements, setter: setAnnouncements },
               HR_ASSETS: { data: hrAssets, setter: setHrAssets },
               HR_TRAINING: { data: trainingRecords, setter: setTrainingRecords },
@@ -873,6 +997,9 @@ export default function App() {
             attendanceConfirmations={attendanceConfirmations}
             onUpdateAttendanceConfirmation={setAttendanceConfirmations}
             salaryConfigs={salaryConfigs}
+            leaveRecords={leaveRecords}
+            onAddLeaveRecord={handleAddLeaveRecord}
+            onDeleteLeaveRecord={handleDeleteLeaveRecord}
             onUpdateStaffInfo={handleUpdateStaffInfo}
             onUpdateAvatar={(newUrl) => handleUpdateStaffInfo({ ...resolvedStaff, avatarUrl: newUrl })}
             viewerHasSalaryAccess={canUserAccessSalarySlip(currentUser, salarySecurity)}

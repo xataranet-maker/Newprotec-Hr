@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus } from '../../types';
 import { 
   Users, Search, Filter, Phone, Building, Clock, 
-  AlertTriangle, CheckCircle2, LayoutGrid, Table 
+  AlertTriangle, CheckCircle2, LayoutGrid, Table, Trash2, X 
 } from 'lucide-react';
 
 interface HRStaffManagementProps {
@@ -24,6 +24,7 @@ interface HRStaffManagementProps {
   attendanceConfirmations?: any[];
   onUpdateAttendanceConfirmation?: (c: any) => void;
   onViewProfile?: (staff: StaffRecord) => void;
+  onDeleteStaff?: (staff: StaffRecord) => void;
 }
 
 export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
@@ -32,11 +33,24 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
   hrStaff,
   setHrStaff,
   onViewProfile,
+  onDeleteStaff,
 }) => {
   const [filterDept, setFilterDept] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'CARDS' | 'TABLE'>('CARDS');
+  const [confirmDeleteStaff, setConfirmDeleteStaff] = useState<(StaffRecord & { dept?: string }) | null>(null);
+  const [deleteToast, setDeleteToast] = useState<string | null>(null);
+
+  const handleConfirmDelete = () => {
+    if (!confirmDeleteStaff || !onDeleteStaff) return;
+    const deletedName = confirmDeleteStaff.fullName;
+    const deletedId = confirmDeleteStaff.employeeId;
+    onDeleteStaff(confirmDeleteStaff);
+    setConfirmDeleteStaff(null);
+    setDeleteToast(`Đã xóa vĩnh viễn nhân viên ${deletedName} (${deletedId}) và toàn bộ dữ liệu liên quan.`);
+    window.setTimeout(() => setDeleteToast(null), 4000);
+  };
 
   const allStaff = [
     ...multiStaff.map(s => ({ ...s, dept: 'Multi Auto', deptKey: 'MULTI' })),
@@ -157,6 +171,21 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
         </div>
       </div>
 
+      {deleteToast && (
+        <div className="p-3.5 rounded-xl border border-emerald-800 bg-emerald-950/40 text-emerald-300 text-xs flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{deleteToast}</span>
+          </div>
+          <button
+            onClick={() => setDeleteToast(null)}
+            className="text-emerald-400 hover:text-white cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* KPI Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl">
@@ -229,9 +258,21 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                       <div className="text-[10px] text-cyan-400 font-mono">Mã: {s.employeeId}</div>
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700/50">
-                    {s.dept}
-                  </span>
+                  <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700/50">
+                      {s.dept}
+                    </span>
+                    {onDeleteStaff && (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteStaff(s)}
+                        title={`Xóa nhân viên ${s.fullName}`}
+                        className="p-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-800/60 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 text-slate-300 space-y-1.5">
@@ -382,6 +423,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                   <th className="py-2.5 px-3">Điểm Danh</th>
                   <th className="py-2.5 px-3">Thời Gian Đi Muộn</th>
                   <th className="py-2.5 px-3">Thời Gian Về Sớm</th>
+                  {onDeleteStaff && <th className="py-2.5 px-3 text-center">Thao Tác</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-200">
@@ -484,11 +526,102 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           <span className="text-slate-600 text-xs italic">—</span>
                         )}
                       </td>
+                      {onDeleteStaff && (
+                        <td className="py-2.5 px-3 text-center" onClick={e => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteStaff(s)}
+                            title={`Xóa nhân viên ${s.fullName}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-800/60 text-[11px] font-semibold transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Xóa</span>
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Xác Nhận Xóa Nhân Viên */}
+      {confirmDeleteStaff && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setConfirmDeleteStaff(null)}
+        >
+          <div
+            className="bg-slate-900 border border-rose-800/70 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-rose-950 border border-rose-700/70 flex items-center justify-center text-rose-400 shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Xác Nhận Xóa Nhân Viên</h3>
+                  <p className="text-[11px] text-rose-300">Hành động này không thể hoàn tác</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteStaff(null)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Họ và tên:</span>
+                <span className="font-bold text-white">{confirmDeleteStaff.fullName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Mã nhân viên:</span>
+                <span className="font-mono text-cyan-400 font-semibold">{confirmDeleteStaff.employeeId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Phòng ban / Chức vụ:</span>
+                <span className="text-slate-200">{confirmDeleteStaff.dept} — {confirmDeleteStaff.position}</span>
+              </div>
+            </div>
+
+            <div className="bg-rose-950/30 border border-rose-900/60 rounded-xl p-3 text-[11px] text-rose-200 space-y-1">
+              <div className="font-semibold text-rose-300 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>Toàn bộ dữ liệu sau sẽ bị xóa vĩnh viễn:</span>
+              </div>
+              <ul className="list-disc pl-4 space-y-0.5 text-rose-200/90">
+                <li>Hồ sơ nhân viên &amp; tài khoản đăng nhập liên kết</li>
+                <li>Toàn bộ bảng chấm công, dữ liệu quẹt thẻ &amp; nhật ký công</li>
+                <li>Dữ liệu tăng ca, xác nhận công &amp; yêu cầu chỉnh công</li>
+                <li>Hợp đồng lao động, cấu hình lương &amp; phiếu lương</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteStaff(null)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Xóa toàn bộ dữ liệu</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
