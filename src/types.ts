@@ -669,6 +669,7 @@ export interface MatrixDayTimeEntry {
     isAutoDefault?: boolean;     // Dữ liệu tự sinh mặc định (có thể ẩn nếu trước ngày vào làm)
     isRestored?: boolean;        // Dữ liệu khôi phục từ file backup
     isManual?: boolean;          // Dữ liệu chỉnh sửa/nhập tay
+    leaveRecordId?: number;      // ID đơn đăng ký phép đồng bộ tự động
 }
 
 export interface MatrixEmployeeTimekeeping {
@@ -679,6 +680,7 @@ export interface MatrixEmployeeTimekeeping {
     shift: 'DAY' | 'NIGHT';
     isLocked?: boolean;
     lockedDay?: number;
+    manualUnlocked?: boolean;
     days: Record<number, MatrixDayTimeEntry>;
     totalWorkHours: number;
     totalDayOt: number;

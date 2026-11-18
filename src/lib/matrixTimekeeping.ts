@@ -1,12 +1,14 @@
 import {
   AttendanceRecord,
   AttendanceStatus,
+  LeaveRegistrationRecord,
   MatrixDayTimeEntry,
   MatrixEmployeeTimekeeping,
   StaffRecord,
 } from '../types';
 
 export const MATRIX_UPDATED_EVENT = 'matrix-timekeeping-updated';
+const LEAVE_REGISTRATIONS_STORAGE_KEY_NAME = 'app_leave_registrations';
 
 export const getMatrixStorageKey = (department: string, year: number, month: number): string =>
   `app_matrix_timekeeping_${department.toLowerCase()}_${year}_${month}`;
@@ -25,8 +27,72 @@ export function isMatrixEntryWorking(entry: MatrixDayTimeEntry | undefined): boo
   return false;
 }
 
+export function isFutureCalendarDay(
+  year: number,
+  month: number,
+  day: number,
+  now: Date = new Date()
+): boolean {
+  const ny = now.getFullYear();
+  const nm = now.getMonth() + 1;
+  const nd = now.getDate();
+  if (year > ny) return true;
+  if (year < ny) return false;
+  if (month > nm) return true;
+  if (month < nm) return false;
+  return day > nd;
+}
+
+export function isTodayCalendarDay(
+  year: number,
+  month: number,
+  day: number,
+  now: Date = new Date()
+): boolean {
+  return year === now.getFullYear() && month === now.getMonth() + 1 && day === now.getDate();
+}
+
+export function isLeaveMatrixStatus(status?: string): boolean {
+  const st = String(status || '').trim();
+  return (
+    st === 'Nghỉ phép' ||
+    st === 'Nghỉ cưới' ||
+    st === 'Nghỉ tang' ||
+    st === 'FAMILY' ||
+    st === 'Nghỉ ốm' ||
+    st === 'Vắng mặt' ||
+    st === 'Nghỉ KL'
+  );
+}
+
+export function isStaffLockedFromMatrix(
+  staff?: StaffRecord,
+  record?: Pick<MatrixEmployeeTimekeeping, 'isLocked' | 'manualUnlocked'> | boolean
+): boolean {
+  const recLocked = typeof record === 'boolean' ? record : record?.isLocked;
+  const manualUnlocked = typeof record === 'boolean' ? false : Boolean(record?.manualUnlocked);
+  if (recLocked === true) return true;
+  if (staff?.attendance === 'Đã nghỉ việc' || (staff?.attendance as string) === 'Đã thôi việc') {
+    return true;
+  }
+  if (!manualUnlocked && staff?.isLocked) return true;
+  return false;
+}
+
+export function readStoredLeaveRegistrations(): LeaveRegistrationRecord[] {
+  try {
+    const raw = localStorage.getItem(LEAVE_REGISTRATIONS_STORAGE_KEY_NAME);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export function hasMatrixRealData(entry: MatrixDayTimeEntry | undefined): boolean {
   if (!entry) return false;
+  if (entry.leaveRecordId !== undefined) return true;
   if (entry.isAutoDefault) return false;
   if (entry.isRestored || entry.isManual) return true;
   if (getMatrixEntryTotalHours(entry) > 0) return true;
@@ -105,120 +171,222 @@ export function recalculateStaffTotals(days: Record<number, MatrixDayTimeEntry>)
   };
 }
 
+export function buildStandardShiftEntry(
+  staff: StaffRecord,
+  day: number,
+  isHoliday = false
+): MatrixDayTimeEntry {
+  const shift: 'DAY' | 'NIGHT' = staff.shift === 'NIGHT' ? 'NIGHT' : 'DAY';
+  const inTime = shift === 'NIGHT' ? '20:00' : '08:00';
+  const outTime = shift === 'NIGHT' ? '05:00' : '17:00';
+  return {
+    day,
+    inTime,
+    outTime,
+    shift,
+    regularHours: isHoliday ? 0 : 8,
+    otDayHours: 0,
+    otNightHours: 0,
+    otSundayHours: 0,
+    otSundayNightHours: 0,
+    otHolidayHours: isHoliday && shift === 'DAY' ? 8 : 0,
+    otHolidayNightHours: isHoliday && shift === 'NIGHT' ? 8 : 0,
+    isHoliday,
+    status: 'Đúng giờ',
+    isAutoDefault: true,
+  };
+}
+
+export function buildLeaveMatrixEntry(
+  rec: LeaveRegistrationRecord,
+  staff: StaffRecord,
+  year: number,
+  month: number,
+  day: number,
+  isHoliday: boolean
+): MatrixDayTimeEntry {
+  const shift: 'DAY' | 'NIGHT' = staff.shift === 'NIGHT' ? 'NIGHT' : 'DAY';
+  const isSunday = new Date(year, month - 1, day).getDay() === 0;
+  const noteLabel = rec.reason ? `[${rec.leaveType}] ${rec.reason}` : rec.leaveType;
+
+  if (rec.leaveType === 'Nghỉ nửa phép') {
+    const isAfternoonLeave =
+      shift === 'DAY'
+        ? (rec.fromTime || '').startsWith('13') || (rec.fromTime || '').startsWith('14')
+        : (rec.fromTime || '').startsWith('01') || (rec.fromTime || '').startsWith('00');
+    const inTime =
+      shift === 'NIGHT'
+        ? isAfternoonLeave
+          ? '20:00'
+          : '01:00'
+        : isAfternoonLeave
+        ? '08:00'
+        : '13:00';
+    const outTime =
+      shift === 'NIGHT'
+        ? isAfternoonLeave
+          ? '00:00'
+          : '05:00'
+        : isAfternoonLeave
+        ? '12:00'
+        : '17:00';
+
+    return {
+      day,
+      inTime,
+      outTime,
+      shift,
+      regularHours: isHoliday || isSunday ? 0 : 4,
+      otDayHours: 0,
+      otNightHours: 0,
+      otSundayHours: !isHoliday && isSunday && shift === 'DAY' ? 4 : 0,
+      otSundayNightHours: !isHoliday && isSunday && shift === 'NIGHT' ? 4 : 0,
+      otHolidayHours: isHoliday && shift === 'DAY' ? 4 : 0,
+      otHolidayNightHours: isHoliday && shift === 'NIGHT' ? 4 : 0,
+      isHoliday,
+      status: 'Nghỉ phép',
+      note: noteLabel,
+      leaveRecordId: rec.id,
+      isAutoDefault: false,
+      isManual: false,
+    };
+  }
+
+  if (rec.leaveType === 'Về sớm') {
+    const inTime = shift === 'NIGHT' ? '20:00' : '08:00';
+    const outTime = rec.toTime || (shift === 'NIGHT' ? '03:00' : '15:00');
+    const calc = calculateMatrixDayHoursFromTimes(inTime, outTime, shift, isSunday, isHoliday);
+    return {
+      day,
+      inTime,
+      outTime,
+      shift,
+      regularHours: calc.regularHours,
+      otDayHours: calc.otDayHours,
+      otNightHours: calc.otNightHours,
+      otSundayHours: calc.otSundayHours,
+      otSundayNightHours: calc.otSundayNightHours,
+      otHolidayHours: calc.otHolidayHours,
+      otHolidayNightHours: calc.otHolidayNightHours,
+      isHoliday,
+      status: 'Về sớm',
+      note: noteLabel,
+      leaveRecordId: rec.id,
+      isAutoDefault: false,
+      isManual: false,
+    };
+  }
+
+  const mappedStatus: AttendanceStatus =
+    rec.leaveType === 'Nghỉ cưới'
+      ? 'Nghỉ cưới'
+      : rec.leaveType === 'Nghỉ ốm'
+      ? 'Nghỉ ốm'
+      : rec.leaveType === 'Nghỉ việc riêng'
+      ? 'Nghỉ KL'
+      : 'Nghỉ phép';
+
+  return {
+    day,
+    inTime: '',
+    outTime: '',
+    shift,
+    regularHours: 0,
+    otDayHours: 0,
+    otNightHours: 0,
+    otSundayHours: 0,
+    otSundayNightHours: 0,
+    otHolidayHours: 0,
+    otHolidayNightHours: 0,
+    isHoliday,
+    status: mappedStatus,
+    note: noteLabel,
+    leaveRecordId: rec.id,
+    isAutoDefault: false,
+    isManual: false,
+  };
+}
+
 export function buildDefaultEmployeeMonthDays(
   staff: StaffRecord,
   year: number,
   month: number,
-  holidayDays: Record<number, boolean> = {}
+  holidayDays: Record<number, boolean> = {},
+  isLocked = false
 ): Record<number, MatrixDayTimeEntry> {
+  if (isStaffLockedFromMatrix(staff, isLocked)) {
+    return {};
+  }
   const daysInMonth = new Date(year, month, 0).getDate();
   const daysRecord: Record<number, MatrixDayTimeEntry> = {};
 
   for (let day = 1; day <= daysInMonth; day += 1) {
     const dateObj = new Date(year, month - 1, day);
-    const dayNum = dateObj.getDay();
-    const isSunday = dayNum === 0;
-    const isSaturday = dayNum === 6;
+    const isSunday = dateObj.getDay() === 0;
     const isHoliday = Boolean(holidayDays[day]);
+    const isFuture = isFutureCalendarDay(year, month, day);
 
-    let inTime = '';
-    let outTime = '';
-    let regularHours = 0;
-    let otDayHours = 0;
-    let otNightHours = 0;
-    let otSundayHours = 0;
-    let otSundayNightHours = 0;
-    let otHolidayHours = 0;
-    let otHolidayNightHours = 0;
-    let status: AttendanceStatus = 'Đúng giờ';
-
-    if (isHoliday) {
-      if (staff.shift === 'NIGHT') {
-        inTime = '20:00';
-        outTime = '08:00';
-        otHolidayNightHours = 11;
-      } else {
-        inTime = '08:00';
-        outTime = '20:00';
-        otHolidayHours = 11;
+    // Không tự động điền giờ làm việc cho các ngày tương lai (> ngày hiện tại)
+    if (isFuture) {
+      if (isHoliday || isSunday) {
+        daysRecord[day] = {
+          day,
+          inTime: '',
+          outTime: '',
+          shift: staff.shift,
+          regularHours: 0,
+          otDayHours: 0,
+          otNightHours: 0,
+          otSundayHours: 0,
+          otSundayNightHours: 0,
+          otHolidayHours: 0,
+          otHolidayNightHours: 0,
+          isHoliday,
+          status: (isHoliday ? 'Nghỉ lễ' : 'Nghỉ chủ nhật') as AttendanceStatus,
+          isAutoDefault: true,
+        };
       }
-      status = 'Đúng giờ';
-    } else if (isSunday) {
-      const worksThisSunday =
-        day === 1
-          ? staff.employeeId !== 'V2311006'
-          : day === 8
-          ? ['V2610010', 'V2407038', 'TV2610225', 'V2408025', 'V2106026', 'V2502030', 'V2610004', 'V2303011'].includes(staff.employeeId) || staff.shift === 'NIGHT'
-          : day === 15 || day === 22;
-
-      if (worksThisSunday) {
-        if (staff.shift === 'NIGHT') {
-          inTime = '20:00';
-          outTime = '08:00';
-          otSundayNightHours = 11;
-        } else {
-          inTime = '08:00';
-          outTime = '20:00';
-          otSundayHours = 11;
-        }
-        status = 'Đúng giờ';
-      } else {
-        inTime = '';
-        outTime = '';
-        status = 'Nghỉ chủ nhật';
-      }
-    } else {
-      if (staff.shift === 'NIGHT') {
-        inTime = '20:00';
-        if (day === 16) {
-          outTime = '05:00';
-          regularHours = 8;
-        } else {
-          outTime = '08:00';
-          regularHours = 8;
-          otNightHours = 3;
-        }
-      } else {
-        inTime = '08:00';
-        if (day === 16) {
-          outTime = '17:00';
-          regularHours = 8;
-        } else if (day % 2 === 0 && !isSaturday) {
-          outTime = '20:00';
-          regularHours = 8;
-          otDayHours = 3;
-        } else {
-          outTime = '20:00';
-          regularHours = 8;
-          otDayHours = 3;
-        }
-      }
-
-      if (day === 5 && staff.attendance === 'Đi muộn') {
-        status = 'Đi muộn';
-        inTime = staff.lateIn || '10:00';
-      } else if (day === 14 && staff.attendance === 'Về sớm') {
-        status = 'Về sớm';
-        outTime = staff.earlyOut || '16:30';
-      }
+      continue;
     }
 
-    daysRecord[day] = {
-      day,
-      inTime,
-      outTime,
-      shift: staff.shift,
-      regularHours,
-      otDayHours,
-      otNightHours,
-      otSundayHours,
-      otSundayNightHours,
-      otHolidayHours,
-      otHolidayNightHours,
-      isHoliday,
-      status,
-      isAutoDefault: true,
-    };
+    if (isHoliday) {
+      daysRecord[day] = {
+        day,
+        inTime: '',
+        outTime: '',
+        shift: staff.shift,
+        regularHours: 0,
+        otDayHours: 0,
+        otNightHours: 0,
+        otSundayHours: 0,
+        otSundayNightHours: 0,
+        otHolidayHours: 0,
+        otHolidayNightHours: 0,
+        isHoliday: true,
+        status: 'Nghỉ lễ',
+        isAutoDefault: true,
+      };
+    } else if (isSunday) {
+      daysRecord[day] = {
+        day,
+        inTime: '',
+        outTime: '',
+        shift: staff.shift,
+        regularHours: 0,
+        otDayHours: 0,
+        otNightHours: 0,
+        otSundayHours: 0,
+        otSundayNightHours: 0,
+        otHolidayHours: 0,
+        otHolidayNightHours: 0,
+        isHoliday: false,
+        status: 'Nghỉ chủ nhật',
+        isAutoDefault: true,
+      };
+    } else {
+      // Ngày làm việc tiêu chuẩn theo ca của từng nhân viên
+      daysRecord[day] = buildStandardShiftEntry(staff, day, false);
+    }
   }
 
   return daysRecord;
@@ -287,22 +455,72 @@ export function isDayBeforeJoinDate(
   return currentDayDate < joinDate;
 }
 
+function getStaffLeaveMapForMonth(
+  staff: StaffRecord,
+  year: number,
+  month: number,
+  leaveRecords: LeaveRegistrationRecord[]
+): {
+  leaveByDay: Map<number, LeaveRegistrationRecord>;
+  activeLeaveIds: Set<number>;
+} {
+  const empNorm = staff.employeeId.trim().toLowerCase();
+  const empLeaves = leaveRecords.filter(
+    (r) => r.employeeId && r.employeeId.trim().toLowerCase() === empNorm
+  );
+  const activeLeaveIds = new Set<number>(empLeaves.map((r) => r.id));
+  const leaveByDay = new Map<number, LeaveRegistrationRecord>();
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  // Sort oldest -> newest so newest registration wins if dates overlap
+  const sorted = [...empLeaves].sort((a, b) => a.id - b.id);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const isSun = new Date(year, month - 1, day).getDay() === 0;
+    for (const rec of sorted) {
+      const from = rec.fromDate;
+      const to = rec.toDate || rec.fromDate;
+      if (!from || iso < from || iso > to) continue;
+      // Multi-day leave skips Sunday so CN row isn't overwritten; single-day leave on Sunday still applies
+      if (isSun && from !== to) continue;
+      leaveByDay.set(day, rec);
+    }
+  }
+
+  return { leaveByDay, activeLeaveIds };
+}
+
 export function applyJoinDateAndLockRules(
   days: Record<number, MatrixDayTimeEntry>,
   staff: StaffRecord,
   year: number,
   month: number,
   isLocked?: boolean,
-  lockedDay?: number
+  lockedDay?: number,
+  holidayDays: Record<number, boolean> = {},
+  leaveRecords?: LeaveRegistrationRecord[]
 ): Record<number, MatrixDayTimeEntry> {
   const nextDays: Record<number, MatrixDayTimeEntry> = {};
   const daysInMonth = new Date(year, month, 0).getDate();
+  const effectiveLeaves = leaveRecords ?? readStoredLeaveRegistrations();
+  const { leaveByDay, activeLeaveIds } = getStaffLeaveMapForMonth(
+    staff,
+    year,
+    month,
+    effectiveLeaves
+  );
+
+  const effectiveLocked = isStaffLockedFromMatrix(staff, isLocked);
 
   for (let day = 1; day <= daysInMonth; day += 1) {
-    const existing = days[day];
+    let existing: MatrixDayTimeEntry | undefined = days[day];
     const isBeforeJoin = isDayBeforeJoinDate(year, month, day, staff.dateJoined);
-    const isAfterLock = Boolean(isLocked && lockedDay !== undefined && day >= lockedDay);
+    const isAfterLock = Boolean(effectiveLocked && lockedDay !== undefined && day >= lockedDay);
+    const isFullLock = Boolean(effectiveLocked && lockedDay === undefined);
     const isSun = new Date(year, month - 1, day).getDay() === 0;
+    const isHol = Boolean(holidayDays[day] || existing?.isHoliday);
+    const isFuture = isFutureCalendarDay(year, month, day);
+    const isToday = isTodayCalendarDay(year, month, day);
 
     if (isBeforeJoin) {
       // Giữ nguyên dữ liệu chấm công thực tế (từ file backup khôi phục, import hoặc chỉnh sửa thủ công)
@@ -310,7 +528,10 @@ export function applyJoinDateAndLockRules(
       if (existing && hasMatrixRealData(existing)) {
         nextDays[day] = existing;
       }
-    } else if (isAfterLock) {
+      continue;
+    }
+
+    if (isAfterLock) {
       nextDays[day] = {
         ...(existing || {
           day,
@@ -329,8 +550,98 @@ export function applyJoinDateAndLockRules(
         otHolidayNightHours: 0,
         isHoliday: false,
         status: (isSun ? '' : 'Đã nghỉ việc') as AttendanceStatus,
+        isAutoDefault: false,
       };
-    } else if (existing) {
+      continue;
+    }
+
+    // Nhân viên bị khóa thôi việc hoàn toàn (không có lockedDay cụ thể):
+    // Không tự động điền giờ hay phép; chỉ giữ dữ liệu thực tế đã nhập/khôi phục, còn lại để trống.
+    if (isFullLock) {
+      if (
+        existing &&
+        !existing.isAutoDefault &&
+        existing.leaveRecordId === undefined &&
+        (existing.isManual || existing.isRestored || hasMatrixRealData(existing))
+      ) {
+        nextDays[day] = existing;
+      }
+      continue;
+    }
+
+    // If a synced leave record was deleted, clear that leave cell
+    if (existing?.leaveRecordId !== undefined && !activeLeaveIds.has(existing.leaveRecordId)) {
+      existing = undefined;
+    }
+
+    // 1. Auto-fill planned leave days (past, today, or future) — skip locked employees
+    const plannedLeave = leaveByDay.get(day);
+    if (plannedLeave && !isHol && !effectiveLocked) {
+      if (
+        !existing ||
+        existing.isAutoDefault ||
+        existing.leaveRecordId === plannedLeave.id ||
+        (!existing.isManual && !existing.isRestored)
+      ) {
+        nextDays[day] = buildLeaveMatrixEntry(plannedLeave, staff, year, month, day, isHol);
+        continue;
+      }
+    }
+
+    // 2. Future days (> today): NEVER show auto-default working hours
+    if (isFuture) {
+      if (existing) {
+        const keepAsReal =
+          existing.leaveRecordId !== undefined ||
+          isLeaveMatrixStatus(existing.status) ||
+          Boolean(existing.isManual) ||
+          Boolean(existing.isRestored);
+        if (keepAsReal) {
+          nextDays[day] = existing;
+        } else if (isHol || isSun) {
+          nextDays[day] = {
+            day,
+            shift: existing.shift || staff.shift,
+            inTime: '',
+            outTime: '',
+            regularHours: 0,
+            otDayHours: 0,
+            otNightHours: 0,
+            otSundayHours: 0,
+            otSundayNightHours: 0,
+            otHolidayHours: 0,
+            otHolidayNightHours: 0,
+            isHoliday: isHol,
+            status: (isHol ? 'Nghỉ lễ' : 'Nghỉ chủ nhật') as AttendanceStatus,
+            isAutoDefault: true,
+          };
+        }
+      }
+      continue;
+    }
+
+    // 3. Today ("ngày mới"): auto-fill standard shift check-in / check-out if cell is empty & staff is NOT locked
+    if (isToday && !isSun && !isHol && !effectiveLocked) {
+      const existingStatusStr = String(existing?.status || '').trim();
+      const hasExistingWorkOrManual =
+        existing &&
+        (Boolean(existing.inTime?.trim()) ||
+          Boolean(existing.outTime?.trim()) ||
+          getMatrixEntryTotalHours(existing) > 0 ||
+          isLeaveMatrixStatus(existing.status) ||
+          existingStatusStr === 'Đã nghỉ việc' ||
+          existingStatusStr === 'Đã thôi việc' ||
+          Boolean(existing.isManual) ||
+          Boolean(existing.isRestored) ||
+          existing.leaveRecordId !== undefined);
+
+      if (!hasExistingWorkOrManual) {
+        nextDays[day] = buildStandardShiftEntry(staff, day, false);
+        continue;
+      }
+    }
+
+    if (existing) {
       nextDays[day] = existing;
     }
   }
@@ -347,20 +658,112 @@ export function dispatchMatrixUpdatedEvent(department: string, year: number, mon
   );
 }
 
+function readRawMatrixJson(
+  dept: string,
+  year: number,
+  month: number
+): Record<string, MatrixEmployeeTimekeeping> | null {
+  try {
+    const raw = localStorage.getItem(getMatrixStorageKey(dept, year, month));
+    return raw ? (JSON.parse(raw) as Record<string, MatrixEmployeeTimekeeping>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readRawHolidaysJson(
+  dept: string,
+  year: number,
+  month: number
+): Record<number, boolean> {
+  try {
+    const raw = localStorage.getItem(getHolidayStorageKey(dept, year, month));
+    return raw ? (JSON.parse(raw) as Record<number, boolean>) || {} : {};
+  } catch {
+    return {};
+  }
+}
+
+function countNonAutoDefaultRealDays(rec: MatrixEmployeeTimekeeping | undefined): number {
+  if (!rec?.days) return 0;
+  let count = 0;
+  Object.values(rec.days).forEach((entry) => {
+    if (!entry) return;
+    if (!entry.isAutoDefault && (hasMatrixRealData(entry) || getMatrixEntryTotalHours(entry) > 0)) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
+function hasFutureAutoDefaultWorkHours(
+  rec: MatrixEmployeeTimekeeping | undefined,
+  year: number,
+  month: number
+): boolean {
+  if (!rec?.days) return false;
+  return Object.values(rec.days).some(
+    (entry) =>
+      entry &&
+      isFutureCalendarDay(year, month, entry.day) &&
+      !entry.isManual &&
+      !entry.isRestored &&
+      entry.leaveRecordId === undefined &&
+      !isLeaveMatrixStatus(entry.status) &&
+      getMatrixEntryTotalHours(entry) > 0
+  );
+}
+
 export function saveDepartmentMatrix(
   department: string,
   year: number,
   month: number,
   matrix: Record<string, MatrixEmployeeTimekeeping>,
   holidays: Record<number, boolean>,
-  notify = true
+  notify = true,
+  syncSibling = true
 ) {
   try {
-    localStorage.setItem(getMatrixStorageKey(department, year, month), JSON.stringify(matrix));
-    localStorage.setItem(getHolidayStorageKey(department, year, month), JSON.stringify(holidays));
-    localStorage.setItem(getMatrixMetaStorageKey(department, year, month), String(Date.now()));
+    const deptUpper = department.trim().toUpperCase();
+    const ts = String(Date.now());
+    localStorage.setItem(getMatrixStorageKey(deptUpper, year, month), JSON.stringify(matrix));
+    localStorage.setItem(getHolidayStorageKey(deptUpper, year, month), JSON.stringify(holidays));
+    localStorage.setItem(getMatrixMetaStorageKey(deptUpper, year, month), ts);
+
+    // Keep MULTI and ALL (HC & NS) matrices 100% synchronized
+    if (syncSibling && (deptUpper === 'MULTI' || deptUpper === 'ALL')) {
+      const siblingDept = deptUpper === 'MULTI' ? 'ALL' : 'MULTI';
+      const existingSibling = readRawMatrixJson(siblingDept, year, month) || {};
+      const nextSibling: Record<string, MatrixEmployeeTimekeeping> = { ...existingSibling };
+
+      if (deptUpper === 'MULTI') {
+        Object.entries(matrix).forEach(([empKey, rec]) => {
+          const matchedSiblingKey = findEmployeeKey(nextSibling, empKey) || empKey;
+          nextSibling[matchedSiblingKey] = rec;
+        });
+      } else {
+        Object.entries(matrix).forEach(([empKey, rec]) => {
+          const recDept = (rec.department || 'MULTI').trim().toUpperCase();
+          const matchedMultiKey = findEmployeeKey(nextSibling, empKey);
+          if (matchedMultiKey || recDept === 'MULTI') {
+            nextSibling[matchedMultiKey || empKey] = rec;
+          }
+        });
+      }
+
+      localStorage.setItem(
+        getMatrixStorageKey(siblingDept, year, month),
+        JSON.stringify(nextSibling)
+      );
+      localStorage.setItem(
+        getHolidayStorageKey(siblingDept, year, month),
+        JSON.stringify(holidays)
+      );
+      localStorage.setItem(getMatrixMetaStorageKey(siblingDept, year, month), ts);
+    }
+
     if (notify) {
-      dispatchMatrixUpdatedEvent(department, year, month);
+      dispatchMatrixUpdatedEvent(deptUpper, year, month);
     }
   } catch (e) {
     console.error('Error saving matrix/holidays', e);
@@ -372,25 +775,29 @@ export function loadOrInitDepartmentMatrix(
   year: number,
   month: number,
   targetStaff: StaffRecord[],
-  persistChanges = true
+  persistChanges = true,
+  leaveRecords?: LeaveRegistrationRecord[]
 ): {
   matrix: Record<string, MatrixEmployeeTimekeeping>;
   holidays: Record<number, boolean>;
 } {
-  let holidays: Record<number, boolean> = {};
-  try {
-    const hRaw = localStorage.getItem(getHolidayStorageKey(department, year, month));
-    if (hRaw) holidays = JSON.parse(hRaw) || {};
-  } catch (e) {
-    console.error('Error loading holiday storage', e);
-  }
+  const deptUpper = department.trim().toUpperCase();
+  const siblingDept = deptUpper === 'ALL' ? 'MULTI' : deptUpper === 'MULTI' ? 'ALL' : null;
 
-  let parsedSaved: Record<string, MatrixEmployeeTimekeeping> | null = null;
-  try {
-    const raw = localStorage.getItem(getMatrixStorageKey(department, year, month));
-    if (raw) parsedSaved = JSON.parse(raw) as Record<string, MatrixEmployeeTimekeeping>;
-  } catch (e) {
-    console.error('Error loading matrix storage', e);
+  let holidays = readRawHolidaysJson(deptUpper, year, month);
+  let parsedSaved = readRawMatrixJson(deptUpper, year, month);
+
+  const selfMeta = Number(localStorage.getItem(getMatrixMetaStorageKey(deptUpper, year, month)) || '0') || 0;
+  const siblingHolidays = siblingDept ? readRawHolidaysJson(siblingDept, year, month) : {};
+  const siblingParsed = siblingDept ? readRawMatrixJson(siblingDept, year, month) : null;
+  const siblingMeta = siblingDept
+    ? Number(localStorage.getItem(getMatrixMetaStorageKey(siblingDept, year, month)) || '0') || 0
+    : 0;
+
+  if (Object.keys(holidays).length === 0 && Object.keys(siblingHolidays).length > 0) {
+    holidays = { ...siblingHolidays };
+  } else if (siblingDept === 'MULTI' && siblingMeta >= selfMeta && Object.keys(siblingHolidays).length > 0) {
+    holidays = { ...siblingHolidays };
   }
 
   const normalized: Record<string, MatrixEmployeeTimekeeping> = {};
@@ -402,22 +809,97 @@ export function loadOrInitDepartmentMatrix(
   if (parsedSaved) {
     Object.entries(parsedSaved).forEach(([empId, rec]) => {
       const matchedStaff = staffById.get(empId.trim().toLowerCase());
-      const rawDays = rec.days || {};
+      let sourceRec = rec;
+
+      // Reconcile MULTI <-> ALL so HC & NS and Multi Auto never diverge
+      if (siblingParsed && siblingDept) {
+        const sibKey = findEmployeeKey(siblingParsed, empId);
+        const sibRec = sibKey ? siblingParsed[sibKey] : undefined;
+        if (sibRec) {
+          const selfHasStaleFuture = hasFutureAutoDefaultWorkHours(rec, year, month);
+          const sibHasStaleFuture = hasFutureAutoDefaultWorkHours(sibRec, year, month);
+          const selfReal = countNonAutoDefaultRealDays(rec);
+          const sibReal = countNonAutoDefaultRealDays(sibRec);
+
+          if (siblingDept === 'MULTI') {
+            if (
+              siblingMeta >= selfMeta ||
+              (selfHasStaleFuture && !sibHasStaleFuture) ||
+              sibReal > selfReal
+            ) {
+              sourceRec = sibRec;
+              needsPersist = true;
+            }
+          } else if (siblingDept === 'ALL') {
+            if (siblingMeta > selfMeta && !sibHasStaleFuture && sibReal >= selfReal) {
+              sourceRec = sibRec;
+              needsPersist = true;
+            }
+          }
+        }
+      }
+
+      const resolvedLocked = matchedStaff
+        ? isStaffLockedFromMatrix(matchedStaff, sourceRec)
+        : Boolean(sourceRec.isLocked);
+      const rawDays = sourceRec.days || {};
       const appliedDays = matchedStaff
-        ? applyJoinDateAndLockRules(rawDays, matchedStaff, year, month, rec.isLocked, rec.lockedDay)
+        ? applyJoinDateAndLockRules(
+            rawDays,
+            matchedStaff,
+            year,
+            month,
+            resolvedLocked,
+            sourceRec.lockedDay,
+            holidays,
+            leaveRecords
+          )
         : rawDays;
       const totals = recalculateStaffTotals(appliedDays);
-      normalized[empId] = { ...rec, days: appliedDays, ...totals };
+      if (resolvedLocked !== Boolean(sourceRec.isLocked)) {
+        needsPersist = true;
+      }
+      if (Object.keys(appliedDays).length !== Object.keys(rawDays).length) {
+        needsPersist = true;
+      } else {
+        // Detect if today's standard hours, lock rules, or leave sync altered any day entry
+        for (const k of Object.keys(appliedDays)) {
+          const dayNum = Number(k);
+          if (rawDays[dayNum] !== appliedDays[dayNum]) {
+            needsPersist = true;
+            break;
+          }
+        }
+      }
+      normalized[empId] = { ...sourceRec, isLocked: resolvedLocked, days: appliedDays, ...totals };
     });
   }
 
   targetStaff.forEach((staff) => {
-    if (!normalized[staff.employeeId]) {
+    const existingKey = findEmployeeKey(normalized, staff.employeeId);
+    if (!existingKey) {
+      // Check if sibling already has this employee before synthesizing defaults
+      const sibKey = siblingParsed ? findEmployeeKey(siblingParsed, staff.employeeId) : undefined;
+      const sibRec = sibKey && siblingParsed ? siblingParsed[sibKey] : undefined;
+
       const isSan = staff.employeeId === 'TV2610025';
-      const initLocked = isSan;
-      const initLockedDay = isSan ? 12 : undefined;
-      const rawDays = buildDefaultEmployeeMonthDays(staff, year, month, holidays);
-      const daysRecord = applyJoinDateAndLockRules(rawDays, staff, year, month, initLocked, initLockedDay);
+      const initLocked = sibRec
+        ? isStaffLockedFromMatrix(staff, sibRec)
+        : isSan || isStaffLockedFromMatrix(staff);
+      const initLockedDay = sibRec ? sibRec.lockedDay : isSan ? 12 : undefined;
+      const rawDays = sibRec?.days
+        ? sibRec.days
+        : buildDefaultEmployeeMonthDays(staff, year, month, holidays, initLocked);
+      const daysRecord = applyJoinDateAndLockRules(
+        rawDays,
+        staff,
+        year,
+        month,
+        initLocked,
+        initLockedDay,
+        holidays,
+        leaveRecords
+      );
       const totals = recalculateStaffTotals(daysRecord);
       normalized[staff.employeeId] = {
         employeeId: staff.employeeId,
@@ -427,20 +909,39 @@ export function loadOrInitDepartmentMatrix(
         shift: staff.shift,
         isLocked: initLocked,
         lockedDay: initLockedDay,
+        manualUnlocked: sibRec?.manualUnlocked,
         days: daysRecord,
         ...totals,
       };
       needsPersist = true;
     } else {
-      const rec = normalized[staff.employeeId];
-      const appliedDays = applyJoinDateAndLockRules(rec.days || {}, staff, year, month, rec.isLocked, rec.lockedDay);
+      const rec = normalized[existingKey];
+      const resolvedLocked = isStaffLockedFromMatrix(staff, rec);
+      const appliedDays = applyJoinDateAndLockRules(
+        rec.days || {},
+        staff,
+        year,
+        month,
+        resolvedLocked,
+        rec.lockedDay,
+        holidays,
+        leaveRecords
+      );
       const totals = recalculateStaffTotals(appliedDays);
+      if (resolvedLocked !== Boolean(rec.isLocked)) {
+        needsPersist = true;
+      }
+      if (existingKey !== staff.employeeId) {
+        delete normalized[existingKey];
+      }
       normalized[staff.employeeId] = {
         ...rec,
+        employeeId: staff.employeeId,
         fullName: staff.fullName,
         department: staff.department || rec.department || department,
         position: staff.position || rec.position,
         shift: staff.shift,
+        isLocked: resolvedLocked,
         days: appliedDays,
         ...totals,
       };
@@ -448,7 +949,7 @@ export function loadOrInitDepartmentMatrix(
   });
 
   if (needsPersist && persistChanges && targetStaff.length > 0) {
-    saveDepartmentMatrix(department, year, month, normalized, holidays, false);
+    saveDepartmentMatrix(deptUpper, year, month, normalized, holidays, false, true);
   }
 
   return { matrix: normalized, holidays };
@@ -507,16 +1008,40 @@ export function getEmployeeProfileMatrixData(
 
         // If employee belongs to MULTI, prefer 'multi' immediately when found.
         if (normalizedDept === 'multi' && deptKey === 'multi') {
+          const baseDays = parsed[matchedKey].days;
+          const syncedDays = staffInfo
+            ? applyJoinDateAndLockRules(
+                baseDays,
+                staffInfo,
+                year,
+                month,
+                isStaffLockedFromMatrix(staffInfo, parsed[matchedKey]),
+                parsed[matchedKey].lockedDay,
+                holidays
+              )
+            : baseDays;
           return {
-            days: parsed[matchedKey].days,
+            days: syncedDays,
             holidays,
             sourceDepartment: deptKey.toUpperCase(),
           };
         }
 
         if (!bestMatch || metaTs > bestMatch.updatedAt) {
+          const baseDays = parsed[matchedKey].days;
+          const syncedDays = staffInfo
+            ? applyJoinDateAndLockRules(
+                baseDays,
+                staffInfo,
+                year,
+                month,
+                isStaffLockedFromMatrix(staffInfo, parsed[matchedKey]),
+                parsed[matchedKey].lockedDay,
+                holidays
+              )
+            : baseDays;
           bestMatch = {
-            days: parsed[matchedKey].days,
+            days: syncedDays,
             holidays,
             sourceDepartment: deptKey.toUpperCase(),
             updatedAt: metaTs,
@@ -555,9 +1080,18 @@ export function getEmployeeProfileMatrixData(
 
   // If no saved matrix exists in localStorage yet for this month, generate matching MultiAuto default schedule
   if (staffInfo) {
-    const rawDays = buildDefaultEmployeeMonthDays(staffInfo, year, month, fallbackHolidays);
+    const locked = isStaffLockedFromMatrix(staffInfo);
+    const rawDays = buildDefaultEmployeeMonthDays(staffInfo, year, month, fallbackHolidays, locked);
     return {
-      days: applyJoinDateAndLockRules(rawDays, staffInfo, year, month, false, undefined),
+      days: applyJoinDateAndLockRules(
+        rawDays,
+        staffInfo,
+        year,
+        month,
+        locked,
+        undefined,
+        fallbackHolidays
+      ),
       holidays: fallbackHolidays,
       sourceDepartment: 'MULTI',
     };
@@ -568,6 +1102,158 @@ export function getEmployeeProfileMatrixData(
     holidays: fallbackHolidays,
     sourceDepartment: 'MULTI',
   };
+}
+
+export function syncLeaveRegistrationToMatrices(
+  record: LeaveRegistrationRecord,
+  allStaff: StaffRecord[]
+) {
+  const fromParts = (record.fromDate || '').split('-').map(Number);
+  const toParts = (record.toDate || record.fromDate || '').split('-').map(Number);
+  if (fromParts.length !== 3 || fromParts.some(isNaN)) return;
+
+  const startDt = new Date(fromParts[0], fromParts[1] - 1, fromParts[2]);
+  const endDt =
+    toParts.length === 3 && !toParts.some(isNaN)
+      ? new Date(toParts[0], toParts[1] - 1, toParts[2])
+      : startDt;
+
+  const staff = allStaff.find(
+    (s) => s.employeeId.trim().toLowerCase() === record.employeeId.trim().toLowerCase()
+  );
+  if (!staff) return;
+
+  const monthPairs = new Map<string, { year: number; month: number }>();
+  const cursor = new Date(startDt);
+  let guard = 0;
+  while (cursor <= endDt && guard < 400) {
+    const y = cursor.getFullYear();
+    const m = cursor.getMonth() + 1;
+    monthPairs.set(`${y}_${m}`, { year: y, month: m });
+    cursor.setDate(cursor.getDate() + 1);
+    guard += 1;
+  }
+
+  const primaryDept =
+    (staff.department || 'MULTI').trim().toUpperCase() === 'MULTI' ? 'MULTI' : 'ALL';
+
+  monthPairs.forEach(({ year, month }) => {
+    const deptStaff =
+      primaryDept === 'MULTI'
+        ? allStaff.filter((s) => (s.department || 'MULTI').trim().toUpperCase() === 'MULTI')
+        : allStaff;
+
+    const { matrix, holidays } = loadOrInitDepartmentMatrix(
+      primaryDept,
+      year,
+      month,
+      deptStaff,
+      false
+    );
+
+    const empKey = findEmployeeKey(matrix, staff.employeeId) || staff.employeeId;
+    const empRecord = matrix[empKey];
+    if (!empRecord) return;
+
+    const nextDays = { ...(empRecord.days || {}) };
+    const daysInMonth = new Date(year, month, 0).getDate();
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const fromIso = record.fromDate;
+      const toIso = record.toDate || record.fromDate;
+      if (iso < fromIso || iso > toIso) continue;
+      if (isDayBeforeJoinDate(year, month, day, staff.dateJoined)) continue;
+      if (
+        isStaffLockedFromMatrix(staff, empRecord) &&
+        (empRecord.lockedDay === undefined || day >= empRecord.lockedDay)
+      ) {
+        continue;
+      }
+      const isSun = new Date(year, month - 1, day).getDay() === 0;
+      const isHol = Boolean(holidays[day] || nextDays[day]?.isHoliday);
+      if (isHol) continue;
+      if (isSun && fromIso !== toIso) continue;
+
+      nextDays[day] = buildLeaveMatrixEntry(record, staff, year, month, day, isHol);
+    }
+
+    const totals = recalculateStaffTotals(nextDays);
+    const nextMatrix = {
+      ...matrix,
+      [empKey]: {
+        ...empRecord,
+        days: nextDays,
+        ...totals,
+      },
+    };
+    saveDepartmentMatrix(primaryDept, year, month, nextMatrix, holidays, true, true);
+  });
+}
+
+export function removeLeaveRegistrationFromMatrices(
+  recordId: number,
+  allStaff: StaffRecord[]
+) {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('app_matrix_timekeeping_')) keys.push(k);
+    }
+    const staffById = new Map<string, StaffRecord>();
+    allStaff.forEach((s) => staffById.set(s.employeeId.trim().toLowerCase(), s));
+
+    const updatedEvents: Array<{ dept: string; year: number; month: number }> = [];
+    keys.forEach((key) => {
+      const m = key.match(/^app_matrix_timekeeping_(.+)_(\d{4})_(\d{1,2})$/);
+      if (!m) return;
+      const dept = m[1].toUpperCase();
+      const year = Number(m[2]);
+      const month = Number(m[3]);
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, MatrixEmployeeTimekeeping>;
+      if (!parsed || typeof parsed !== 'object') return;
+      const holidays = readRawHolidaysJson(dept, year, month);
+      let changed = false;
+
+      Object.entries(parsed).forEach(([empKey, rec]) => {
+        if (!rec?.days) return;
+        let empChanged = false;
+        const nextDays = { ...rec.days };
+        Object.entries(nextDays).forEach(([dStr, entry]) => {
+          if (entry && entry.leaveRecordId === recordId) {
+            const dNum = Number(dStr);
+            const matchedStaff = staffById.get(rec.employeeId.trim().toLowerCase());
+            const isSun = new Date(year, month - 1, dNum).getDay() === 0;
+            const isHol = Boolean(holidays[dNum]);
+            if (isTodayCalendarDay(year, month, dNum) && !isSun && !isHol && matchedStaff) {
+              nextDays[dNum] = buildStandardShiftEntry(matchedStaff, dNum, false);
+            } else {
+              delete nextDays[dNum];
+            }
+            empChanged = true;
+          }
+        });
+        if (empChanged) {
+          changed = true;
+          const totals = recalculateStaffTotals(nextDays);
+          parsed[empKey] = { ...rec, days: nextDays, ...totals };
+        }
+      });
+
+      if (changed) {
+        saveDepartmentMatrix(dept, year, month, parsed, holidays, false, false);
+        updatedEvents.push({ dept, year, month });
+      }
+    });
+
+    updatedEvents.forEach(({ dept, year, month }) =>
+      dispatchMatrixUpdatedEvent(dept, year, month)
+    );
+  } catch (e) {
+    console.error('Error removing leave registration from matrices', e);
+  }
 }
 
 function parseHhMmToMins(t?: string): number | null {
@@ -801,7 +1487,8 @@ export function updateEmployeeMatrixDayEntry(params: {
       year,
       month,
       empRecord.isLocked,
-      empRecord.lockedDay
+      empRecord.lockedDay,
+      holidays
     );
     const totals = recalculateStaffTotals(appliedDays);
 
@@ -1377,7 +2064,15 @@ export function restoreFlatAttendanceBackupRows(
         });
 
         const appliedDays = matchedStaff
-          ? applyJoinDateAndLockRules(mergedDays, matchedStaff, year, month, currentRec.isLocked, currentRec.lockedDay)
+          ? applyJoinDateAndLockRules(
+              mergedDays,
+              matchedStaff,
+              year,
+              month,
+              currentRec.isLocked,
+              currentRec.lockedDay,
+              holidays
+            )
           : mergedDays;
         const totals = recalculateStaffTotals(appliedDays);
 

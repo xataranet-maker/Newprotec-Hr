@@ -16,6 +16,8 @@ import {
   deleteEmployeeFromAllMatrixStorage,
   getAllStoredMatrixSnapshots,
   restoreStoredMatrixSnapshots,
+  syncLeaveRegistrationToMatrices,
+  removeLeaveRegistrationFromMatrices,
 } from './lib/matrixTimekeeping';
 
 // --- MULTI AUTO (NHÂN VIÊN & BẢNG CHẤM CÔNG) ---
@@ -573,13 +575,21 @@ export default function App() {
     deleteEmployeeFromAllMatrixStorage(staff.employeeId);
   }, []);
 
-  const handleAddLeaveRecord = useCallback((record: LeaveRegistrationRecord) => {
-    setLeaveRecords((prev) => [record, ...prev]);
-  }, []);
+  const handleAddLeaveRecord = useCallback(
+    (record: LeaveRegistrationRecord) => {
+      setLeaveRecords((prev) => [record, ...prev]);
+      syncLeaveRegistrationToMatrices(record, allStaff);
+    },
+    [allStaff]
+  );
 
-  const handleDeleteLeaveRecord = useCallback((id: number) => {
-    setLeaveRecords((prev) => prev.filter((r) => r.id !== id));
-  }, []);
+  const handleDeleteLeaveRecord = useCallback(
+    (id: number) => {
+      setLeaveRecords((prev) => prev.filter((r) => r.id !== id));
+      removeLeaveRegistrationFromMatrices(id, allStaff);
+    },
+    [allStaff]
+  );
 
   const handleLogin = useCallback((user: UserAccount) => {
     setViewingProfileStaff(null);
@@ -713,6 +723,7 @@ export default function App() {
             allStaff={allStaff}
             attendanceHistory={attendanceHistory}
             overtimeRecords={overtimeRecords}
+            leaveRecords={leaveRecords}
             onViewProfile={setViewingProfileStaff}
           />
         );
@@ -782,6 +793,7 @@ export default function App() {
             allStaff={allStaff}
             attendanceHistory={attendanceHistory}
             overtimeRecords={overtimeRecords}
+            leaveRecords={leaveRecords}
             onViewProfile={setViewingProfileStaff}
           />
         );

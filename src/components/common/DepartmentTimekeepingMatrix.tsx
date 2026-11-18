@@ -6,6 +6,7 @@ import {
   AttendanceStatus,
   MatrixDayTimeEntry,
   MatrixEmployeeTimekeeping,
+  LeaveRegistrationRecord,
 } from '../../types';
 import {
   CalendarDays,
@@ -39,6 +40,9 @@ import {
   isDayBeforeJoinDate,
   applyJoinDateAndLockRules,
   hasMatrixRealData,
+  isFutureCalendarDay,
+  isLeaveMatrixStatus,
+  isStaffLockedFromMatrix,
   MATRIX_UPDATED_EVENT,
 } from '../../lib/matrixTimekeeping';
 
@@ -49,6 +53,7 @@ interface DepartmentTimekeepingMatrixProps {
   allStaff?: StaffRecord[];
   attendanceHistory?: AttendanceRecord[];
   overtimeRecords?: OvertimeRecord[];
+  leaveRecords?: LeaveRegistrationRecord[];
   userRole?: string;
   onViewProfile?: (staff: StaffRecord) => void;
 }
@@ -72,6 +77,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
   departmentTitle,
   staffList,
   allStaff = [],
+  leaveRecords,
   onViewProfile,
 }) => {
   const currentDate = new Date();
@@ -176,20 +182,21 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
   const skipNextMatrixEventRef = useRef(false);
 
-  // Initialize / Load matrix data on month/year/staff change
+  // Initialize / Load matrix data on month/year/staff/leave change
   useEffect(() => {
     const { matrix, holidays } = loadOrInitDepartmentMatrix(
       department,
       selectedYear,
       selectedMonth,
       targetStaff,
-      true
+      true,
+      leaveRecords
     );
     setHolidayDays(holidays);
     setMatrixData(matrix);
-  }, [storageKey, targetStaff, selectedYear, selectedMonth, department]);
+  }, [storageKey, targetStaff, selectedYear, selectedMonth, department, leaveRecords]);
 
-  // Reload if updated externally (e.g. edited from HRTimekeeping or restored from cloud sync)
+  // Reload if updated externally (e.g. edited from HRTimekeeping, Leave registration, or sibling matrix)
   useEffect(() => {
     const onExternalMatrixUpdate = (ev: Event) => {
       if (skipNextMatrixEventRef.current) {
@@ -197,20 +204,23 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         return;
       }
       const detail = (ev as CustomEvent<{ department?: string; year?: number; month?: number }>)?.detail;
+      const evDept = (detail?.department || '').toLowerCase();
+      const selfDept = department.toLowerCase();
       if (
         detail &&
         detail.year === selectedYear &&
         detail.month === selectedMonth &&
-        (!detail.department ||
-          detail.department.toLowerCase() === department.toLowerCase() ||
-          detail.department.toLowerCase() === 'multi')
+        (!evDept ||
+          evDept === selfDept ||
+          ((selfDept === 'multi' || selfDept === 'all') && (evDept === 'multi' || evDept === 'all')))
       ) {
         const { matrix, holidays } = loadOrInitDepartmentMatrix(
           department,
           selectedYear,
           selectedMonth,
           targetStaff,
-          false
+          false,
+          leaveRecords
         );
         setHolidayDays(holidays);
         setMatrixData(matrix);
@@ -218,7 +228,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     };
     window.addEventListener(MATRIX_UPDATED_EVENT, onExternalMatrixUpdate);
     return () => window.removeEventListener(MATRIX_UPDATED_EVENT, onExternalMatrixUpdate);
-  }, [department, selectedYear, selectedMonth, targetStaff]);
+  }, [department, selectedYear, selectedMonth, targetStaff, leaveRecords]);
 
   const showToast = (msg: string) => {
     setSaveToast(msg);
@@ -376,7 +386,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         selectedYear,
         selectedMonth,
         current.isLocked,
-        current.lockedDay
+        current.lockedDay,
+        nextHolidays,
+        leaveRecords
       );
       const totals = recalculateStaffTotals(updatedDays);
       nextMatrix[staff.employeeId] = {
@@ -440,7 +452,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       selectedYear,
       selectedMonth,
       shouldLock,
-      targetDay
+      targetDay,
+      holidayDays,
+      leaveRecords
     );
     const totals = recalculateStaffTotals(appliedDays);
 
@@ -450,6 +464,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         ...current,
         isLocked: shouldLock,
         lockedDay: targetDay,
+        manualUnlocked: !shouldLock,
         days: appliedDays,
         ...totals,
       },
@@ -488,13 +503,25 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         totalHolidayOt: 0,
       };
 
-      if (current.isLocked && current.lockedDay === undefined) return;
+      if (isStaffLockedFromMatrix(staff, current)) return;
 
       const days = { ...current.days };
       monthDaysMeta.forEach(({ day, isSunday, isHoliday }) => {
+        // Không điền giờ làm cho các ngày tương lai (> ngày hiện tại)
+        if (isFutureCalendarDay(selectedYear, selectedMonth, day)) {
+          return;
+        }
         if (
           isDayBeforeJoinDate(selectedYear, selectedMonth, day, staff.dateJoined) &&
           !hasMatrixRealData(days[day])
+        ) {
+          return;
+        }
+        // Giữ nguyên ngày đã đăng ký phép
+        const existingDay = days[day];
+        if (
+          existingDay &&
+          (isLeaveMatrixStatus(existingDay.status) || existingDay.leaveRecordId !== undefined)
         ) {
           return;
         }
@@ -513,6 +540,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otHolidayNightHours: staff.shift === 'NIGHT' ? 8 : 0,
             isHoliday: true,
             status: 'Đúng giờ',
+            isAutoDefault: true,
           };
         } else if (!isSunday) {
           days[day] = {
@@ -529,6 +557,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otHolidayNightHours: 0,
             isHoliday: false,
             status: 'Đúng giờ',
+            isAutoDefault: true,
           };
         } else {
           days[day] = {
@@ -545,6 +574,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otHolidayNightHours: 0,
             isHoliday: false,
             status: 'Nghỉ chủ nhật',
+            isAutoDefault: true,
           };
         }
       });
@@ -555,7 +585,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         selectedYear,
         selectedMonth,
         current.isLocked,
-        current.lockedDay
+        current.lockedDay,
+        holidayDays,
+        leaveRecords
       );
       const totals = recalculateStaffTotals(appliedDays);
       updated[staff.employeeId] = {
@@ -567,7 +599,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
     setMatrixData(updated);
     persistMatrixAndHolidays(updated, holidayDays);
-    showToast('Đã tự động điền giờ công chuẩn (8h/ngày) cho nhân sự chưa khóa!');
+    showToast('Đã tự động điền giờ công chuẩn (8h/ngày) đến ngày hiện tại cho nhân sự chưa khóa!');
   };
 
   // Open cell editor
@@ -788,7 +820,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
           selectedYear,
           selectedMonth,
           cur.isLocked,
-          cur.lockedDay
+          cur.lockedDay,
+          nextHolidays,
+          leaveRecords
         );
         workingMatrix[other.employeeId] = {
           ...cur,
@@ -821,6 +855,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       ...currentStaffData.days,
       [day]: {
         ...updatedEntry,
+        leaveRecordId: undefined,
         isManual: true,
         isAutoDefault: false,
       },
@@ -1301,7 +1336,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             selectedYear,
             selectedMonth,
             isLocked,
-            lockedDay
+            lockedDay,
+            holidayDays,
+            leaveRecords
           );
           const totals = recalculateStaffTotals(appliedDays);
           nextMatrix[matchedStaff.employeeId] = {
@@ -2001,6 +2038,10 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                                 ) : otDay > 0 ? (
                                   <span className="px-1.5 rounded font-bold bg-amber-500/25 text-amber-300 border border-amber-500/40">
                                     +{otDay}h TC
+                                  </span>
+                                ) : entry.status === 'Nghỉ phép' ? (
+                                  <span className="px-1.5 rounded font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                                    Nửa phép · {entry.regularHours || 4}h
                                   </span>
                                 ) : (
                                   <span className="px-1.5 rounded font-bold bg-teal-500/20 text-teal-300 border border-teal-500/40">
