@@ -656,6 +656,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       ot2: Math.round((r.otNight + r.otSunNight + r.otHolidayNight) * 10) / 10,
     }));
 
+    const leaveQuota = staffInfo?.annualLeaveQuota !== undefined ? staffInfo.annualLeaveQuota : 12;
     const newRecord: AttendanceConfirmationRecord = {
       id: Date.now(),
       month: monthKey,
@@ -665,7 +666,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       department: empDept,
       days: confirmDays,
       unexcusedAbsence: 0,
-      remainingLeave: Math.max(0, 12 - computeAnnualLeaveUsed(leaveRecords, empId)),
+      remainingLeave: Math.max(0, leaveQuota - computeAnnualLeaveUsed(leaveRecords, empId)),
       isConfirmed: true,
       confirmedAt: new Date().toLocaleString('vi-VN'),
       confirmedBy: empName,

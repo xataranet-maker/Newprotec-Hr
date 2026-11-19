@@ -653,6 +653,8 @@ export default function App() {
             allStaffData={allStaff}
             attendanceHistory={attendanceHistory}
             overtimeRecords={overtimeRecords}
+            leaveRecords={leaveRecords}
+            attendanceRequests={attendanceRequests}
             announcements={announcements}
             onNavigate={handleNavigate}
             onAddPlan={(p) => setProductionPlans([p, ...productionPlans])}
@@ -835,6 +837,7 @@ export default function App() {
           <HRLeaves
             allStaff={allStaff}
             leaveRecords={leaveRecords}
+            onUpdateStaffInfo={handleUpdateStaffInfo}
             onNavigateToRegister={() => setActiveItem('hr_leave_register')}
           />
         );

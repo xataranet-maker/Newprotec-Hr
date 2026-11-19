@@ -37,8 +37,6 @@ export const ribbonData: RibbonTab[] = [
           { id: 'dashboard_home', label: 'BÁO CÁO TỔNG HỢP', icon: LayoutDashboard, isLarge: true, color: 'text-blue-500' },
           { id: 'personal_profile', label: 'HỒ SƠ CÁ NHÂN', icon: UserCheck, isLarge: true, color: 'text-cyan-500' },
           { id: 'home_announcements', label: 'THÔNG BÁO', icon: Megaphone, isLarge: true, color: 'text-red-500' },
-          { id: 'planning_hub', label: 'ĐIỀU PHỐI KẾ HOẠCH', icon: CalendarRange, isLarge: false, color: 'text-cyan-400' },
-          { id: 'production_plans', label: 'LỊCH SỬ KẾ HOẠCH', icon: History, isLarge: false, color: 'text-indigo-400' },
         ],
       },
     ],

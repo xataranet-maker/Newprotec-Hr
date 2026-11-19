@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   StaffRecord,
   AttendanceRecord,
   OvertimeRecord,
   HRAnnouncement,
   UserAccount,
+  LeaveRegistrationRecord,
+  AttendanceCorrectionRequest,
 } from '../../types';
+import { getEmployeeProfileMatrixData } from '../../lib/matrixTimekeeping';
 import {
   Factory,
   Users,
@@ -16,6 +19,17 @@ import {
   ClipboardCheck,
   Banknote,
   ShieldAlert,
+  Sun,
+  Moon,
+  Timer,
+  CheckCircle2,
+  AlertTriangle,
+  UserX,
+  Award,
+  TrendingUp,
+  TrendingDown,
+  Clock,
+  FileText,
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -24,6 +38,8 @@ interface DashboardProps {
   allStaffData: StaffRecord[];
   attendanceHistory: AttendanceRecord[];
   overtimeRecords: OvertimeRecord[];
+  leaveRecords?: LeaveRegistrationRecord[];
+  attendanceRequests?: AttendanceCorrectionRequest[];
   announcements: HRAnnouncement[];
   onNavigate: (id: string) => void;
   onAddPlan: (p: any) => void;
@@ -35,20 +51,129 @@ export const Dashboard: React.FC<DashboardProps> = ({
   hrStaff,
   allStaffData,
   overtimeRecords,
+  leaveRecords = [],
+  attendanceRequests = [],
   announcements,
   onNavigate,
   onAddPlan,
   currentUser,
 }) => {
+  const now = new Date();
+  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth() + 1);
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [targetDept, setTargetDept] = useState('Multi Auto');
   const [model, setModel] = useState('');
   const [content, setContent] = useState('');
 
-  const onTimeCount = allStaffData.filter(
-    (s) => s.attendance === 'Đúng giờ' || s.attendance === 'PRESENT' || s.attendance === 'Đủ công'
-  ).length;
-  const totalOtHours = overtimeRecords.reduce((sum, r) => sum + (r.hours || 0), 0);
+  // Manpower stats
+  const totalStaffCount = allStaffData.length;
+  const dayShiftCount = allStaffData.filter((s) => (s.shift || 'DAY') === 'DAY').length;
+  const nightShiftCount = allStaffData.filter((s) => s.shift === 'NIGHT').length;
+
+  // Compute attendance, OT, leave, and missing swipes per employee for selected month
+  const staffAnalytics = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        staff: StaffRecord;
+        totalOt: number;
+        totalLeaveDays: number;
+        missingSwipeCount: number;
+        workedDays: number;
+        isWorking: boolean;
+      }
+    >();
+
+    allStaffData.forEach((staff) => {
+      const dept = staff.department || 'MULTI';
+      const matrixData = getEmployeeProfileMatrixData(
+        staff.employeeId,
+        dept,
+        selectedYear,
+        selectedMonth,
+        staff
+      );
+
+      let staffOt = 0;
+      let staffWorked = 0;
+      let staffMissing = 0;
+
+      const daysMap = matrixData.days || {};
+      Object.values(daysMap).forEach((entry: any) => {
+        const ot =
+          (entry.otDayHours || 0) +
+          (entry.otNightHours || 0) +
+          (entry.otSundayHours || 0) +
+          (entry.otSundayNightHours || 0) +
+          (entry.otHolidayHours || 0) +
+          (entry.otHolidayNightHours || 0);
+        staffOt += ot;
+
+        if (entry.regularHours > 0 || ot > 0) {
+          staffWorked += 1;
+        }
+        if (!entry.inTime || !entry.outTime || entry.status === 'Thiếu giờ' || entry.status === 'Vắng mặt') {
+          staffMissing += 1;
+        }
+      });
+
+      // Count leaves from leaveRecords for this employee in selectedMonth
+      const empLeaves = leaveRecords.filter((r) => {
+        const matchEmp =
+          r.employeeId.trim().toLowerCase() === staff.employeeId.trim().toLowerCase() ||
+          r.fullName.trim().toLowerCase() === staff.fullName.trim().toLowerCase();
+        if (!matchEmp) return false;
+        // check month
+        if (r.fromDate && r.fromDate.startsWith(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`)) {
+          return true;
+        }
+        return false;
+      });
+
+      const totalLeaveDays = empLeaves.reduce((sum, r) => sum + (r.days || 1), 0);
+
+      // Count correction requests (NPT-FM-008) for missing swipe
+      const empRequests = attendanceRequests.filter((r) => {
+        const matchEmp = r.employeeId.trim().toLowerCase() === staff.employeeId.trim().toLowerCase();
+        if (!matchEmp) return false;
+        return r.date && r.date.includes(`/${String(selectedMonth).padStart(2, '0')}/${selectedYear}`) || r.date.startsWith(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`);
+      });
+
+      map.set(staff.employeeId, {
+        staff,
+        totalOt: Math.round(staffOt * 10) / 10,
+        totalLeaveDays: Math.max(totalLeaveDays, staffMissing > 5 ? 2 : 0),
+        missingSwipeCount: Math.max(empRequests.length, staffMissing > 3 ? 1 : 0),
+        workedDays: staffWorked,
+        isWorking: staffWorked > 0 || staff.attendance === 'Đúng giờ' || staff.attendance === 'PRESENT',
+      });
+    });
+
+    return Array.from(map.values());
+  }, [allStaffData, selectedYear, selectedMonth, leaveRecords, attendanceRequests]);
+
+  const presentCount = staffAnalytics.filter((s) => s.workedDays > 0 || s.isWorking).length;
+  const leaveCount = totalStaffCount - presentCount;
+
+  // Rankings
+  const sortedByOtDesc = [...staffAnalytics].sort((a, b) => b.totalOt - a.totalOt);
+  const maxOtStaff = sortedByOtDesc[0] || null;
+
+  // Min OT among staff who worked
+  const workingStaff = staffAnalytics.filter((s) => s.workedDays > 0);
+  const sortedByOtAsc = [...(workingStaff.length > 0 ? workingStaff : staffAnalytics)].sort(
+    (a, b) => a.totalOt - b.totalOt
+  );
+  const minOtStaff = sortedByOtAsc[0] || null;
+
+  // Most leave days
+  const sortedByLeaveDesc = [...staffAnalytics].sort((a, b) => b.totalLeaveDays - a.totalLeaveDays);
+  const maxLeaveStaff = sortedByLeaveDesc[0] || null;
+
+  // Most missing swipes
+  const sortedByMissingDesc = [...staffAnalytics].sort((a, b) => b.missingSwipeCount - a.missingSwipeCount);
+  const maxMissingStaff = sortedByMissingDesc[0] || null;
 
   const handleCreatePlan = (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,298 +193,494 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto text-xs">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div className="w-full md:w-auto px-7 sm:px-4 md:px-0 text-center md:text-left">
+        <div className="w-full md:w-auto text-center md:text-left">
           <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white flex flex-wrap items-center justify-center md:justify-start gap-2">
-            <span>TRUNG TÂM QUẢN LÝ NHÂN SỰ &amp; CHẤM CÔNG</span>
+            <span>DASHBOARD HC &amp; NHÂN SỰ TOÀN NHÀ MÁY</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-mono">
-              NEWPROTEC VINA
+              THÁNG {selectedMonth}/{selectedYear}
             </span>
           </h1>
-          <p className="text-xs text-slate-400 mt-1 text-center md:text-left">
-            Tổng quan quân số, chấm công ma trận, hành chính nhân sự và phân quyền hệ thống.
+          <p className="text-xs text-slate-400 mt-1">
+            Báo cáo tổng hợp nhân lực, ngày công, tăng ca và thống kê chuyên sâu nhân sự Newprotec Vina.
           </p>
         </div>
 
-        <div className="w-full md:w-auto flex flex-wrap items-center justify-center md:justify-end gap-2">
+        <div className="w-full md:w-auto flex flex-wrap items-center justify-center md:justify-end gap-2.5">
+          {/* Month / Year picker */}
+          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5">
+            <CalendarDays className="w-4 h-4 text-cyan-400" />
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              className="bg-transparent text-white font-bold focus:outline-hidden cursor-pointer"
+            >
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m} className="bg-slate-900 text-white">
+                  Tháng {m}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              className="bg-transparent text-cyan-300 font-bold focus:outline-hidden cursor-pointer ml-1"
+            >
+              {[2025, 2026, 2027].map((y) => (
+                <option key={y} value={y} className="bg-slate-900 text-white">
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <button
+            type="button"
             onClick={() => setShowPlanModal(true)}
-            className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer"
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Tạo Kế Hoạch Mới</span>
           </button>
-          <button
-            onClick={() => onNavigate('multi_matrix_timekeeping')}
-            className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-all cursor-pointer"
-          >
-            <CalendarDays className="w-3.5 h-3.5 text-amber-400" />
-            <span>Chấm Công Multi Auto</span>
-          </button>
         </div>
       </div>
 
-      {/* Top Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div
-          onClick={() => onNavigate('multi_staff')}
-          className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-cyan-500/40 transition-all cursor-pointer group"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Multi Auto</span>
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
-              <Factory className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3 flex items-baseline justify-between">
-            <div className="text-2xl font-bold font-mono text-white tabular-nums">
-              {multiStaff.length} <span className="text-xs text-slate-400 font-sans">Nhân viên</span>
-            </div>
-            <span className="text-xs text-emerald-400 font-mono">
-              {multiStaff.filter((s) => s.shift === 'DAY').length} Ngày / {multiStaff.filter((s) => s.shift === 'NIGHT').length} Đêm
-            </span>
-          </div>
-          <div className="mt-2 text-[11px] text-slate-400 flex justify-between">
-            <span>Nhân sự & Chấm công</span>
-            <span className="text-cyan-400 group-hover:underline flex items-center gap-0.5">
-              Chi tiết <ArrowUpRight className="w-3 h-3" />
-            </span>
-          </div>
-        </div>
-
+      {/* 1. MANPOWER OVERVIEW STATS (NHÂN LỰC, ĐI LÀM, NGHỈ, CA NGÀY, CA ĐÊM) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Tổng nhân lực */}
         <div
           onClick={() => onNavigate('staff_list')}
-          className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-emerald-500/40 transition-all cursor-pointer group"
+          className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 hover:border-cyan-500/40 transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">HC & Nhân Sự</span>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Tổng Nhân Lực</span>
+            <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400">
               <Users className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <div className="text-2xl font-bold font-mono text-white tabular-nums">
-              {allStaffData.length} <span className="text-xs text-slate-400 font-sans">Tổng NV</span>
+              {totalStaffCount} <span className="text-xs text-slate-400 font-sans">NS</span>
             </div>
-            <span className="text-xs text-cyan-400 font-mono">
-              {hrStaff.length} HC-NS
-            </span>
           </div>
-          <div className="mt-2 text-[11px] text-slate-400 flex justify-between">
-            <span>Đúng giờ: {onTimeCount}/{allStaffData.length}</span>
-            <span className="text-emerald-400 group-hover:underline flex items-center gap-0.5">
+          <div className="mt-2 text-[10px] text-slate-400 flex justify-between">
+            <span>Toàn bộ nhà máy</span>
+            <span className="text-cyan-400 group-hover:underline flex items-center gap-0.5">
               Hồ sơ <ArrowUpRight className="w-3 h-3" />
             </span>
           </div>
         </div>
 
+        {/* Nhân lực ca ngày */}
         <div
           onClick={() => onNavigate('hr_matrix_timekeeping')}
-          className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-amber-500/40 transition-all cursor-pointer group"
+          className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 hover:border-amber-500/40 transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Bảng Công Ma Trận</span>
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Nhân Lực Ca Ngày</span>
             <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
-              <CalendarDays className="w-4 h-4" />
+              <Sun className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline justify-between">
-            <div className="text-2xl font-bold font-mono text-white tabular-nums">
-              {totalOtHours}h <span className="text-xs text-slate-400 font-sans">Tăng ca</span>
+            <div className="text-2xl font-bold font-mono text-amber-300 tabular-nums">
+              {dayShiftCount} <span className="text-xs text-slate-400 font-sans">NV</span>
             </div>
-            <span className="text-xs text-amber-400 font-mono">Theo tháng</span>
-          </div>
-          <div className="mt-2 text-[11px] text-slate-400 flex justify-between">
-            <span>Ngày thường, CN & Lễ</span>
-            <span className="text-amber-400 group-hover:underline flex items-center gap-0.5">
-              Mở bảng <ArrowUpRight className="w-3 h-3" />
+            <span className="text-[10px] text-amber-400 font-mono font-semibold">
+              {Math.round((dayShiftCount / (totalStaffCount || 1)) * 100)}%
             </span>
+          </div>
+          <div className="mt-2 text-[10px] text-slate-400 flex justify-between">
+            <span>Ca HC & Ca sản xuất ngày</span>
+            <span className="text-amber-400 group-hover:underline">Chi tiết</span>
           </div>
         </div>
 
+        {/* Nhân lực ca đêm */}
         <div
-          onClick={() => onNavigate('hr_payroll')}
-          className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-indigo-500/40 transition-all cursor-pointer group"
+          onClick={() => onNavigate('hr_matrix_timekeeping')}
+          className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 hover:border-purple-500/40 transition-all cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Bảng Công & Lương</span>
-            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
-              <Banknote className="w-4 h-4" />
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Nhân Lực Ca Đêm</span>
+            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
+              <Moon className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline justify-between">
-            <div className="text-2xl font-bold font-mono text-white tabular-nums">HC-NS</div>
-            <span className="text-xs text-indigo-400 font-mono">Payroll</span>
-          </div>
-          <div className="mt-2 text-[11px] text-slate-400 flex justify-between">
-            <span>Bảng công & Phiếu lương</span>
-            <span className="text-indigo-400 group-hover:underline flex items-center gap-0.5">
-              Truy cập <ArrowUpRight className="w-3 h-3" />
+            <div className="text-2xl font-bold font-mono text-purple-300 tabular-nums">
+              {nightShiftCount} <span className="text-xs text-slate-400 font-sans">NV</span>
+            </div>
+            <span className="text-[10px] text-purple-400 font-mono font-semibold">
+              {Math.round((nightShiftCount / (totalStaffCount || 1)) * 100)}%
             </span>
+          </div>
+          <div className="mt-2 text-[10px] text-slate-400 flex justify-between">
+            <span>Ca trực đêm nhà máy</span>
+            <span className="text-purple-400 group-hover:underline">Chi tiết</span>
+          </div>
+        </div>
+
+        {/* Số nhân viên đi làm */}
+        <div
+          onClick={() => onNavigate('hr_matrix_timekeeping')}
+          className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 hover:border-emerald-500/40 transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Số NV Đi Làm</span>
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline justify-between">
+            <div className="text-2xl font-bold font-mono text-emerald-400 tabular-nums">
+              {presentCount} <span className="text-xs text-slate-400 font-sans">NV</span>
+            </div>
+            <span className="text-[10px] text-emerald-400 font-mono font-semibold">
+              {Math.round((presentCount / (totalStaffCount || 1)) * 100)}% có mặt
+            </span>
+          </div>
+          <div className="mt-2 text-[10px] text-slate-400 flex justify-between">
+            <span>Có phát sinh công</span>
+            <span className="text-emerald-400 group-hover:underline">Bảng công</span>
+          </div>
+        </div>
+
+        {/* Số nhân viên nghỉ */}
+        <div
+          onClick={() => onNavigate('hr_leaves')}
+          className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 hover:border-rose-500/40 transition-all cursor-pointer group"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Số NV Nghỉ / Vắng</span>
+            <div className="p-2 rounded-lg bg-rose-500/10 text-rose-400">
+              <UserX className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline justify-between">
+            <div className="text-2xl font-bold font-mono text-rose-400 tabular-nums">
+              {leaveCount} <span className="text-xs text-slate-400 font-sans">NV</span>
+            </div>
+            <span className="text-[10px] text-rose-400 font-mono font-semibold">
+              Nghỉ phép / Không lương
+            </span>
+          </div>
+          <div className="mt-2 text-[10px] text-slate-400 flex justify-between">
+            <span>Quản lý phép năm</span>
+            <span className="text-rose-400 group-hover:underline">Đăng ký phép</span>
           </div>
         </div>
       </div>
 
-      {/* Main Grid: Shortcuts + Announcements */}
+      {/* 2. TOP INSIGHTS & RANKINGS (TĂNG CA NHIỀU/ÍT NHẤT, NGHỈ NHIỀU NHẤT, QUÊN QUẸT THẺ NHIỀU NHẤT) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* Top Tăng ca nhiều nhất */}
+        <div className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-cyan-950 text-cyan-400 border border-cyan-500/30">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+              <h2 className="font-bold text-white uppercase tracking-wider text-xs">
+                Tăng Ca Nhiều Nhất
+              </h2>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 text-[10px] font-mono font-bold">
+              TOP 1
+            </span>
+          </div>
+
+          {maxOtStaff ? (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-sm">{maxOtStaff.staff.fullName}</span>
+                <span className="font-mono text-cyan-400 font-bold text-sm">+{maxOtStaff.totalOt}h</span>
+              </div>
+              <div className="text-[11px] text-slate-400 flex justify-between font-mono">
+                <span>Mã NV: {maxOtStaff.staff.employeeId}</span>
+                <span>Bộ phận: {maxOtStaff.staff.department || 'MULTI'}</span>
+              </div>
+              <p className="text-[10px] text-slate-400 italic pt-1">
+                Nhân viên tích lũy số giờ tăng ca cao nhất trong tháng {selectedMonth}/{selectedYear}.
+              </p>
+            </div>
+          ) : (
+            <div className="py-6 text-center text-slate-500">Chưa có dữ liệu tăng ca</div>
+          )}
+        </div>
+
+        {/* Top Tăng ca ít nhất */}
+        <div className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-amber-950 text-amber-400 border border-amber-500/30">
+                <TrendingDown className="w-4 h-4" />
+              </div>
+              <h2 className="font-bold text-white uppercase tracking-wider text-xs">
+                Tăng Ca Ít Nhất
+              </h2>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-300 text-[10px] font-mono font-bold">
+              THẤP NHẤT
+            </span>
+          </div>
+
+          {minOtStaff ? (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-sm">{minOtStaff.staff.fullName}</span>
+                <span className="font-mono text-amber-400 font-bold text-sm">{minOtStaff.totalOt}h</span>
+              </div>
+              <div className="text-[11px] text-slate-400 flex justify-between font-mono">
+                <span>Mã NV: {minOtStaff.staff.employeeId}</span>
+                <span>Bộ phận: {minOtStaff.staff.department || 'MULTI'}</span>
+              </div>
+              <p className="text-[10px] text-slate-400 italic pt-1">
+                Nhân viên có tổng giờ tăng ca thấp nhất (hoặc làm đủ giờ hành chính chuẩn).
+              </p>
+            </div>
+          ) : (
+            <div className="py-6 text-center text-slate-500">Chưa có dữ liệu</div>
+          )}
+        </div>
+
+        {/* Top Nghỉ nhiều nhất */}
+        <div className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-rose-950 text-rose-400 border border-rose-500/30">
+                <UserX className="w-4 h-4" />
+              </div>
+              <h2 className="font-bold text-white uppercase tracking-wider text-xs">
+                Nghỉ / Phép Nhiều Nhất
+              </h2>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-300 text-[10px] font-mono font-bold">
+              CẦN LƯU Ý
+            </span>
+          </div>
+
+          {maxLeaveStaff ? (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-sm">{maxLeaveStaff.staff.fullName}</span>
+                <span className="font-mono text-rose-400 font-bold text-sm">{maxLeaveStaff.totalLeaveDays} ngày</span>
+              </div>
+              <div className="text-[11px] text-slate-400 flex justify-between font-mono">
+                <span>Mã NV: {maxLeaveStaff.staff.employeeId}</span>
+                <span>Bộ phận: {maxLeaveStaff.staff.department || 'MULTI'}</span>
+              </div>
+              <p className="text-[10px] text-slate-400 italic pt-1">
+                Nhân viên đăng ký nghỉ phép hoặc vắng mặt nhiều nhất trong tháng.
+              </p>
+            </div>
+          ) : (
+            <div className="py-6 text-center text-slate-500">Không có nhân viên nghỉ phép</div>
+          )}
+        </div>
+
+        {/* Top Quên quẹt thẻ nhiều nhất */}
+        <div className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-purple-950 text-purple-400 border border-purple-500/30">
+                <Clock className="w-4 h-4" />
+              </div>
+              <h2 className="font-bold text-white uppercase tracking-wider text-xs">
+                Quên Quẹt Thẻ Nhiều Nhất
+              </h2>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-purple-950 text-purple-300 text-[10px] font-mono font-bold">
+              BẤT THƯỜNG
+            </span>
+          </div>
+
+          {maxMissingStaff ? (
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white text-sm">{maxMissingStaff.staff.fullName}</span>
+                <span className="font-mono text-purple-400 font-bold text-sm">{maxMissingStaff.missingSwipeCount} lần</span>
+              </div>
+              <div className="text-[11px] text-slate-400 flex justify-between font-mono">
+                <span>Mã NV: {maxMissingStaff.staff.employeeId}</span>
+                <span>Bộ phận: {maxMissingStaff.staff.department || 'MULTI'}</span>
+              </div>
+              <p className="text-[10px] text-slate-400 italic pt-1">
+                Nhân viên có số lần quên quẹt thẻ / phát sinh phiếu giải trình NPT-FM-008 nhiều nhất.
+              </p>
+            </div>
+          ) : (
+            <div className="py-6 text-center text-slate-500">Không có dữ liệu quên quẹt thẻ</div>
+          )}
+        </div>
+      </div>
+
+      {/* 3. QUICK NAVIGATION & ANNOUNCEMENTS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-4">
+        <div className="lg:col-span-2 p-4 rounded-xl bg-[#0a1222] border border-slate-800 space-y-4">
           <h2 className="text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
             <ClipboardCheck className="w-4 h-4 text-emerald-400" />
-            <span>Truy Cập Nhanh Phân Hệ</span>
+            <span>Truy Cập Nhanh Phân Hệ HC &amp; NS</span>
           </h2>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <button
-              onClick={() => onNavigate('multi_staff')}
-              className="p-3.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-800/80 text-left transition-colors cursor-pointer"
-            >
-              <div className="text-xs font-semibold text-cyan-300">Nhân Viên Multi Auto</div>
-              <div className="text-[10px] text-slate-500 mt-1">Điểm danh & Đăng ký tăng ca</div>
-            </button>
-
-            <button
-              onClick={() => onNavigate('multi_matrix_timekeeping')}
-              className="p-3.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-800/80 text-left transition-colors cursor-pointer"
-            >
-              <div className="text-xs font-semibold text-amber-300">Bảng Chấm Công Multi</div>
-              <div className="text-[10px] text-slate-500 mt-1">Ma trận giờ vào/ra, CN & Lễ</div>
-            </button>
-
-            <button
+              type="button"
               onClick={() => onNavigate('staff_list')}
               className="p-3.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-800/80 text-left transition-colors cursor-pointer"
             >
-              <div className="text-xs font-semibold text-emerald-300">DS Nhân Viên (HC & NS)</div>
-              <div className="text-[10px] text-slate-500 mt-1">Quản lý hồ sơ toàn công ty</div>
+              <div className="text-xs font-semibold text-emerald-300">Hồ Sơ Nhân Sự</div>
+              <div className="text-[10px] text-slate-400 mt-1">Quản lý nhân viên toàn nhà máy</div>
             </button>
 
             <button
+              type="button"
               onClick={() => onNavigate('hr_matrix_timekeeping')}
               className="p-3.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-800/80 text-left transition-colors cursor-pointer"
             >
-              <div className="text-xs font-semibold text-blue-300">Bảng Công Ma Trận HC-NS</div>
-              <div className="text-[10px] text-slate-500 mt-1">Tổng hợp công toàn nhà máy</div>
+              <div className="text-xs font-semibold text-amber-300">Bảng Công Ma Trận HC-NS</div>
+              <div className="text-[10px] text-slate-400 mt-1">Ma trận giờ công & quẹt thẻ</div>
             </button>
 
             <button
-              onClick={() => onNavigate('hr_salary_slip')}
+              type="button"
+              onClick={() => onNavigate('timekeeping_machine')}
               className="p-3.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-800/80 text-left transition-colors cursor-pointer"
             >
-              <div className="text-xs font-semibold text-indigo-300">Phiếu Lương</div>
-              <div className="text-[10px] text-slate-500 mt-1">Phát hành & tra cứu lương</div>
+              <div className="text-xs font-semibold text-cyan-300">Dữ Liệu Công (MQT)</div>
+              <div className="text-[10px] text-slate-400 mt-1">Đối soát máy quẹt thẻ vs bảng công</div>
             </button>
 
-            {currentUser.role === 'admin' && currentUser.username.toLowerCase() !== 'admin' && (
-              <button
-                onClick={() => onNavigate('users')}
-                className="p-3.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-800/80 text-left transition-colors cursor-pointer"
-              >
-                <div className="text-xs font-semibold text-rose-300 flex items-center gap-1">
-                  <ShieldAlert className="w-3.5 h-3.5" />
-                  <span>Quản Trị Tài Khoản</span>
-                </div>
-                <div className="text-[10px] text-slate-500 mt-1">Phân quyền người dùng</div>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => onNavigate('hr_leaves')}
+              className="p-3.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-800/80 text-left transition-colors cursor-pointer"
+            >
+              <div className="text-xs font-semibold text-rose-300">Quản Lý Đăng Ký Phép</div>
+              <div className="text-[10px] text-slate-400 mt-1">Đơn xin phép NPT-FM-007</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('hr_payroll')}
+              className="p-3.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-800/80 text-left transition-colors cursor-pointer"
+            >
+              <div className="text-xs font-semibold text-indigo-300">Bảng Công &amp; Phiếu Lương</div>
+              <div className="text-[10px] text-slate-400 mt-1">Tính lương & phát hành phiếu</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('hr_announcements')}
+              className="p-3.5 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-800/80 text-left transition-colors cursor-pointer"
+            >
+              <div className="text-xs font-semibold text-purple-300">Thông Báo HC-NS</div>
+              <div className="text-[10px] text-slate-400 mt-1">Bản tin & quy định công ty</div>
+            </button>
           </div>
         </div>
 
-        {/* Announcements */}
-        <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
-            <h2 className="text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
-              <Megaphone className="w-4 h-4 text-red-400" />
-              <span>Thông Báo</span>
+        {/* Thông báo HC-NS */}
+        <div className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <h2 className="font-bold text-white uppercase tracking-wider text-xs flex items-center gap-2">
+              <Megaphone className="w-4 h-4 text-cyan-400" />
+              <span>Thông Báo Nội Bộ</span>
             </h2>
-            <button
-              onClick={() => onNavigate('home_announcements')}
-              className="text-xs text-cyan-400 hover:underline cursor-pointer"
-            >
-              Xem tất cả &rarr;
-            </button>
+            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400 text-[10px] font-mono">
+              {announcements.length} tin
+            </span>
           </div>
 
-          <div className="space-y-3">
-            {announcements.slice(0, 3).map((ann) => (
-              <div key={ann.id} className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 text-left">
-                <div className="flex items-center justify-between text-[11px] mb-1">
-                  <span className="font-semibold text-slate-200 truncate pr-2">{ann.title}</span>
-                  <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono shrink-0 ${
-                      ann.priority === 'URGENT' ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {ann.priority}
-                  </span>
+          <div className="space-y-2.5 max-h-60 overflow-y-auto custom-scrollbar">
+            {announcements.length === 0 ? (
+              <div className="py-8 text-center text-slate-500">Chưa có thông báo nào.</div>
+            ) : (
+              announcements.map((ann) => (
+                <div key={ann.id} className="p-3 rounded-lg bg-slate-950 border border-slate-800/80 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-200 text-xs">{ann.title}</span>
+                    <span className="text-[9px] text-slate-400 font-mono">{ann.date}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 line-clamp-2">{ann.content}</p>
                 </div>
-                <p className="text-xs text-slate-400 line-clamp-2">{ann.content}</p>
-                <div className="mt-2 text-[10px] text-slate-500 font-mono flex justify-between">
-                  <span>{ann.sender || 'BQL'}</span>
-                  <span>{ann.date}</span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>
 
-      {/* Modal Tạo Kế Hoạch */}
+      {/* Modal Tạo Kế Hoạch / Thông Báo */}
       {showPlanModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-5 space-y-4">
-            <h3 className="text-base font-bold text-white">Tạo Kế Hoạch Mới</h3>
-            <form onSubmit={handleCreatePlan} className="space-y-3 text-xs">
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[#0f172a] border border-cyan-500/40 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Plus className="w-4 h-4 text-cyan-400" />
+                <span>Tạo Kế Hoạch / Thông Báo HC-NS Mới</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowPlanModal(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreatePlan} className="space-y-3">
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Phòng Ban Tiếp Nhận</label>
+                <label className="block text-[11px] text-slate-400 mb-1">Bộ phận nhận</label>
                 <select
                   value={targetDept}
                   onChange={(e) => setTargetDept(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs"
                 >
                   <option value="Multi Auto">Multi Auto</option>
-                  <option value="HC & NS">HC & NS</option>
+                  <option value="Toàn nhà máy">Toàn nhà máy</option>
+                  <option value="Phòng HC-NS">Phòng HC-NS</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Tiêu Đề / Mã Kế Hoạch</label>
+                <label className="block text-[11px] text-slate-400 mb-1">Tiêu đề kế hoạch / sự việc</label>
                 <input
                   type="text"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  placeholder="Ví dụ: Kế hoạch nhân sự tháng 11"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
+                  placeholder="Ví dụ: Kế hoạch tăng ca tháng tới..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-slate-300 font-medium mb-1">Nội Dung Chỉ Thị</label>
+                <label className="block text-[11px] text-slate-400 mb-1">Nội dung chi tiết</label>
                 <textarea
-                  rows={3}
+                  rows={4}
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
-                  placeholder="Nội dung điều phối, thời hạn, yêu cầu..."
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
+                  placeholder="Nhập nội dung thông báo hoặc kế hoạch sản xuất/nhân sự..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs"
                   required
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setShowPlanModal(false)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-slate-900 text-slate-300 text-xs font-semibold cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold cursor-pointer"
                 >
-                  Gửi Kế Hoạch
+                  Lưu &amp; Gửi
                 </button>
               </div>
             </form>

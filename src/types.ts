@@ -212,6 +212,7 @@ export interface StaffRecord {
   lateMinutes?: number;
   earlyMinutes?: number;
   isLocked?: boolean;
+  annualLeaveQuota?: number;
 }
 
 export interface AccessoryRecord {
