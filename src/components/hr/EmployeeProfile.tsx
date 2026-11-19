@@ -1176,7 +1176,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     <table className="w-full min-w-[1560px] text-left border-collapse text-xs whitespace-nowrap">
                       <thead className="bg-slate-950/90 text-[10px] uppercase tracking-wider text-slate-300 font-semibold">
                         <tr className="border-b border-slate-800">
-                          <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-800 min-w-[120px] whitespace-nowrap">
+                          <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-800 min-w-[120px] whitespace-nowrap sticky left-0 z-30 bg-slate-950">
                             Ngày
                           </th>
                           <th rowSpan={2} className="py-2.5 px-2.5 text-center border-r border-slate-800 min-w-[55px] whitespace-nowrap">
@@ -1247,7 +1247,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                           return (
                             <tr key={row.rowId} className="hover:bg-slate-900/40 transition-colors">
                               {/* 1. Ngày */}
-                              <td className="py-2.5 px-3 border-r border-slate-800/60 whitespace-nowrap">
+                              <td className="py-2.5 px-3 border-r border-slate-800/60 whitespace-nowrap sticky left-0 z-20 bg-[#0a1222]">
                                 <div className="inline-flex items-center gap-1.5 font-bold text-white font-mono">
                                   <span>{row.dateStr}</span>
                                   {row.isHoliday && (
