@@ -594,6 +594,117 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     setEditBcStatus(calc.suggestedStatus);
   };
 
+  const handleBcTimeOrShiftChange = (patch: {
+    inTime?: string;
+    outTime?: string;
+    shift?: 'DAY' | 'NIGHT';
+    presetKey?: string;
+  }) => {
+    if (!editingBcDay) return;
+    let nextInTime = patch.inTime !== undefined ? patch.inTime : editBcInTime;
+    let nextOutTime = patch.outTime !== undefined ? patch.outTime : editBcOutTime;
+    let nextShift = patch.shift !== undefined ? patch.shift : editBcShift;
+
+    if (patch.presetKey) {
+      if (patch.presetKey === 'NIGHT_OT' || patch.presetKey === 'NIGHT') {
+        nextShift = 'NIGHT';
+        nextInTime = '20:00';
+        nextOutTime = '08:00';
+      } else if (patch.presetKey === 'NIGHT_NORMAL') {
+        nextShift = 'NIGHT';
+        nextInTime = '20:00';
+        nextOutTime = '05:00';
+      } else if (patch.presetKey === 'DAY_OT') {
+        nextShift = 'DAY';
+        nextInTime = '08:00';
+        nextOutTime = '20:00';
+      } else if (patch.presetKey === 'DAY_NORMAL' || patch.presetKey === 'DAY') {
+        nextShift = 'DAY';
+        nextInTime = '08:00';
+        nextOutTime = '17:00';
+      }
+    } else if (patch.shift !== undefined) {
+      if (patch.shift === 'NIGHT') {
+        nextShift = 'NIGHT';
+        nextInTime = '20:00';
+        nextOutTime = '08:00';
+      } else {
+        nextShift = 'DAY';
+        nextInTime = '08:00';
+        nextOutTime = editBcOtHours > 0 ? '20:00' : '17:00';
+      }
+    }
+
+    if (patch.outTime !== undefined) {
+      const trimmedOut = patch.outTime.trim();
+      if (trimmedOut === '08:00' || trimmedOut === '08:0' || trimmedOut === '8:00') {
+        nextShift = 'NIGHT';
+        if (!nextInTime || nextInTime === '08:00' || nextInTime.startsWith('08')) {
+          nextInTime = '20:00';
+        }
+        nextOutTime = '08:00';
+      } else if (trimmedOut === '20:00' || trimmedOut === '20:0') {
+        nextShift = 'DAY';
+        if (!nextInTime || nextInTime === '20:00' || nextInTime.startsWith('20')) {
+          nextInTime = '08:00';
+        }
+        nextOutTime = '20:00';
+      } else if (trimmedOut === '17:00' || trimmedOut === '17:0') {
+        nextShift = 'DAY';
+        if (!nextInTime || nextInTime === '20:00' || nextInTime.startsWith('20')) {
+          nextInTime = '08:00';
+        }
+        nextOutTime = '17:00';
+      } else if (trimmedOut === '05:00' || trimmedOut === '05:0' || trimmedOut === '5:00') {
+        nextShift = 'NIGHT';
+        if (!nextInTime || nextInTime === '08:00' || nextInTime.startsWith('08')) {
+          nextInTime = '20:00';
+        }
+        nextOutTime = '05:00';
+      }
+    }
+
+    if (patch.inTime !== undefined) {
+      const trimmedIn = patch.inTime.trim();
+      if (
+        trimmedIn === '20:00' ||
+        trimmedIn.startsWith('20:') ||
+        trimmedIn.startsWith('21:') ||
+        trimmedIn.startsWith('19:')
+      ) {
+        nextShift = 'NIGHT';
+        if (nextOutTime === '17:00') {
+          nextOutTime = '05:00';
+        }
+      } else if (
+        trimmedIn === '08:00' ||
+        trimmedIn.startsWith('08:') ||
+        trimmedIn.startsWith('07:') ||
+        trimmedIn.startsWith('09:')
+      ) {
+        nextShift = 'DAY';
+        if (nextOutTime === '05:00') {
+          nextOutTime = '17:00';
+        }
+      }
+    }
+
+    setEditBcInTime(nextInTime);
+    setEditBcOutTime(nextOutTime);
+    setEditBcShift(nextShift);
+
+    const calc = calculateMatrixDayHoursFromTimes(
+      normalizeTimeString(nextInTime),
+      normalizeTimeString(nextOutTime),
+      nextShift,
+      editingBcDay.isSunday,
+      editingBcDay.isHoliday
+    );
+    setEditBcRegularHours(calc.regularHours);
+    setEditBcOtHours(calc.totalOtHours);
+    setEditBcStatus(calc.suggestedStatus);
+  };
+
   const handleSaveBcEdit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBcDay) return;
@@ -1706,25 +1817,24 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                             Ca làm việc
                           </label>
                           <select
-                            value={editBcShift}
-                            onChange={(e) => {
-                              const s = e.target.value as 'DAY' | 'NIGHT';
-                              setEditBcShift(s);
-                              const calc = calculateMatrixDayHoursFromTimes(
-                                normalizeTimeString(editBcInTime),
-                                normalizeTimeString(editBcOutTime),
-                                s,
-                                editingBcDay.isSunday,
-                                editingBcDay.isHoliday
-                              );
-                              setEditBcRegularHours(calc.regularHours);
-                              setEditBcOtHours(calc.totalOtHours);
-                              setEditBcStatus(calc.suggestedStatus);
-                            }}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs"
+                            value={
+                              editBcShift === 'NIGHT'
+                                ? editBcOutTime === '05:00' && editBcOtHours === 0
+                                  ? 'NIGHT_NORMAL'
+                                  : 'NIGHT_OT'
+                                : editBcOutTime === '20:00' || editBcOtHours > 0
+                                ? 'DAY_OT'
+                                : 'DAY_NORMAL'
+                            }
+                            onChange={(e) =>
+                              handleBcTimeOrShiftChange({ presetKey: e.target.value })
+                            }
+                            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs font-semibold focus:border-cyan-500"
                           >
-                            <option value="DAY">Ca Ngày (08:00 - 17:00/20:00)</option>
-                            <option value="NIGHT">Ca Đêm (20:00 - 05:00/08:00)</option>
+                            <option value="DAY_NORMAL">Ca Ngày (08:00 - 17:00)</option>
+                            <option value="DAY_OT">Ca Ngày (08:00 - 20:00) [+3h TC Ngày]</option>
+                            <option value="NIGHT_NORMAL">Ca Đêm (20:00 - 05:00) [Chuẩn 8h]</option>
+                            <option value="NIGHT_OT">Ca Đêm (20:00 - 08:00)</option>
                           </select>
                         </div>
                         <div>
@@ -1748,20 +1858,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                           <input
                             type="time"
                             value={editBcInTime}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setEditBcInTime(val);
-                              const calc = calculateMatrixDayHoursFromTimes(
-                                normalizeTimeString(val),
-                                normalizeTimeString(editBcOutTime),
-                                editBcShift,
-                                editingBcDay.isSunday,
-                                editingBcDay.isHoliday
-                              );
-                              setEditBcRegularHours(calc.regularHours);
-                              setEditBcOtHours(calc.totalOtHours);
-                              setEditBcStatus(calc.suggestedStatus);
-                            }}
+                            onChange={(e) =>
+                              handleBcTimeOrShiftChange({ inTime: e.target.value })
+                            }
                             className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono text-xs focus:border-cyan-500 outline-none"
                             required
                           />
@@ -1773,20 +1872,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                           <input
                             type="time"
                             value={editBcOutTime}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setEditBcOutTime(val);
-                              const calc = calculateMatrixDayHoursFromTimes(
-                                normalizeTimeString(editBcInTime),
-                                normalizeTimeString(val),
-                                editBcShift,
-                                editingBcDay.isSunday,
-                                editingBcDay.isHoliday
-                              );
-                              setEditBcRegularHours(calc.regularHours);
-                              setEditBcOtHours(calc.totalOtHours);
-                              setEditBcStatus(calc.suggestedStatus);
-                            }}
+                            onChange={(e) =>
+                              handleBcTimeOrShiftChange({ outTime: e.target.value })
+                            }
                             className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono text-xs focus:border-cyan-500 outline-none"
                             required
                           />

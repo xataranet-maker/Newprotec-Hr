@@ -44,6 +44,7 @@ import {
   isLeaveMatrixStatus,
   isStaffLockedFromMatrix,
   MATRIX_UPDATED_EVENT,
+  calculateMatrixDayHoursFromTimes,
 } from '../../lib/matrixTimekeeping';
 
 interface DepartmentTimekeepingMatrixProps {
@@ -646,6 +647,157 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       entry: {
         ...existing,
         isHoliday: existing.isHoliday ?? meta.isHoliday,
+      },
+    });
+  };
+
+  const handleTimeOrShiftChange = (
+    patch: Partial<MatrixDayTimeEntry> & { presetKey?: string }
+  ) => {
+    if (!editingCell) return;
+
+    let nextInTime =
+      patch.inTime !== undefined ? patch.inTime : (editingCell.entry.inTime || '');
+    let nextOutTime =
+      patch.outTime !== undefined ? patch.outTime : (editingCell.entry.outTime || '');
+    let nextShift =
+      patch.shift !== undefined
+        ? patch.shift
+        : (editingCell.entry.shift || editingCell.staff.shift);
+
+    // 1. Nếu chọn khung giờ ca hoặc thay đổi ca làm việc trực tiếp
+    if (patch.presetKey) {
+      if (patch.presetKey === 'NIGHT_OT' || patch.presetKey === 'NIGHT') {
+        nextShift = 'NIGHT';
+        nextInTime = '20:00';
+        nextOutTime = '08:00';
+      } else if (patch.presetKey === 'NIGHT_NORMAL') {
+        nextShift = 'NIGHT';
+        nextInTime = '20:00';
+        nextOutTime = '05:00';
+      } else if (patch.presetKey === 'DAY_OT') {
+        nextShift = 'DAY';
+        nextInTime = '08:00';
+        nextOutTime = '20:00';
+      } else if (patch.presetKey === 'DAY_NORMAL' || patch.presetKey === 'DAY') {
+        nextShift = 'DAY';
+        nextInTime = '08:00';
+        nextOutTime = '17:00';
+      }
+    } else if (patch.shift !== undefined) {
+      if (patch.shift === 'NIGHT') {
+        nextShift = 'NIGHT';
+        nextInTime = '20:00';
+        // Khi chọn ca đêm (20:00 - 08:00), tự động điền giờ vào 20:00 và giờ ra 08:00 (+3h TC đêm)
+        nextOutTime = '08:00';
+      } else {
+        nextShift = 'DAY';
+        nextInTime = '08:00';
+        nextOutTime =
+          editingCell.entry.otNightHours && editingCell.entry.otNightHours > 0
+            ? '20:00'
+            : '17:00';
+      }
+    }
+
+    // 2. Tự động đồng bộ khi người dùng nhập/chọn giờ ra (OutTime)
+    if (patch.outTime !== undefined) {
+      const trimmedOut = patch.outTime.trim();
+      // Nếu chọn giờ ra là 8 giờ (08:00) -> ca đêm có tăng ca 3 tiếng
+      if (trimmedOut === '08:00' || trimmedOut === '08:0' || trimmedOut === '8:00') {
+        nextShift = 'NIGHT';
+        if (!nextInTime || nextInTime === '08:00' || nextInTime.startsWith('08')) {
+          nextInTime = '20:00';
+        }
+        nextOutTime = '08:00';
+      } else if (trimmedOut === '20:00' || trimmedOut === '20:0') {
+        // Điền vào giờ ra là 20 giờ -> ca ngày có tăng ca 3 tiếng
+        nextShift = 'DAY';
+        if (!nextInTime || nextInTime === '20:00' || nextInTime.startsWith('20')) {
+          nextInTime = '08:00';
+        }
+        nextOutTime = '20:00';
+      } else if (trimmedOut === '17:00' || trimmedOut === '17:0') {
+        // Khung giờ ca ngày từ 8 giờ đến 17 giờ -> ca ngày chuẩn 8h
+        nextShift = 'DAY';
+        if (!nextInTime || nextInTime === '20:00' || nextInTime.startsWith('20')) {
+          nextInTime = '08:00';
+        }
+        nextOutTime = '17:00';
+      } else if (trimmedOut === '05:00' || trimmedOut === '05:0' || trimmedOut === '5:00') {
+        // Khung ca đêm chuẩn 8h
+        nextShift = 'NIGHT';
+        if (!nextInTime || nextInTime === '08:00' || nextInTime.startsWith('08')) {
+          nextInTime = '20:00';
+        }
+        nextOutTime = '05:00';
+      }
+    }
+
+    // 3. Tự động đồng bộ ca khi nhập giờ vào (InTime)
+    if (patch.inTime !== undefined) {
+      const trimmedIn = patch.inTime.trim();
+      if (
+        trimmedIn === '20:00' ||
+        trimmedIn.startsWith('20:') ||
+        trimmedIn.startsWith('21:') ||
+        trimmedIn.startsWith('19:')
+      ) {
+        nextShift = 'NIGHT';
+        if (nextOutTime === '17:00') {
+          nextOutTime = '05:00';
+        }
+      } else if (
+        trimmedIn === '08:00' ||
+        trimmedIn.startsWith('08:') ||
+        trimmedIn.startsWith('07:') ||
+        trimmedIn.startsWith('09:')
+      ) {
+        nextShift = 'DAY';
+        if (nextOutTime === '05:00') {
+          nextOutTime = '17:00';
+        }
+      }
+    }
+
+    const isHol =
+      patch.isHoliday !== undefined
+        ? Boolean(patch.isHoliday)
+        : Boolean(editingCell.entry.isHoliday);
+    const isSun = editingCell.isSunday;
+
+    const calc = calculateMatrixDayHoursFromTimes(
+      nextInTime,
+      nextOutTime,
+      nextShift,
+      isSun,
+      isHol
+    );
+
+    setEditingCell({
+      ...editingCell,
+      entry: {
+        ...editingCell.entry,
+        ...patch,
+        inTime: nextInTime,
+        outTime: nextOutTime,
+        shift: nextShift,
+        regularHours: calc.regularHours,
+        otDayHours: calc.otDayHours,
+        otNightHours: calc.otNightHours,
+        otSundayHours: calc.otSundayHours,
+        otSundayNightHours: calc.otSundayNightHours,
+        otHolidayHours: calc.otHolidayHours,
+        otHolidayNightHours: calc.otHolidayNightHours,
+        status:
+          patch.status !== undefined
+            ? patch.status
+            : editingCell.entry.status &&
+              editingCell.entry.status !== 'Đúng giờ' &&
+              editingCell.entry.status !== 'Đi muộn' &&
+              editingCell.entry.status !== 'Về sớm'
+            ? editingCell.entry.status
+            : calc.suggestedStatus,
       },
     });
   };
@@ -2396,12 +2548,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   <input
                     type="time"
                     value={editingCell.entry.inTime || ''}
-                    onChange={(e) =>
-                      setEditingCell({
-                        ...editingCell,
-                        entry: { ...editingCell.entry, inTime: e.target.value },
-                      })
-                    }
+                    onChange={(e) => handleTimeOrShiftChange({ inTime: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono text-sm focus:border-cyan-500 focus:outline-hidden"
                   />
                 </div>
@@ -2410,12 +2557,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   <input
                     type="time"
                     value={editingCell.entry.outTime || ''}
-                    onChange={(e) =>
-                      setEditingCell({
-                        ...editingCell,
-                        entry: { ...editingCell.entry, outTime: e.target.value },
-                      })
-                    }
+                    onChange={(e) => handleTimeOrShiftChange({ outTime: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-mono text-sm focus:border-cyan-500 focus:outline-hidden"
                   />
                 </div>
@@ -2426,17 +2568,24 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">Ca Làm Việc</label>
                   <select
-                    value={editingCell.entry.shift || editingCell.staff.shift}
-                    onChange={(e) =>
-                      setEditingCell({
-                        ...editingCell,
-                        entry: { ...editingCell.entry, shift: e.target.value as 'DAY' | 'NIGHT' },
-                      })
+                    value={
+                      (editingCell.entry.shift || editingCell.staff.shift) === 'NIGHT'
+                        ? editingCell.entry.outTime === '05:00' && (editingCell.entry.otNightHours || 0) === 0
+                          ? 'NIGHT_NORMAL'
+                          : 'NIGHT_OT'
+                        : editingCell.entry.outTime === '20:00' || (editingCell.entry.otDayHours || 0) > 0
+                        ? 'DAY_OT'
+                        : 'DAY_NORMAL'
                     }
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200"
+                    onChange={(e) =>
+                      handleTimeOrShiftChange({ presetKey: e.target.value })
+                    }
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-semibold focus:border-cyan-500 focus:outline-hidden"
                   >
-                    <option value="DAY">Ca Ngày (08:00 - 20:00)</option>
-                    <option value="NIGHT">Ca Đêm (20:00 - 08:00)</option>
+                    <option value="DAY_NORMAL">Ca Ngày (08:00 - 17:00)</option>
+                    <option value="DAY_OT">Ca Ngày (08:00 - 20:00) [+3h TC Ngày]</option>
+                    <option value="NIGHT_NORMAL">Ca Đêm (20:00 - 05:00) [Chuẩn 8h]</option>
+                    <option value="NIGHT_OT">Ca Đêm (20:00 - 08:00)</option>
                   </select>
                 </div>
                 <div>
@@ -2591,80 +2740,49 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   <button
                     type="button"
                     onClick={() =>
-                      setEditingCell({
-                        ...editingCell,
-                        entry: {
-                          ...editingCell.entry,
-                          isHoliday: false,
-                          inTime: '08:00',
-                          outTime: '17:00',
-                          regularHours: 8,
-                          otDayHours: 0,
-                          otNightHours: 0,
-                          otSundayHours: 0,
-                          otSundayNightHours: 0,
-                          otHolidayHours: 0,
-                          otHolidayNightHours: 0,
-                          status: 'Đúng giờ',
-                        },
+                      handleTimeOrShiftChange({
+                        isHoliday: false,
+                        inTime: '08:00',
+                        outTime: '17:00',
+                        shift: 'DAY',
+                        status: 'Đúng giờ',
                       })
                     }
                     className="px-1.5 py-0.5 rounded text-[9px] bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
                   >
-                    Ca chuẩn 8h
+                    Ca chuẩn 8h (08:00 - 17:00)
                   </button>
 
                   <button
                     type="button"
                     onClick={() =>
-                      setEditingCell({
-                        ...editingCell,
-                        entry: {
-                          ...editingCell.entry,
-                          isHoliday: false,
-                          inTime: '08:00',
-                          outTime: '20:00',
-                          regularHours: 8,
-                          otDayHours: 3,
-                          otNightHours: 0,
-                          otSundayHours: 0,
-                          otSundayNightHours: 0,
-                          otHolidayHours: 0,
-                          otHolidayNightHours: 0,
-                          status: 'Đúng giờ',
-                        },
+                      handleTimeOrShiftChange({
+                        isHoliday: false,
+                        inTime: '08:00',
+                        outTime: '20:00',
+                        shift: 'DAY',
+                        status: 'Đúng giờ',
                       })
                     }
                     className="px-1.5 py-0.5 rounded text-[9px] bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800/40 cursor-pointer"
                   >
-                    +3h TC ngày
+                    +3h TC ngày (08:00 - 20:00)
                   </button>
 
                   <button
                     type="button"
                     onClick={() =>
-                      setEditingCell({
-                        ...editingCell,
-                        entry: {
-                          ...editingCell.entry,
-                          isHoliday: false,
-                          shift: 'NIGHT',
-                          inTime: '20:00',
-                          outTime: '08:00',
-                          regularHours: 8,
-                          otDayHours: 0,
-                          otNightHours: 3,
-                          otSundayHours: 0,
-                          otSundayNightHours: 0,
-                          otHolidayHours: 0,
-                          otHolidayNightHours: 0,
-                          status: 'Đúng giờ',
-                        },
+                      handleTimeOrShiftChange({
+                        isHoliday: false,
+                        inTime: '20:00',
+                        outTime: '08:00',
+                        shift: 'NIGHT',
+                        status: 'Đúng giờ',
                       })
                     }
                     className="px-1.5 py-0.5 rounded text-[9px] bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-800/40 cursor-pointer"
                   >
-                    +3h TC đêm
+                    +3h TC đêm (20:00 - 08:00)
                   </button>
 
                   <button
