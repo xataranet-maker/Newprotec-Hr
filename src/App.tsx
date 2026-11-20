@@ -813,6 +813,7 @@ export default function App() {
             announcements={announcements}
             onNavigate={handleNavigate}
             onAddPlan={(p) => setProductionPlans([p, ...productionPlans])}
+            onViewProfile={setViewingProfileStaff}
             currentUser={currentUser}
           />
         );

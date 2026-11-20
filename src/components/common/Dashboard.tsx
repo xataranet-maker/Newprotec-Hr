@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   StaffRecord,
   AttendanceRecord,
@@ -7,8 +7,17 @@ import {
   UserAccount,
   LeaveRegistrationRecord,
   AttendanceCorrectionRequest,
+  MachineSwipeRecord,
 } from '../../types';
-import { getEmployeeProfileMatrixData } from '../../lib/matrixTimekeeping';
+import {
+  getEmployeeProfileMatrixData,
+  MATRIX_UPDATED_EVENT,
+  parseBackupDateToIso,
+} from '../../lib/matrixTimekeeping';
+import {
+  buildComparisonRowForEmployeeDay,
+  getMachineSwipeStorageKey,
+} from '../hr/HRTimekeeping';
 import {
   Factory,
   Users,
@@ -43,6 +52,7 @@ interface DashboardProps {
   announcements: HRAnnouncement[];
   onNavigate: (id: string) => void;
   onAddPlan: (p: any) => void;
+  onViewProfile?: (staff: StaffRecord) => void;
   currentUser: UserAccount;
 }
 
@@ -56,6 +66,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   announcements,
   onNavigate,
   onAddPlan,
+  onViewProfile,
   currentUser,
 }) => {
   const now = new Date();
@@ -65,14 +76,81 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [targetDept, setTargetDept] = useState('Multi Auto');
   const [model, setModel] = useState('');
   const [content, setContent] = useState('');
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [highOtMode, setHighOtMode] = useState<'ABOVE_AVG' | 'ALL_POSITIVE'>('ALL_POSITIVE');
+  const [lowOtOnlyWorked, setLowOtOnlyWorked] = useState<boolean>(true);
+
+  useEffect(() => {
+    const onUpdate = () => setRefreshTick((t) => t + 1);
+    window.addEventListener(MATRIX_UPDATED_EVENT, onUpdate);
+    window.addEventListener('storage', onUpdate);
+    return () => {
+      window.removeEventListener(MATRIX_UPDATED_EVENT, onUpdate);
+      window.removeEventListener('storage', onUpdate);
+    };
+  }, []);
 
   // Manpower stats
   const totalStaffCount = allStaffData.length;
   const dayShiftCount = allStaffData.filter((s) => (s.shift || 'DAY') === 'DAY').length;
   const nightShiftCount = allStaffData.filter((s) => s.shift === 'NIGHT').length;
 
-  // Compute attendance, OT, leave, and missing swipes per employee for selected month
+  // Compute attendance, OT, leave, and unexplained missing swipes per employee for selected month
   const staffAnalytics = useMemo(() => {
+    const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
+    let swipeRecords: Record<string, MachineSwipeRecord> = {};
+    try {
+      const savedSwipes = localStorage.getItem(swipeStorageKey);
+      if (savedSwipes) {
+        swipeRecords = JSON.parse(savedSwipes) || {};
+      }
+    } catch {
+      swipeRecords = {};
+    }
+
+    const hasAnyMachineSwipesInMonth = Object.keys(swipeRecords).length > 0;
+    const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+    const todayNow = new Date();
+    const isFutureMonth =
+      selectedYear > todayNow.getFullYear() ||
+      (selectedYear === todayNow.getFullYear() && selectedMonth > todayNow.getMonth() + 1);
+    const isCurrentMonth =
+      selectedYear === todayNow.getFullYear() && selectedMonth === todayNow.getMonth() + 1;
+    const maxCheckDay = isFutureMonth
+      ? 0
+      : isCurrentMonth
+      ? todayNow.getDate()
+      : daysInMonth;
+
+    // Group abnormal attendance requests (NPT-FM-008) by normalized employeeId & ISO date
+    const requestCoverageByEmp = new Map<
+      string,
+      Map<string, { inCovered: boolean; outCovered: boolean }>
+    >();
+
+    attendanceRequests.forEach((req) => {
+      const empKey = (req.employeeId || '').trim().toLowerCase();
+      if (!empKey) return;
+      const parsedDate = parseBackupDateToIso(req.date);
+      const dateIso = parsedDate ? parsedDate.iso : (req.date || '').trim();
+      if (!dateIso) return;
+
+      let empMap = requestCoverageByEmp.get(empKey);
+      if (!empMap) {
+        empMap = new Map();
+        requestCoverageByEmp.set(empKey, empMap);
+      }
+      const prev = empMap.get(dateIso) || { inCovered: false, outCovered: false };
+      const hasExplicitChecks =
+        req.checkInChecked === true || req.checkOutChecked === true;
+      const coversIn = hasExplicitChecks ? Boolean(req.checkInChecked) : true;
+      const coversOut = hasExplicitChecks ? Boolean(req.checkOutChecked) : true;
+      empMap.set(dateIso, {
+        inCovered: prev.inCovered || coversIn,
+        outCovered: prev.outCovered || coversOut,
+      });
+    });
+
     const map = new Map<
       string,
       {
@@ -80,12 +158,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
         totalOt: number;
         totalLeaveDays: number;
         missingSwipeCount: number;
+        explainedSwipeCount: number;
+        missingDetails: Array<{ day: number; label: string }>;
         workedDays: number;
         isWorking: boolean;
+        isResigned: boolean;
       }
     >();
 
+    const monthPrefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
+
     allStaffData.forEach((staff) => {
+      const normEmpId = staff.employeeId.trim().toLowerCase();
       const dept = staff.department || 'MULTI';
       const matrixData = getEmployeeProfileMatrixData(
         staff.employeeId,
@@ -97,83 +181,195 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       let staffOt = 0;
       let staffWorked = 0;
-      let staffMissing = 0;
+      let matrixLeaveDays = 0;
+      let unexplainedMissingSwipes = 0;
+      let explainedMissingSwipes = 0;
+      const missingDetails: Array<{ day: number; label: string }> = [];
 
+      const empReqMap = requestCoverageByEmp.get(normEmpId);
       const daysMap = matrixData.days || {};
-      Object.values(daysMap).forEach((entry: any) => {
-        const ot =
-          (entry.otDayHours || 0) +
-          (entry.otNightHours || 0) +
-          (entry.otSundayHours || 0) +
-          (entry.otSundayNightHours || 0) +
-          (entry.otHolidayHours || 0) +
-          (entry.otHolidayNightHours || 0);
-        staffOt += ot;
 
-        if (entry.regularHours > 0 || ot > 0) {
-          staffWorked += 1;
+      for (let day = 1; day <= daysInMonth; day++) {
+        const entry = daysMap[day];
+        if (entry) {
+          const ot =
+            (entry.otDayHours || 0) +
+            (entry.otNightHours || 0) +
+            (entry.otSundayHours || 0) +
+            (entry.otSundayNightHours || 0) +
+            (entry.otHolidayHours || 0) +
+            (entry.otHolidayNightHours || 0);
+          staffOt += ot;
+
+          if ((entry.regularHours || 0) > 0 || ot > 0) {
+            staffWorked += 1;
+          }
+
+          if (
+            entry.status === 'Nghỉ phép' ||
+            entry.status === 'Nghỉ ốm' ||
+            entry.status === 'Nghỉ cưới' ||
+            entry.status === 'Nghỉ tang' ||
+            entry.status === 'FAMILY' ||
+            entry.status === 'Vắng mặt' ||
+            entry.status === 'Nghỉ KL'
+          ) {
+            matrixLeaveDays += 1;
+          } else if ((entry.status as string) === 'Nghỉ nửa phép') {
+            matrixLeaveDays += 0.5;
+          }
         }
-        if (!entry.inTime || !entry.outTime || entry.status === 'Thiếu giờ' || entry.status === 'Vắng mặt') {
-          staffMissing += 1;
+
+        const swipeRec = swipeRecords[`${normEmpId}_${day}`];
+        if (day <= maxCheckDay || Boolean(swipeRec)) {
+          const row = buildComparisonRowForEmployeeDay({
+            staff,
+            day,
+            selectedYear,
+            selectedMonth,
+            bcEntry: entry,
+            holidayMap: matrixData.holidays,
+            swipeRecord: swipeRec,
+          });
+
+          if (row.hasBcWork) {
+            let rawMissingIn = false;
+            let rawMissingOut = false;
+
+            if (hasAnyMachineSwipesInMonth) {
+              rawMissingIn =
+                row.discrepancyType === 'MISSING_IN' || row.discrepancyType === 'MISSING_BOTH';
+              rawMissingOut =
+                row.discrepancyType === 'MISSING_OUT' || row.discrepancyType === 'MISSING_BOTH';
+            } else {
+              // Fallback when no machine swipe log uploaded: count explicit incomplete BC punch days
+              const hasOneSideOnly = Boolean(row.bcInTime) !== Boolean(row.bcOutTime);
+              if (hasOneSideOnly || row.bcStatus === 'Thiếu giờ') {
+                rawMissingIn = !row.bcInTime;
+                rawMissingOut = !row.bcOutTime;
+              }
+            }
+
+            if (rawMissingIn || rawMissingOut) {
+              const reqCov = empReqMap?.get(row.dateIso);
+              const unexpIn = rawMissingIn && !reqCov?.inCovered;
+              const unexpOut = rawMissingOut && !reqCov?.outCovered;
+
+              const expCount =
+                (rawMissingIn && reqCov?.inCovered ? 1 : 0) +
+                (rawMissingOut && reqCov?.outCovered ? 1 : 0);
+              explainedMissingSwipes += expCount;
+
+              if (unexpIn && unexpOut) {
+                unexplainedMissingSwipes += 2;
+                missingDetails.push({ day, label: `${day}/${selectedMonth} (thiếu vào & ra)` });
+              } else if (unexpIn) {
+                unexplainedMissingSwipes += 1;
+                missingDetails.push({ day, label: `${day}/${selectedMonth} (thiếu vào)` });
+              } else if (unexpOut) {
+                unexplainedMissingSwipes += 1;
+                missingDetails.push({ day, label: `${day}/${selectedMonth} (thiếu ra)` });
+              }
+            }
+          }
         }
-      });
+      }
 
       // Count leaves from leaveRecords for this employee in selectedMonth
       const empLeaves = leaveRecords.filter((r) => {
         const matchEmp =
-          r.employeeId.trim().toLowerCase() === staff.employeeId.trim().toLowerCase() ||
+          r.employeeId.trim().toLowerCase() === normEmpId ||
           r.fullName.trim().toLowerCase() === staff.fullName.trim().toLowerCase();
         if (!matchEmp) return false;
-        // check month
-        if (r.fromDate && r.fromDate.startsWith(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`)) {
-          return true;
-        }
-        return false;
+        const parsedFrom = parseBackupDateToIso(r.fromDate);
+        const fromIso = parsedFrom ? parsedFrom.iso : r.fromDate || '';
+        return fromIso.startsWith(monthPrefix);
       });
 
-      const totalLeaveDays = empLeaves.reduce((sum, r) => sum + (r.days || 1), 0);
-
-      // Count correction requests (NPT-FM-008) for missing swipe
-      const empRequests = attendanceRequests.filter((r) => {
-        const matchEmp = r.employeeId.trim().toLowerCase() === staff.employeeId.trim().toLowerCase();
-        if (!matchEmp) return false;
-        return r.date && r.date.includes(`/${String(selectedMonth).padStart(2, '0')}/${selectedYear}`) || r.date.startsWith(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`);
-      });
+      const leaveFromRecords = empLeaves.reduce((sum, r) => sum + (Number(r.days) || 1), 0);
+      const isResigned =
+        staff.attendance === 'Đã nghỉ việc' || Boolean(staff.isLocked);
 
       map.set(staff.employeeId, {
         staff,
         totalOt: Math.round(staffOt * 10) / 10,
-        totalLeaveDays: Math.max(totalLeaveDays, staffMissing > 5 ? 2 : 0),
-        missingSwipeCount: Math.max(empRequests.length, staffMissing > 3 ? 1 : 0),
+        totalLeaveDays: Math.max(leaveFromRecords, matrixLeaveDays),
+        missingSwipeCount: unexplainedMissingSwipes,
+        explainedSwipeCount: explainedMissingSwipes,
+        missingDetails,
         workedDays: staffWorked,
-        isWorking: staffWorked > 0 || staff.attendance === 'Đúng giờ' || staff.attendance === 'PRESENT',
+        isWorking:
+          !isResigned &&
+          (staffWorked > 0 || staff.attendance === 'Đúng giờ' || staff.attendance === 'PRESENT'),
+        isResigned,
       });
     });
 
     return Array.from(map.values());
-  }, [allStaffData, selectedYear, selectedMonth, leaveRecords, attendanceRequests]);
+  }, [allStaffData, selectedYear, selectedMonth, leaveRecords, attendanceRequests, refreshTick]);
 
   const presentCount = staffAnalytics.filter((s) => s.workedDays > 0 || s.isWorking).length;
   const leaveCount = totalStaffCount - presentCount;
 
-  // Rankings
-  const sortedByOtDesc = [...staffAnalytics].sort((a, b) => b.totalOt - a.totalOt);
-  const maxOtStaff = sortedByOtDesc[0] || null;
-
-  // Min OT among staff who worked
-  const workingStaff = staffAnalytics.filter((s) => s.workedDays > 0);
-  const sortedByOtAsc = [...(workingStaff.length > 0 ? workingStaff : staffAnalytics)].sort(
-    (a, b) => a.totalOt - b.totalOt
+  // Rankings & Lists
+  const activeStaffAnalytics = useMemo(
+    () => staffAnalytics.filter((s) => !s.isResigned),
+    [staffAnalytics]
   );
-  const minOtStaff = sortedByOtAsc[0] || null;
+
+  const positiveOtList = useMemo(
+    () =>
+      activeStaffAnalytics
+        .filter((s) => s.totalOt > 0)
+        .sort((a, b) => b.totalOt - a.totalOt),
+    [activeStaffAnalytics]
+  );
+
+  const avgPositiveOt = useMemo(() => {
+    if (positiveOtList.length === 0) return 0;
+    const sum = positiveOtList.reduce((acc, s) => acc + s.totalOt, 0);
+    return Math.round((sum / positiveOtList.length) * 10) / 10;
+  }, [positiveOtList]);
+
+  const highOtList = useMemo(() => {
+    if (highOtMode === 'ALL_POSITIVE') return positiveOtList;
+    return positiveOtList.filter((s) => s.totalOt >= avgPositiveOt);
+  }, [positiveOtList, highOtMode, avgPositiveOt]);
+
+  const lowOtList = useMemo(() => {
+    const base = lowOtOnlyWorked
+      ? activeStaffAnalytics.filter((s) => s.workedDays > 0)
+      : activeStaffAnalytics;
+    const threshold = avgPositiveOt > 0 ? avgPositiveOt : Infinity;
+    const belowThreshold = base.filter((s) => s.totalOt < threshold);
+    const list = belowThreshold.length > 0 ? belowThreshold : base;
+    return [...list].sort((a, b) => a.totalOt - b.totalOt || b.workedDays - a.workedDays);
+  }, [activeStaffAnalytics, lowOtOnlyWorked, avgPositiveOt]);
+
+  const missingSwipeList = useMemo(
+    () =>
+      staffAnalytics
+        .filter((s) => s.missingSwipeCount > 0)
+        .sort((a, b) => b.missingSwipeCount - a.missingSwipeCount),
+    [staffAnalytics]
+  );
+
+  const totalUnexplainedSwipes = useMemo(
+    () => missingSwipeList.reduce((sum, s) => sum + s.missingSwipeCount, 0),
+    [missingSwipeList]
+  );
+
+  const maxOtStaff = positiveOtList[0] || null;
+  const minOtStaff = lowOtList[0] || null;
 
   // Most leave days
-  const sortedByLeaveDesc = [...staffAnalytics].sort((a, b) => b.totalLeaveDays - a.totalLeaveDays);
+  const sortedByLeaveDesc = [...staffAnalytics]
+    .filter((s) => s.totalLeaveDays > 0)
+    .sort((a, b) => b.totalLeaveDays - a.totalLeaveDays);
   const maxLeaveStaff = sortedByLeaveDesc[0] || null;
 
-  // Most missing swipes
-  const sortedByMissingDesc = [...staffAnalytics].sort((a, b) => b.missingSwipeCount - a.missingSwipeCount);
-  const maxMissingStaff = sortedByMissingDesc[0] || null;
+  // Most unexplained missing swipes (excluding days with NPT-FM-008)
+  const maxMissingStaff = missingSwipeList[0] || null;
 
   const handleCreatePlan = (e: React.FormEvent) => {
     e.preventDefault();
@@ -501,19 +697,273 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="space-y-2 pt-1">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-white text-sm">{maxMissingStaff.staff.fullName}</span>
-                <span className="font-mono text-purple-400 font-bold text-sm">{maxMissingStaff.missingSwipeCount} lần</span>
+                <span className="font-mono text-purple-400 font-bold text-sm">
+                  {maxMissingStaff.missingSwipeCount} lần
+                </span>
               </div>
               <div className="text-[11px] text-slate-400 flex justify-between font-mono">
                 <span>Mã NV: {maxMissingStaff.staff.employeeId}</span>
                 <span>Bộ phận: {maxMissingStaff.staff.department || 'MULTI'}</span>
               </div>
               <p className="text-[10px] text-slate-400 italic pt-1">
-                Nhân viên có số lần quên quẹt thẻ / phát sinh phiếu giải trình NPT-FM-008 nhiều nhất.
+                Số lần quên quẹt vào/ra chưa làm đơn xác nhận bất thường NPT-FM-008 ({missingSwipeList.length} người quên quẹt).
               </p>
             </div>
           ) : (
-            <div className="py-6 text-center text-slate-500">Không có dữ liệu quên quẹt thẻ</div>
+            <div className="py-6 text-center text-slate-500">
+              Không có nhân viên quên quẹt thẻ chưa giải trình
+            </div>
           )}
+        </div>
+      </div>
+
+      {/* 2B. DANH SÁCH THỐNG KÊ CHI TIẾT: TC NHIỀU, TC ÍT, QUÊN QUẸT THẺ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Danh sách Tăng Ca Nhiều */}
+        <div className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 flex flex-col space-y-3">
+          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="p-1.5 rounded-lg bg-cyan-950 text-cyan-400 border border-cyan-500/30 shrink-0">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-bold text-white uppercase tracking-wider text-xs truncate">
+                  Danh Sách Tăng Ca Nhiều
+                </h2>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  {highOtList.length} người {avgPositiveOt > 0 ? `· TB nhóm TC: ${avgPositiveOt}h` : ''}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-[10px] shrink-0">
+              <button
+                type="button"
+                onClick={() => setHighOtMode('ALL_POSITIVE')}
+                className={`px-2 py-1 rounded font-semibold cursor-pointer transition-colors ${
+                  highOtMode === 'ALL_POSITIVE'
+                    ? 'bg-cyan-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Tất cả ({positiveOtList.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setHighOtMode('ABOVE_AVG')}
+                className={`px-2 py-1 rounded font-semibold cursor-pointer transition-colors ${
+                  highOtMode === 'ABOVE_AVG'
+                    ? 'bg-cyan-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                ≥ TB
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1.5 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+            {highOtList.length === 0 ? (
+              <div className="py-10 text-center text-slate-500">
+                Chưa có nhân viên phát sinh tăng ca trong tháng {selectedMonth}/{selectedYear}.
+              </div>
+            ) : (
+              highOtList.map((item, idx) => (
+                <div
+                  key={item.staff.employeeId}
+                  onClick={() => onViewProfile?.(item.staff)}
+                  className={`p-2.5 rounded-lg bg-slate-950/80 border border-slate-800/80 hover:border-cyan-500/40 flex items-center justify-between gap-2 transition-colors ${
+                    onViewProfile ? 'cursor-pointer' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span
+                      className={`w-6 h-6 rounded-md flex items-center justify-center font-mono font-bold text-[10px] shrink-0 ${
+                        idx === 0
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                          : 'bg-slate-900 text-slate-400 border border-slate-800'
+                      }`}
+                    >
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-100 truncate">{item.staff.fullName}</div>
+                      <div className="text-[10px] text-slate-400 font-mono truncate">
+                        {item.staff.employeeId} · {item.staff.department || 'MULTI'} · {item.workedDays} công
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono font-bold text-cyan-400 text-xs">
+                      +{item.totalOt}h
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Danh sách Tăng Ca Ít */}
+        <div className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 flex flex-col space-y-3">
+          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="p-1.5 rounded-lg bg-amber-950 text-amber-400 border border-amber-500/30 shrink-0">
+                <TrendingDown className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-bold text-white uppercase tracking-wider text-xs truncate">
+                  Danh Sách Tăng Ca Ít
+                </h2>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  {lowOtList.length} người {avgPositiveOt > 0 ? `(< ${avgPositiveOt}h)` : ''}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-[10px] shrink-0">
+              <button
+                type="button"
+                onClick={() => setLowOtOnlyWorked(true)}
+                className={`px-2 py-1 rounded font-semibold cursor-pointer transition-colors ${
+                  lowOtOnlyWorked
+                    ? 'bg-amber-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Có đi làm
+              </button>
+              <button
+                type="button"
+                onClick={() => setLowOtOnlyWorked(false)}
+                className={`px-2 py-1 rounded font-semibold cursor-pointer transition-colors ${
+                  !lowOtOnlyWorked
+                    ? 'bg-amber-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Tất cả
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1.5 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+            {lowOtList.length === 0 ? (
+              <div className="py-10 text-center text-slate-500">
+                Không có nhân viên trong danh sách tăng ca ít.
+              </div>
+            ) : (
+              lowOtList.map((item, idx) => (
+                <div
+                  key={item.staff.employeeId}
+                  onClick={() => onViewProfile?.(item.staff)}
+                  className={`p-2.5 rounded-lg bg-slate-950/80 border border-slate-800/80 hover:border-amber-500/40 flex items-center justify-between gap-2 transition-colors ${
+                    onViewProfile ? 'cursor-pointer' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span
+                      className={`w-6 h-6 rounded-md flex items-center justify-center font-mono font-bold text-[10px] shrink-0 ${
+                        idx === 0
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          : 'bg-slate-900 text-slate-400 border border-slate-800'
+                      }`}
+                    >
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-100 truncate">{item.staff.fullName}</div>
+                      <div className="text-[10px] text-slate-400 font-mono truncate">
+                        {item.staff.employeeId} · {item.staff.department || 'MULTI'} · {item.workedDays} công
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono font-bold text-amber-400 text-xs">
+                      {item.totalOt}h
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Danh sách Quên Quẹt Thẻ (Chưa làm đơn NPT-FM-008) */}
+        <div className="p-4 rounded-xl bg-[#0a1222] border border-slate-800 flex flex-col space-y-3">
+          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="p-1.5 rounded-lg bg-purple-950 text-purple-400 border border-purple-500/30 shrink-0">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-bold text-white uppercase tracking-wider text-xs truncate">
+                  Danh Sách Quên Quẹt Thẻ
+                </h2>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  {missingSwipeList.length} người · Tổng {totalUnexplainedSwipes} lần chưa giải trình
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('timekeeping')}
+              className="px-2 py-1 rounded-lg bg-purple-950/60 hover:bg-purple-900/80 border border-purple-500/40 text-purple-300 text-[10px] font-semibold cursor-pointer shrink-0 transition-colors"
+            >
+              Đối soát MQT
+            </button>
+          </div>
+
+          <div className="space-y-1.5 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+            {missingSwipeList.length === 0 ? (
+              <div className="py-10 text-center text-slate-500">
+                Không có nhân viên quên quẹt thẻ chưa làm đơn xác nhận bất thường trong tháng {selectedMonth}/{selectedYear}.
+              </div>
+            ) : (
+              missingSwipeList.map((item, idx) => (
+                <div
+                  key={item.staff.employeeId}
+                  onClick={() => onViewProfile?.(item.staff)}
+                  className={`p-2.5 rounded-lg bg-slate-950/80 border border-slate-800/80 hover:border-purple-500/40 flex items-start justify-between gap-2 transition-colors ${
+                    onViewProfile ? 'cursor-pointer' : ''
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <span
+                      className={`w-6 h-6 mt-0.5 rounded-md flex items-center justify-center font-mono font-bold text-[10px] shrink-0 ${
+                        idx === 0
+                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                          : 'bg-slate-900 text-slate-400 border border-slate-800'
+                      }`}
+                    >
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="font-bold text-slate-100 truncate">{item.staff.fullName}</div>
+                      <div className="text-[10px] text-slate-400 font-mono truncate">
+                        {item.staff.employeeId} · {item.staff.department || 'MULTI'}
+                        {item.explainedSwipeCount > 0 && (
+                          <span className="text-emerald-400"> · Đã giải trình {item.explainedSwipeCount} lần</span>
+                        )}
+                      </div>
+                      {item.missingDetails.length > 0 && (
+                        <div className="text-[10px] text-purple-300/85 truncate">
+                          Ngày: {item.missingDetails.slice(0, 3).map((d) => d.label).join(', ')}
+                          {item.missingDetails.length > 3 ? ` (+${item.missingDetails.length - 3})` : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="font-mono font-bold text-purple-400 text-xs">
+                      {item.missingSwipeCount} lần
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
 
