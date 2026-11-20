@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserAccount } from '../../types';
 import { 
   Menu, Cloud, RefreshCw, LogOut, 
-  Clock, Shield, ChevronLeft, ChevronRight
+  Clock, Shield, ChevronLeft, ChevronRight, QrCode
 } from 'lucide-react';
 
 interface TopBarProps {
@@ -14,6 +14,7 @@ interface TopBarProps {
   isSyncing: boolean;
   onSync: () => void;
   lastSyncTime: string | null;
+  onOpenQR?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -24,7 +25,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   isSidebarOpen = false,
   isSyncing,
   onSync,
-  lastSyncTime
+  lastSyncTime,
+  onOpenQR
 }) => {
   const [time, setTime] = useState<string>('');
   const [currentShift, setCurrentShift] = useState<'Ca Ngày' | 'Ca Đêm'>('Ca Ngày');
@@ -116,8 +118,20 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Zone 3: User Info & Actions */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 pl-3 border-l border-slate-800">
+      <div className="flex items-center gap-2.5">
+        {onOpenQR && (
+          <button
+            type="button"
+            onClick={onOpenQR}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 hover:text-cyan-200 transition-colors cursor-pointer"
+            title="Hiển thị & tải Mã QR truy cập ứng dụng"
+          >
+            <QrCode className="w-4 h-4 text-cyan-400" />
+            <span className="hidden sm:inline font-semibold">Mã QR App</span>
+          </button>
+        )}
+
+        <div className="flex items-center gap-2 pl-2.5 border-l border-slate-800">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-inner">
             {currentUser?.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
           </div>

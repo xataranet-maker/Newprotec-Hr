@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { UserAccount, StaffRecord, Language } from '../../types';
 import { translations } from '../../data/locales';
-import { Lock, User, Globe, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode } from 'lucide-react';
+import { AppQRModal } from './AppQRModal';
 
 interface LoginProps {
   users: UserAccount[];
@@ -21,6 +22,7 @@ export const Login: React.FC<LoginProps> = ({
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [showQRModal, setShowQRModal] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,32 +107,44 @@ export const Login: React.FC<LoginProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs">
-          <Globe className="w-3.5 h-3.5 text-slate-400 ml-1.5" />
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => onLanguageChange('vi')}
-            className={`px-2 py-0.5 rounded font-medium transition-colors ${
-              language === 'vi' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
-            }`}
+            type="button"
+            onClick={() => setShowQRModal(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 text-xs font-semibold transition-colors cursor-pointer"
+            title="Mở & tải Mã QR của ứng dụng"
           >
-            VI
+            <QrCode className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Mã QR App</span>
           </button>
-          <button
-            onClick={() => onLanguageChange('ko')}
-            className={`px-2 py-0.5 rounded font-medium transition-colors ${
-              language === 'ko' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            한국어
-          </button>
-          <button
-            onClick={() => onLanguageChange('en')}
-            className={`px-2 py-0.5 rounded font-medium transition-colors ${
-              language === 'en' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            EN
-          </button>
+
+          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs">
+            <Globe className="w-3.5 h-3.5 text-slate-400 ml-1.5" />
+            <button
+              onClick={() => onLanguageChange('vi')}
+              className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                language === 'vi' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              VI
+            </button>
+            <button
+              onClick={() => onLanguageChange('ko')}
+              className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                language === 'ko' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              한국어
+            </button>
+            <button
+              onClick={() => onLanguageChange('en')}
+              className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                language === 'en' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              EN
+            </button>
+          </div>
         </div>
       </div>
 
@@ -281,6 +295,8 @@ export const Login: React.FC<LoginProps> = ({
       <div className="text-center text-[11px] text-slate-400 font-mono">
         NEWPROTEC VINA INDUSTRIAL SYSTEM · MES V2.0 PRODUCTION SYSTEM
       </div>
+
+      <AppQRModal isOpen={showQRModal} onClose={() => setShowQRModal(false)} />
     </div>
   );
 };

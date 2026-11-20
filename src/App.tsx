@@ -9,6 +9,7 @@ import { ProductionPlanningHub } from './components/common/ProductionPlanningHub
 import { BackupRestore } from './components/common/BackupRestore';
 import { DepartmentTimekeepingMatrix } from './components/common/DepartmentTimekeepingMatrix';
 import { EmployeeProfile } from './components/hr/EmployeeProfile';
+import { AppQRModal } from './components/common/AppQRModal';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import {
@@ -105,6 +106,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('home');
   const [activeItem, setActiveItem] = useState<string>('dashboard_home');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showAppQR, setShowAppQR] = useState(false);
   const [autoHideMenu, setAutoHideMenu] = useState<boolean>(() => loadFromStorage('app_auto_hide_menu', true));
   const [isMenuPinned, setIsMenuPinned] = useState<boolean>(() => loadFromStorage('app_menu_pinned', false));
   const [language, setLanguage] = useState<Language>(() => loadFromStorage('app_lang', 'vi'));
@@ -952,6 +954,7 @@ export default function App() {
           isSyncing={isSyncing}
           onSync={() => performSync(true)}
           lastSyncTime={lastSyncTime}
+          onOpenQR={() => setShowAppQR(true)}
         />
 
         {/* Horizontal Quick Sub-Nav Ribbon */}
@@ -1026,6 +1029,7 @@ export default function App() {
       })()}
 
       <PWAPrompt />
+      <AppQRModal isOpen={showAppQR} onClose={() => setShowAppQR(false)} />
     </div>
   );
 }
