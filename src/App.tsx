@@ -1036,12 +1036,13 @@ export default function App() {
             }}
             attendanceHistory={attendanceHistory}
             onRestoreAttendance={setAttendanceHistory}
+            leaveRecords={leaveRecords}
+            onRestoreLeaves={setLeaveRecords}
             customData={{
               HR_CONTRACTS: { data: contracts, setter: setContracts },
               HR_PAYROLLS: { data: payrollRecords, setter: setPayrollRecords },
               HR_SLIPS: { data: salarySlipRecords, setter: setSalarySlipRecords },
               HR_SALARY_CONFIGS: { data: salaryConfigs, setter: setSalaryConfigs },
-              HR_LEAVES: { data: leaveRecords, setter: setLeaveRecords },
               HR_ANN_GRP: { data: announcements, setter: setAnnouncements },
               HR_ASSETS: { data: hrAssets, setter: setHrAssets },
               HR_TRAINING: { data: trainingRecords, setter: setTrainingRecords },
