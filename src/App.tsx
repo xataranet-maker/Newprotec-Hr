@@ -10,6 +10,13 @@ import { BackupRestore } from './components/common/BackupRestore';
 import { DepartmentTimekeepingMatrix } from './components/common/DepartmentTimekeepingMatrix';
 import { EmployeeProfile } from './components/hr/EmployeeProfile';
 import { AppQRModal } from './components/common/AppQRModal';
+import { QrCode, ShieldOff, LogIn, Loader2 } from 'lucide-react';
+import {
+  parseStaffQrParamsFromUrl,
+  clearStaffQrParamsFromUrl,
+  isStaffQrEnabled,
+  getStaffQrToken,
+} from './lib/staffQr';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import {
@@ -102,6 +109,10 @@ export default function App() {
   });
 
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+  const [qrRouteParams, setQrRouteParams] = useState<{ employeeId: string; token: string } | null>(() =>
+    parseStaffQrParamsFromUrl()
+  );
+  const [initialSyncDone, setInitialSyncDone] = useState(false);
   const [viewingProfileStaff, setViewingProfileStaff] = useState<StaffRecord | null>(null);
   const [activeTab, setActiveTab] = useState<string>('home');
   const [activeItem, setActiveItem] = useState<string>('dashboard_home');
@@ -228,6 +239,20 @@ export default function App() {
   ]);
 
   const allStaff = useMemo(() => [...staffRecords, ...hrStaff], [staffRecords, hrStaff]);
+
+  const matchedQrStaff = useMemo(() => {
+    if (!qrRouteParams) return null;
+    const normEmp = qrRouteParams.employeeId.trim().toLowerCase();
+    return allStaff.find((s) => s.employeeId.trim().toLowerCase() === normEmp) || null;
+  }, [qrRouteParams, allStaff]);
+
+  const isQrAuthorized = useMemo(() => {
+    if (!qrRouteParams || !matchedQrStaff) return false;
+    return (
+      isStaffQrEnabled(matchedQrStaff) &&
+      getStaffQrToken(matchedQrStaff) === qrRouteParams.token
+    );
+  }, [qrRouteParams, matchedQrStaff]);
 
   const visibleTabs = useMemo(() => {
     return ribbonData
@@ -437,6 +462,7 @@ export default function App() {
       } finally {
         if (!isPush) {
           hasPulledInitial.current = true;
+          setInitialSyncDone(true);
         }
         isSyncingRef.current = false;
         setIsSyncing(false);
@@ -450,10 +476,14 @@ export default function App() {
       isInitialized.current = true;
       performSync(false);
     }
+    const fallbackTimer = window.setTimeout(() => {
+      setInitialSyncDone(true);
+    }, 3500);
+    return () => window.clearTimeout(fallbackTimer);
   }, [performSync]);
 
   useEffect(() => {
-    if (!hasPulledInitial.current || !currentUser) return;
+    if (!hasPulledInitial.current || (!currentUser && !isQrAuthorized)) return;
     if (skipNextAutoPush.current) {
       skipNextAutoPush.current = false;
       return;
@@ -464,7 +494,7 @@ export default function App() {
     }, 2500);
 
     return () => window.clearTimeout(timer);
-  }, [buildCurrentState, currentUser, performSync]);
+  }, [buildCurrentState, currentUser, isQrAuthorized, performSync]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -605,7 +635,129 @@ export default function App() {
     }
   }, []);
 
-  if (!currentUser)
+  if (!currentUser) {
+    if (qrRouteParams) {
+      if (!initialSyncDone && !matchedQrStaff) {
+        return (
+          <div className="min-h-dvh bg-[#020617] text-slate-100 flex items-center justify-center p-4">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 max-w-sm w-full text-center space-y-3 shadow-2xl">
+              <div className="w-12 h-12 mx-auto rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                <Loader2 className="w-6 h-6 animate-spin" />
+              </div>
+              <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+                Đang tải hồ sơ qua Mã QR...
+              </h2>
+              <p className="text-xs text-slate-400">
+                Đang đồng bộ và xác thực quyền truy cập cho mã nhân viên{' '}
+                <span className="font-mono text-cyan-300 font-bold">{qrRouteParams.employeeId}</span>.
+              </p>
+            </div>
+          </div>
+        );
+      }
+
+      if (isQrAuthorized && matchedQrStaff) {
+        const qrUser: UserAccount = {
+          username: matchedQrStaff.employeeId,
+          fullName: matchedQrStaff.fullName,
+          role: 'staff',
+          employeeId: matchedQrStaff.employeeId,
+          department: matchedQrStaff.department || 'MULTI',
+        };
+
+        return (
+          <div className="min-h-dvh bg-[#020617] text-slate-100 flex flex-col">
+            <header className="h-14 bg-slate-950/95 border-b border-slate-800/90 px-4 sm:px-6 flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0">
+                  <QrCode className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-extrabold text-white tracking-wider uppercase truncate">
+                    NEWPROTEC V2.0 · TRUY CẬP NHANH HỒ SƠ QR
+                  </div>
+                  <div className="text-[11px] text-cyan-400 font-mono truncate">
+                    {matchedQrStaff.fullName} · {matchedQrStaff.employeeId}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  clearStaffQrParamsFromUrl();
+                  setQrRouteParams(null);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
+              >
+                <LogIn className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Đăng Nhập Hệ Thống</span>
+              </button>
+            </header>
+
+            <main className="flex-1 overflow-y-auto custom-scrollbar">
+              <EmployeeProfile
+                currentUser={qrUser}
+                staffInfo={matchedQrStaff}
+                allStaff={allStaff}
+                contracts={contracts}
+                salarySlips={salarySlipRecords}
+                payrollRecords={payrollRecords}
+                overtimeRecords={overtimeRecords}
+                announcements={announcements}
+                timekeepingRecords={timekeepingRecords}
+                attendanceRequests={attendanceRequests}
+                onRequestCorrection={(req) => setAttendanceRequests([req, ...attendanceRequests])}
+                attendanceConfirmations={attendanceConfirmations}
+                onUpdateAttendanceConfirmation={setAttendanceConfirmations}
+                salaryConfigs={salaryConfigs}
+                leaveRecords={leaveRecords}
+                onAddLeaveRecord={handleAddLeaveRecord}
+                onDeleteLeaveRecord={handleDeleteLeaveRecord}
+                onUpdateStaffInfo={handleUpdateStaffInfo}
+                onUpdateAvatar={(newUrl) => handleUpdateStaffInfo({ ...matchedQrStaff, avatarUrl: newUrl })}
+                viewerHasSalaryAccess={canUserAccessSalarySlip(qrUser, salarySecurity)}
+                isQrDirectAccess={true}
+                canManageQr={false}
+              />
+            </main>
+            <PWAPrompt />
+          </div>
+        );
+      }
+
+      const deniedReason = !matchedQrStaff
+        ? `Không tìm thấy hồ sơ nhân viên với mã "${qrRouteParams.employeeId}".`
+        : !isStaffQrEnabled(matchedQrStaff)
+        ? `Quyền truy cập nhanh qua Mã QR cho nhân viên ${matchedQrStaff.fullName} (${matchedQrStaff.employeeId}) hiện đang bị TẮT bởi quản trị viên HC & NS.`
+        : `Mã QR của nhân viên ${matchedQrStaff.fullName} (${matchedQrStaff.employeeId}) đã hết hạn hoặc đã bị thu hồi để cấp lại mã mới.`;
+
+      return (
+        <div className="min-h-dvh bg-[#020617] text-slate-100 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-800/70 rounded-2xl p-6 max-w-md w-full text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 mx-auto rounded-2xl bg-rose-950 border border-rose-700/70 flex items-center justify-center text-rose-400">
+              <ShieldOff className="w-6 h-6" />
+            </div>
+            <div className="space-y-1.5">
+              <h2 className="text-base font-bold text-white">Không Thể Truy Cập Hồ Sơ Qua Mã QR</h2>
+              <p className="text-xs text-slate-300 leading-relaxed">{deniedReason}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                clearStaffQrParamsFromUrl();
+                setQrRouteParams(null);
+              }}
+              className="w-full py-2.5 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+            >
+              <LogIn className="w-4 h-4" />
+              <span>Quay Về Trang Đăng Nhập</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <Login
         users={userAccounts}
@@ -615,6 +767,7 @@ export default function App() {
         onLanguageChange={setLanguage}
       />
     );
+  }
 
   const renderContent = () => {
     const id = activeItem.toLowerCase();
@@ -1024,6 +1177,7 @@ export default function App() {
             onUpdateStaffInfo={handleUpdateStaffInfo}
             onUpdateAvatar={(newUrl) => handleUpdateStaffInfo({ ...resolvedStaff, avatarUrl: newUrl })}
             viewerHasSalaryAccess={canUserAccessSalarySlip(currentUser, salarySecurity)}
+            canManageQr={currentUser.role !== 'staff'}
           />
         );
       })()}

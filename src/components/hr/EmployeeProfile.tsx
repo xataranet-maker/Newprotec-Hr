@@ -79,7 +79,17 @@ import {
   Calendar,
   Check,
   RotateCcw,
+  QrCode,
+  ShieldCheck,
+  ShieldOff,
 } from 'lucide-react';
+import {
+  buildStaffQrUrl,
+  generateStaffQrToken,
+  getStaffQrToken,
+  isStaffQrEnabled,
+} from '../../lib/staffQr';
+import { EmployeeQRCodeSvg, EmployeeQRModal } from '../common/EmployeeQRModal';
 
 export interface EmployeeProfileProps {
   currentUser: UserAccount;
@@ -104,6 +114,8 @@ export interface EmployeeProfileProps {
   viewerHasSalaryAccess?: boolean;
   isModal?: boolean;
   onClose?: () => void;
+  isQrDirectAccess?: boolean;
+  canManageQr?: boolean;
 }
 
 type ProfileTab = 'overview' | 'confirm' | 'leave' | 'salary' | 'overtime' | 'contract';
@@ -138,12 +150,15 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   viewerHasSalaryAccess = true,
   isModal = false,
   onClose,
+  isQrDirectAccess = false,
+  canManageQr,
 }) => {
   const now = new Date();
   const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth() + 1);
   const [viewingSlipModal, setViewingSlipModal] = useState<ComputedSalarySlipData | null>(null);
+  const [showQrModal, setShowQrModal] = useState(false);
 
   // Edit info state
   const [isEditingInfo, setIsEditingInfo] = useState(false);
@@ -217,6 +232,31 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     }
     return resolvedEmployeeForLeave;
   }, [staffInfo, allStaff, empId, empName, resolvedEmployeeForLeave]);
+
+  const qrEnabled = isStaffQrEnabled(resolvedStaff);
+  const qrPreviewUrl = useMemo(() => buildStaffQrUrl(resolvedStaff), [resolvedStaff]);
+  const allowManageQr = Boolean(canManageQr ?? (isModal && !isQrDirectAccess));
+
+  const handleToggleMyQrAccess = (st: StaffRecord, enabled: boolean) => {
+    onUpdateStaffInfo({
+      ...st,
+      qrAccessEnabled: enabled,
+      qrAccessToken: getStaffQrToken(st),
+    });
+    showToast(
+      enabled
+        ? `Đã cấp quyền truy cập nhanh qua Mã QR cho ${st.fullName}!`
+        : `Đã tạm khóa quyền truy cập Mã QR của ${st.fullName}!`
+    );
+  };
+
+  const handleRegenerateMyQrToken = (st: StaffRecord) => {
+    onUpdateStaffInfo({
+      ...st,
+      qrAccessToken: generateStaffQrToken(st.employeeId),
+    });
+    showToast(`Đã tạo Mã QR mới cho ${st.fullName} (mã cũ đã bị hủy)!`);
+  };
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -929,6 +969,70 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               <span>SỬA THÔNG TIN</span>
             </button>
           )}
+
+          {/* MÃ QR TRUY CẬP NHANH HỒ SƠ */}
+          <div className="p-3 rounded-xl bg-slate-900/75 border border-slate-800/90 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+                <QrCode className="w-3.5 h-3.5 text-cyan-400" />
+                <span>MÃ QR HỒ SƠ</span>
+              </span>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                  qrEnabled
+                    ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60'
+                    : 'bg-rose-950/60 text-rose-300 border-rose-700/60'
+                }`}
+              >
+                {qrEnabled ? (
+                  <>
+                    <ShieldCheck className="w-3 h-3" />
+                    <span>Đã cấp quyền</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldOff className="w-3 h-3" />
+                    <span>Đã khóa QR</span>
+                  </>
+                )}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowQrModal(true)}
+              className="w-full flex flex-col items-center p-2.5 rounded-xl bg-white hover:ring-2 hover:ring-cyan-400 transition-all cursor-pointer shadow-inner"
+              title="Nhấn để phóng to, tải xuống hoặc quản lý mã QR hồ sơ"
+            >
+              <EmployeeQRCodeSvg staff={resolvedStaff} value={qrPreviewUrl} size={132} theme="newprotec" />
+            </button>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setShowQrModal(true)}
+                className="flex-1 py-1.5 px-2.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-600 border border-cyan-700/60 text-cyan-200 hover:text-white text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                <span>Mở &amp; Tải QR</span>
+              </button>
+
+              {allowManageQr && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleMyQrAccess(resolvedStaff, !qrEnabled)}
+                  title={qrEnabled ? 'Khóa quyền truy cập QR' : 'Cấp quyền truy cập QR'}
+                  className={`py-1.5 px-2.5 rounded-lg border text-[10px] font-bold transition-colors cursor-pointer ${
+                    qrEnabled
+                      ? 'bg-rose-950/60 hover:bg-rose-600 border-rose-700/60 text-rose-300 hover:text-white'
+                      : 'bg-emerald-950/60 hover:bg-emerald-600 border-emerald-700/60 text-emerald-300 hover:text-white'
+                  }`}
+                >
+                  {qrEnabled ? 'Khóa' : 'Cấp'}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Bottom Identity Card Footer */}
@@ -2566,6 +2670,14 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           onClose={() => setViewingSlipModal(null)}
         />
       )}
+
+      <EmployeeQRModal
+        staff={showQrModal ? resolvedStaff : null}
+        onClose={() => setShowQrModal(false)}
+        canManage={allowManageQr}
+        onToggleQrAccess={handleToggleMyQrAccess}
+        onRegenerateQrToken={handleRegenerateMyQrToken}
+      />
     </div>
   );
 

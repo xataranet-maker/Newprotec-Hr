@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { StaffRecord } from '../../types';
-import { UserPlus, CheckCircle } from 'lucide-react';
+import { UserPlus, CheckCircle, QrCode, ShieldCheck, ShieldOff } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../lib/matrixTimekeeping';
+import { buildStaffQrUrl, generateStaffQrToken } from '../../lib/staffQr';
+import { EmployeeQRCodeSvg, EmployeeQRModal } from '../common/EmployeeQRModal';
 
 interface HRAddStaffProps {
   multiStaff: StaffRecord[];
@@ -28,7 +30,10 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
   const [phone, setPhone] = useState('');
   const [shift, setShift] = useState<'DAY' | 'NIGHT'>('DAY');
   const [joinDateIso, setJoinDateIso] = useState<string>(getTodayIso);
+  const [qrAccessEnabled, setQrAccessEnabled] = useState<boolean>(true);
   const [success, setSuccess] = useState(false);
+  const [createdStaff, setCreatedStaff] = useState<StaffRecord | null>(null);
+  const [showQrModal, setShowQrModal] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,10 +47,11 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
       }
     }
 
+    const cleanEmpId = employeeId.trim().toUpperCase();
     const newStaff: StaffRecord = {
       id: Date.now(),
-      fullName,
-      employeeId,
+      fullName: fullName.trim(),
+      employeeId: cleanEmpId,
       position,
       dateJoined: formattedJoin,
       dob: '01/01/1998',
@@ -53,17 +59,41 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
       phone: phone || '0987-xxx-xxx',
       attendance: 'Đúng giờ',
       shift,
-      department
+      department,
+      qrAccessEnabled,
+      qrAccessToken: generateStaffQrToken(cleanEmpId),
     };
 
     if (department === 'MULTI') setMultiStaff([...multiStaff, newStaff]);
     else if (department === 'HR') setHrStaff([...hrStaff, newStaff]);
 
+    setCreatedStaff(newStaff);
     setSuccess(true);
     setFullName('');
     setEmployeeId('');
+    setPhone('');
     setJoinDateIso(getTodayIso());
-    setTimeout(() => setSuccess(false), 3000);
+    setTimeout(() => setSuccess(false), 5000);
+  };
+
+  const handleToggleCreatedQr = (target: StaffRecord, enabled: boolean) => {
+    const updated = { ...target, qrAccessEnabled: enabled };
+    setCreatedStaff(updated);
+    if (target.department === 'MULTI') {
+      setMultiStaff(multiStaff.map((s) => (s.employeeId === target.employeeId ? updated : s)));
+    } else if (target.department === 'HR') {
+      setHrStaff(hrStaff.map((s) => (s.employeeId === target.employeeId ? updated : s)));
+    }
+  };
+
+  const handleRegenerateCreatedQr = (target: StaffRecord) => {
+    const updated = { ...target, qrAccessToken: generateStaffQrToken(target.employeeId) };
+    setCreatedStaff(updated);
+    if (target.department === 'MULTI') {
+      setMultiStaff(multiStaff.map((s) => (s.employeeId === target.employeeId ? updated : s)));
+    } else if (target.department === 'HR') {
+      setHrStaff(hrStaff.map((s) => (s.employeeId === target.employeeId ? updated : s)));
+    }
   };
 
   return (
@@ -73,13 +103,85 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
           <UserPlus className="w-5 h-5 text-emerald-400 shrink-0" />
           <span>Thêm Nhân Viên Mới Vào Nhà Máy</span>
         </h2>
-        <p className="text-xs text-slate-400 mt-1">Tạo hồ sơ và gán nhân viên vào đúng phân xưởng sản xuất.</p>
+        <p className="text-xs text-slate-400 mt-1">
+          Tạo hồ sơ, gán phân xưởng và hệ thống tự động sinh Mã QR truy cập nhanh hồ sơ nhân viên.
+        </p>
       </div>
 
       {success && (
         <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-800 text-emerald-300 text-xs flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-emerald-400" />
-          <span>Đã tạo hồ sơ nhân viên thành công!</span>
+          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>Đã tạo hồ sơ nhân viên &amp; tự động khởi tạo Mã QR cá nhân thành công!</span>
+        </div>
+      )}
+
+      {createdStaff && (
+        <div className="bg-slate-900/95 border border-cyan-500/40 rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4 shadow-xl">
+          <div className="bg-white p-2 rounded-xl shrink-0">
+            <EmployeeQRCodeSvg
+              staff={createdStaff}
+              value={buildStaffQrUrl(createdStaff)}
+              size={128}
+            />
+          </div>
+          <div className="flex-1 text-center sm:text-left space-y-2 text-xs">
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">
+                Mã QR Tự Động Cho Nhân Viên Mới
+              </div>
+              <div className="text-sm font-bold text-white mt-0.5">
+                {createdStaff.fullName} ({createdStaff.employeeId})
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                Trạng thái:{' '}
+                <span
+                  className={
+                    createdStaff.qrAccessEnabled !== false
+                      ? 'text-emerald-400 font-semibold'
+                      : 'text-rose-400 font-semibold'
+                  }
+                >
+                  {createdStaff.qrAccessEnabled !== false
+                    ? 'Đã cấp quyền quét vào thẳng hồ sơ'
+                    : 'Đang khóa truy cập QR'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowQrModal(true)}
+                className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                <span>Xem &amp; Tải Thẻ QR</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleToggleCreatedQr(createdStaff, createdStaff.qrAccessEnabled === false)
+                }
+                className={`px-3 py-1.5 rounded-lg border font-semibold cursor-pointer flex items-center gap-1 ${
+                  createdStaff.qrAccessEnabled !== false
+                    ? 'bg-rose-950/50 border-rose-700/60 text-rose-300 hover:bg-rose-900/60'
+                    : 'bg-emerald-950/50 border-emerald-700/60 text-emerald-300 hover:bg-emerald-900/60'
+                }`}
+              >
+                {createdStaff.qrAccessEnabled !== false ? (
+                  <>
+                    <ShieldOff className="w-3.5 h-3.5" />
+                    <span>Khóa QR</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Cấp Quyền QR</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -167,13 +269,42 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
           />
         </div>
 
+        {/* Auto QR Access Toggle */}
+        <label className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-950/80 border border-slate-800 cursor-pointer">
+          <div className="flex items-center gap-2.5">
+            <QrCode className="w-4 h-4 text-cyan-400 shrink-0" />
+            <div>
+              <div className="font-semibold text-slate-200">
+                Tự động tạo &amp; cấp quyền Mã QR hồ sơ
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Cho phép quét mã QR để vào thẳng hồ sơ nhân viên không cần đăng nhập
+              </div>
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={qrAccessEnabled}
+            onChange={(e) => setQrAccessEnabled(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 cursor-pointer"
+          />
+        </label>
+
         <button
           type="submit"
           className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer shadow-md"
         >
-          Lưu Nhân Viên Mới
+          Lưu Nhân Viên Mới &amp; Tạo Mã QR
         </button>
       </form>
+
+      <EmployeeQRModal
+        staff={showQrModal ? createdStaff : null}
+        onClose={() => setShowQrModal(false)}
+        canManage={true}
+        onToggleQrAccess={handleToggleCreatedQr}
+        onRegenerateQrToken={handleRegenerateCreatedQr}
+      />
     </div>
   );
 };

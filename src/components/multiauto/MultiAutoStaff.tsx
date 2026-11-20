@@ -2,9 +2,12 @@ import React, { useState } from 'react';
 import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus } from '../../types';
 import { 
   Users, Plus, Search, CheckCircle2, Clock, Phone, 
-  AlertTriangle, ArrowRight, LayoutGrid, Table, Calendar, Check, X
+  AlertTriangle, ArrowRight, LayoutGrid, Table, Calendar, Check, X,
+  QrCode, ShieldCheck, ShieldOff
 } from 'lucide-react';
 import { formatDateDDMMYYYY } from '../../lib/matrixTimekeeping';
+import { isStaffQrEnabled, generateStaffQrToken, getStaffQrToken } from '../../lib/staffQr';
+import { EmployeeQRModal } from '../common/EmployeeQRModal';
 
 const getTodayIso = () => {
   const now = new Date();
@@ -36,6 +39,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
   const [showAddModal, setShowAddModal] = useState(false);
   const [showOtModal, setShowOtModal] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffRecord | null>(null);
+  const [qrModalStaff, setQrModalStaff] = useState<StaffRecord | null>(null);
   const [otHours, setOtHours] = useState(2);
   const [otReason, setOtReason] = useState('Tăng ca hỗ trợ đơn hàng gấp');
 
@@ -51,6 +55,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
   const [newLateIn, setNewLateIn] = useState<string>('08:30');
   const [newEarlyMinutes, setNewEarlyMinutes] = useState<number>(30);
   const [newEarlyOut, setNewEarlyOut] = useState<string>('16:30');
+  const [newQrEnabled, setNewQrEnabled] = useState<boolean>(true);
 
   const filtered = data.filter(s => {
     const matchSearch = s.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -73,6 +78,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
     e.preventDefault();
     if (!fullName || !employeeId) return;
 
+    const cleanId = employeeId.trim().toUpperCase();
     let formattedJoin = formatDateDDMMYYYY(new Date());
     if (joinDateIso && joinDateIso.includes('-')) {
       const [y, m, d] = joinDateIso.split('-');
@@ -83,8 +89,8 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
 
     const newStaff: StaffRecord = {
       id: Date.now(),
-      fullName,
-      employeeId,
+      fullName: fullName.trim(),
+      employeeId: cleanId,
       position,
       phone,
       shift,
@@ -96,7 +102,9 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
       dateJoined: formattedJoin,
       dob: '01/01/1998',
       hometown: 'Việt Nam',
-      department: 'MULTI'
+      department: 'MULTI',
+      qrAccessEnabled: newQrEnabled,
+      qrAccessToken: generateStaffQrToken(cleanId),
     };
 
     onUpdate([...data, newStaff]);
@@ -105,6 +113,36 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
     setEmployeeId('');
     setJoinDateIso(getTodayIso());
     setNewAttendance('Đúng giờ');
+    setNewQrEnabled(true);
+    setQrModalStaff(newStaff);
+  };
+
+  const handleToggleQrAccess = (staff: StaffRecord, enabled: boolean) => {
+    onUpdate(
+      data.map(s =>
+        s.employeeId === staff.employeeId
+          ? {
+              ...s,
+              qrAccessEnabled: enabled,
+              qrAccessToken: getStaffQrToken(s),
+            }
+          : s
+      )
+    );
+  };
+
+  const handleRegenerateQrToken = (staff: StaffRecord) => {
+    const newToken = generateStaffQrToken(staff.employeeId);
+    onUpdate(
+      data.map(s =>
+        s.employeeId === staff.employeeId
+          ? {
+              ...s,
+              qrAccessToken: newToken,
+            }
+          : s
+      )
+    );
   };
 
   const handleUpdateAttendance = (id: number, status: AttendanceStatus) => {
@@ -502,12 +540,45 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                   )}
                 </div>
 
-                <button
-                  onClick={(e) => { e.stopPropagation(); setSelectedStaff(staff); setShowOtModal(true); }}
-                  className="w-full py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-cyan-300 font-semibold cursor-pointer transition-colors"
-                >
-                  + Đăng Ký Tăng Ca
-                </button>
+                <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleQrAccess(staff, !isStaffQrEnabled(staff))}
+                    title={isStaffQrEnabled(staff) ? 'Nhấn để khóa quyền QR' : 'Nhấn để cấp quyền QR'}
+                    className={`px-2 py-1.5 rounded-lg border text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
+                      isStaffQrEnabled(staff)
+                        ? 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-700/60'
+                        : 'bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 border-rose-700/60'
+                    }`}
+                  >
+                    {isStaffQrEnabled(staff) ? (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Cấp QR</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldOff className="w-3.5 h-3.5" />
+                        <span>Khóa QR</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQrModalStaff(staff)}
+                    className="px-2.5 py-1.5 rounded-lg bg-cyan-950/50 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-700/60 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                    title="Xem & Tải mã QR hồ sơ"
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    <span>QR</span>
+                  </button>
+                  <button
+                    onClick={() => { setSelectedStaff(staff); setShowOtModal(true); }}
+                    className="flex-1 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-cyan-300 font-semibold cursor-pointer transition-colors"
+                  >
+                    + Tăng Ca
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -622,12 +693,34 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                         )}
                       </td>
                       <td className="py-2.5 px-3 text-right" onClick={e => e.stopPropagation()}>
-                        <button
-                          onClick={() => { setSelectedStaff(staff); setShowOtModal(true); }}
-                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-medium transition-colors cursor-pointer"
-                        >
-                          + Tăng ca
-                        </button>
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleQrAccess(staff, !isStaffQrEnabled(staff))}
+                            title={isStaffQrEnabled(staff) ? 'Khóa quyền QR' : 'Cấp quyền QR'}
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border cursor-pointer transition-colors ${
+                              isStaffQrEnabled(staff)
+                                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60'
+                                : 'bg-rose-950/60 text-rose-300 border-rose-700/60'
+                            }`}
+                          >
+                            {isStaffQrEnabled(staff) ? <ShieldCheck className="w-3 h-3" /> : <ShieldOff className="w-3 h-3" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setQrModalStaff(staff)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-cyan-950/50 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-700/60 text-[11px] font-semibold cursor-pointer transition-colors"
+                          >
+                            <QrCode className="w-3 h-3" />
+                            <span>QR</span>
+                          </button>
+                          <button
+                            onClick={() => { setSelectedStaff(staff); setShowOtModal(true); }}
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] font-medium transition-colors cursor-pointer"
+                          >
+                            + Tăng ca
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -805,6 +898,20 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                 </div>
               )}
 
+              <div className="pt-2 border-t border-slate-800">
+                <label className="flex items-center gap-2.5 p-2.5 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newQrEnabled}
+                    onChange={e => setNewQrEnabled(e.target.checked)}
+                    className="w-4 h-4 accent-cyan-500 rounded cursor-pointer"
+                  />
+                  <span className="text-slate-200 font-medium">
+                    Tự động tạo &amp; cấp quyền Mã QR truy cập nhanh hồ sơ
+                  </span>
+                </label>
+              </div>
+
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
@@ -817,7 +924,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                   type="submit"
                   className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold cursor-pointer"
                 >
-                  Lưu Nhân Viên
+                  Lưu Nhân Viên &amp; Tạo QR
                 </button>
               </div>
             </form>
@@ -876,6 +983,17 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
           </div>
         </div>
       )}
+      <EmployeeQRModal
+        staff={
+          qrModalStaff
+            ? data.find(st => st.employeeId === qrModalStaff.employeeId) || qrModalStaff
+            : null
+        }
+        onClose={() => setQrModalStaff(null)}
+        canManage={true}
+        onToggleQrAccess={handleToggleQrAccess}
+        onRegenerateQrToken={handleRegenerateQrToken}
+      />
     </div>
   );
 };

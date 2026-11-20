@@ -42,7 +42,9 @@
         "lateIn": { "type": "string", "maxLength": 16 },
         "earlyMinutes": { "type": "number" },
         "earlyOut": { "type": "string", "maxLength": 16 },
-        "phone": { "type": "string", "maxLength": 32 }
+        "phone": { "type": "string", "maxLength": 32 },
+        "qrAccessEnabled": { "type": "boolean" },
+        "qrAccessToken": { "type": "string", "maxLength": 64 }
       },
       "required": ["employeeId", "fullName"]
     },

@@ -213,6 +213,8 @@ export interface StaffRecord {
   earlyMinutes?: number;
   isLocked?: boolean;
   annualLeaveQuota?: number;
+  qrAccessEnabled?: boolean;
+  qrAccessToken?: string;
 }
 
 export interface AccessoryRecord {
