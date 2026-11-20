@@ -50,7 +50,7 @@ export const Login: React.FC<LoginProps> = ({
         });
         return;
       }
-      setError('Mật khẩu nhân viên không chính xác (Mật khẩu mặc định: 123).');
+      setError('Mật khẩu nhân viên không chính xác.');
       return;
     }
 
@@ -85,10 +85,6 @@ export const Login: React.FC<LoginProps> = ({
     }
 
     setError('Tài khoản hoặc mật khẩu không chính xác.');
-  };
-
-  const handleQuickLogin = (user: UserAccount) => {
-    onLogin(user);
   };
 
   return (
@@ -158,7 +154,7 @@ export const Login: React.FC<LoginProps> = ({
             Đăng Nhập Hệ Thống
           </h2>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            Hệ thống quản lý sản xuất Newprotec Vina V2.0. Nhân viên đăng nhập bằng Mã nhân viên (mật khẩu: <span className="text-cyan-400 font-mono font-bold">123</span>).
+            Hệ thống quản lý nhân sự &amp; sản xuất Newprotec Vina V2.0.
           </p>
         </div>
 
@@ -180,7 +176,7 @@ export const Login: React.FC<LoginProps> = ({
                   type="text"
                   value={username}
                   onChange={e => setUsername(e.target.value)}
-                  placeholder="Ví dụ: Newprotec, admin, NV001..."
+                  placeholder="Nhập tài khoản hoặc mã nhân viên"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 transition-colors"
                   required
                 />
@@ -244,50 +240,6 @@ export const Login: React.FC<LoginProps> = ({
               <span>Đăng nhập bằng Google (Firebase Auth)</span>
             </button>
           </form>
-
-          {/* Quick Access Account Selector for fast factory testing */}
-          <div className="mt-6 pt-5 border-t border-slate-800">
-            <div className="text-[11px] font-semibold text-slate-400 mb-2">
-              Đăng nhập nhanh theo quyền (Dành cho kiểm thử):
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => handleQuickLogin({ username: 'Newprotec', password: 'New123@', fullName: 'Ban Giám Đốc Newprotec', role: 'admin' })}
-                className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-left transition-colors cursor-pointer"
-              >
-                <div className="font-semibold text-cyan-300">Newprotec Admin</div>
-                <div className="text-[10px] text-slate-500 font-mono">Quyền Toàn Thể</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickLogin({ username: 'multiauto', password: '123', fullName: 'Trưởng Ca Multi Auto', role: 'multiauto', department: 'MULTI' })}
-                className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-left transition-colors cursor-pointer"
-              >
-                <div className="font-semibold text-blue-300">Multi Auto</div>
-                <div className="text-[10px] text-slate-500 font-mono">Ca trưởng Multi</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickLogin({ username: 'hr', password: '123', fullName: 'Hành Chính Nhân Sự', role: 'hr', department: 'HR' })}
-                className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-left transition-colors cursor-pointer"
-              >
-                <div className="font-semibold text-purple-300">HC &amp; NS</div>
-                <div className="text-[10px] text-slate-500 font-mono">Nhân sự &amp; Bảng công</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickLogin({ username: 'NV001', password: '123', fullName: 'Nguyễn Văn Quân', role: 'staff', employeeId: 'NV001', department: 'MULTI' })}
-                className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-left transition-colors cursor-pointer"
-              >
-                <div className="font-semibold text-emerald-300">Công Nhân (NV001)</div>
-                <div className="text-[10px] text-slate-500 font-mono">Hồ sơ cá nhân</div>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
