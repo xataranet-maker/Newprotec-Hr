@@ -748,7 +748,7 @@ export default function App() {
                 onDeleteLeaveRecord={handleDeleteLeaveRecord}
                 onUpdateStaffInfo={handleUpdateStaffInfo}
                 onUpdateAvatar={(newUrl) => handleUpdateStaffInfo({ ...matchedQrStaff, avatarUrl: newUrl })}
-                viewerHasSalaryAccess={canUserAccessSalarySlip(qrUser, salarySecurity)}
+                viewerHasSalaryAccess={true}
                 isQrDirectAccess={true}
                 canManageQr={false}
               />
@@ -830,6 +830,7 @@ export default function App() {
           onDeleteLeaveRecord={handleDeleteLeaveRecord}
           onUpdateStaffInfo={handleUpdateStaffInfo}
           onUpdateAvatar={handleUpdateAvatar}
+          viewerHasSalaryAccess={true}
         />
       );
     }
@@ -875,6 +876,7 @@ export default function App() {
             onDeleteLeaveRecord={handleDeleteLeaveRecord}
             onUpdateStaffInfo={handleUpdateStaffInfo}
             onUpdateAvatar={handleUpdateAvatar}
+            viewerHasSalaryAccess={true}
           />
         );
       case 'planning_hub':
@@ -1231,7 +1233,14 @@ export default function App() {
             onDeleteLeaveRecord={handleDeleteLeaveRecord}
             onUpdateStaffInfo={handleUpdateStaffInfo}
             onUpdateAvatar={(newUrl) => handleUpdateStaffInfo({ ...resolvedStaff, avatarUrl: newUrl })}
-            viewerHasSalaryAccess={canUserAccessSalarySlip(currentUser, salarySecurity)}
+            viewerHasSalaryAccess={
+              canUserAccessSalarySlip(currentUser, salarySecurity) ||
+              Boolean(
+                currentUser.employeeId &&
+                  currentUser.employeeId.trim().toLowerCase() ===
+                    resolvedStaff.employeeId.trim().toLowerCase()
+              )
+            }
             canManageQr={currentUser.role !== 'staff'}
           />
         );

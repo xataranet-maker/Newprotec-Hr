@@ -519,6 +519,46 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     });
     setViewingSlipModal(computed);
   };
+
+  const issuedSlipForSelectedMonth = useMemo(
+    () => mySalarySlips.find((s) => s.month === monthKey) || null,
+    [mySalarySlips, monthKey]
+  );
+
+  const selectedMonthSlipPreview = useMemo(() => {
+    const baseCfg =
+      issuedSlipForSelectedMonth?.salaryConfig ||
+      mySalaryConfig ||
+      createEmptySalaryConfig({ employeeId: empId, fullName: empName });
+
+    return computeMonthlySalarySlipDetails({
+      staff: {
+        employeeId: empId,
+        fullName: empName,
+        department: empDept,
+        shift: staffInfo?.shift || 'DAY',
+        lateMinutes: staffInfo?.lateMinutes,
+        earlyMinutes: staffInfo?.earlyMinutes,
+      },
+      salaryConfig: recomputeSalaryConfig(baseCfg, loadOvtFormulaFields()),
+      year: selectedYear,
+      month: selectedMonth,
+      matrixDays: empMatrixDays,
+      attendanceSummary: issuedSlipForSelectedMonth?.attendanceSummary,
+    });
+  }, [
+    issuedSlipForSelectedMonth,
+    mySalaryConfig,
+    empId,
+    empName,
+    empDept,
+    staffInfo?.shift,
+    staffInfo?.lateMinutes,
+    staffInfo?.earlyMinutes,
+    selectedYear,
+    selectedMonth,
+    empMatrixDays,
+  ]);
   const isMonthConfirmed = attendanceConfirmations.some(
     (c) => c.employeeId.trim().toLowerCase() === normalizedEmpId && c.month === monthKey && c.isConfirmed
   );
@@ -2155,10 +2195,92 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               </div>
             ) : (
             <div className="space-y-4 text-xs">
+              {/* Phiếu Lương Tháng Đang Chọn (Tính đồng bộ từ bảng công & cấu hình lương) */}
+              <div className="bg-gradient-to-br from-[#0a1628] via-[#0a1222] to-emerald-950/20 border border-emerald-700/50 rounded-xl p-4 space-y-3 shadow-lg">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-800/90">
+                  <div>
+                    <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                      <Banknote className="w-4 h-4 text-emerald-400" />
+                      <span>
+                        Phiếu Lương Tháng {selectedMonth}/{selectedYear}
+                      </span>
+                      {issuedSlipForSelectedMonth ? (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-semibold">
+                          Đã phát hành
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/35 text-[10px] font-semibold">
+                          Đồng bộ bảng công
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Chi tiết thu nhập, tăng ca, phụ cấp và các khoản khấu trừ của{' '}
+                      <strong className="text-slate-200">{empName}</strong> ({empId}).
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openOfficialSlipModal(
+                        monthKey,
+                        issuedSlipForSelectedMonth?.salaryConfig,
+                        issuedSlipForSelectedMonth?.attendanceSummary
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer transition-colors"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Xem Phiếu Lương T{selectedMonth}/{selectedYear}</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 font-mono">
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <div className="text-[10px] font-sans text-slate-400 uppercase">
+                      Ngày công
+                    </div>
+                    <div className="text-sm sm:text-base font-extrabold text-white mt-0.5">
+                      {selectedMonthSlipPreview.workDaysCount} ngày
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <div className="text-[10px] font-sans text-cyan-300 uppercase">
+                      Tổng thu nhập (I)
+                    </div>
+                    <div className="text-sm sm:text-base font-extrabold text-cyan-300 mt-0.5">
+                      {formatVnd(selectedMonthSlipPreview.sectionITotal)} ₫
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <div className="text-[10px] font-sans text-rose-300 uppercase">
+                      Khấu trừ (II+III+IV)
+                    </div>
+                    <div className="text-sm sm:text-base font-extrabold text-rose-300 mt-0.5">
+                      {formatVnd(
+                        selectedMonthSlipPreview.sectionIITotal +
+                          selectedMonthSlipPreview.personalIncomeTaxAmount +
+                          selectedMonthSlipPreview.sectionIVTotal
+                      )}{' '}
+                      ₫
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-emerald-950/35 border border-emerald-600/50">
+                    <div className="text-[10px] font-sans text-emerald-300 font-bold uppercase">
+                      Thực lĩnh (V)
+                    </div>
+                    <div className="text-sm sm:text-base font-extrabold text-emerald-400 mt-0.5">
+                      {formatVnd(selectedMonthSlipPreview.netSalaryAmount)} ₫
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-[#0a1222] border border-slate-800 rounded-xl p-4 space-y-3">
                 <h3 className="font-bold text-sm text-white flex items-center gap-2 pb-2 border-b border-slate-800">
                   <Banknote className="w-4 h-4 text-emerald-400" />
-                  <span>Phiếu Lương Cá Nhân ({mySalarySlips.length})</span>
+                  <span>Phiếu Lương Đã Phát Hành ({mySalarySlips.length})</span>
                 </h3>
                 {mySalarySlips.length === 0 ? (
                   <div className="py-8 text-center text-slate-500">
