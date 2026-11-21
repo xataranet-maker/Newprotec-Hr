@@ -1463,10 +1463,16 @@ export function updateEmployeeMatrixDayEntry(params: {
     }
   }
 
-  const targetDepts =
-    existingDepts.length > 0
-      ? existingDepts
-      : [normalizedDept === 'multi' ? 'multi' : 'all'];
+  const primaryDeptKey = normalizedDept === 'multi' ? 'multi' : 'all';
+  const targetDepts = Array.from(
+    new Set([
+      ...existingDepts,
+      primaryDeptKey,
+      ...(normalizedDept && normalizedDept !== 'multi' && normalizedDept !== 'all'
+        ? [normalizedDept]
+        : []),
+    ])
+  );
 
   let blockedError: string | undefined;
   let updatedCount = 0;

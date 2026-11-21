@@ -87,6 +87,16 @@ export const Login: React.FC<LoginProps> = ({
       });
       return;
     }
+    if (trimmedUser.toLowerCase() === 'qrcode' && trimmedPass === '123') {
+      onLogin({
+        username: 'QRCODE',
+        fullName: 'Trạm QR Chấm Công',
+        role: 'qrcode',
+        employeeId: 'QRCODE',
+        department: 'ALL'
+      });
+      return;
+    }
 
     setError('Tài khoản hoặc mật khẩu không chính xác.');
   };

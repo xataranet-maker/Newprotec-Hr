@@ -82,6 +82,7 @@ import {
   QrCode,
   ShieldCheck,
   ShieldOff,
+  ScanLine,
 } from 'lucide-react';
 import {
   buildStaffQrUrl,
@@ -91,6 +92,7 @@ import {
 } from '../../lib/staffQr';
 import { EmployeeQRCodeSvg, EmployeeQRModal } from '../common/EmployeeQRModal';
 import { EmployeeMobileBottomNav } from './EmployeeMobileBottomNav';
+import { AttendanceQRScannerModal } from './AttendanceQRScannerModal';
 
 export interface EmployeeProfileProps {
   currentUser: UserAccount;
@@ -160,6 +162,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth() + 1);
   const [viewingSlipModal, setViewingSlipModal] = useState<ComputedSalarySlipData | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
+  const [showAttendanceQrScanner, setShowAttendanceQrScanner] = useState(false);
 
   // Edit info state
   const [isEditingInfo, setIsEditingInfo] = useState(false);
@@ -936,7 +939,6 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     showToast('Đã cập nhật thông tin hồ sơ nhân viên!');
   };
 
-  const initials = empName.trim().charAt(0).toUpperCase() || 'N';
   const monthLabel = `THÁNG ${selectedMonth}/${selectedYear}`;
 
   const profileBody = (
@@ -952,23 +954,87 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         } flex-col justify-between gap-5 lg:overflow-y-auto custom-scrollbar`}
       >
         <div className="space-y-4">
-          {/* Avatar + Name + Position Pill */}
-          <div className="flex flex-col items-center text-center pt-2">
-            <div className="w-20 h-20 rounded-full bg-[#0d1829] border-2 border-cyan-400/50 shadow-[0_0_24px_rgba(34,211,238,0.2)] flex items-center justify-center overflow-hidden">
-              {staffInfo?.avatarUrl ? (
-                <img src={staffInfo.avatarUrl} alt={empName} className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-2xl font-bold text-cyan-100 select-none">{initials}</span>
+          {/* MÃ QR TRUY CẬP NHANH HỒ SƠ (Thay thế vị trí Avatar phía trên) */}
+          <div className="p-3 rounded-xl bg-slate-900/75 border border-slate-800/90 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+                <QrCode className="w-3.5 h-3.5 text-cyan-400" />
+                <span>MÃ QR HỒ SƠ</span>
+              </span>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                  qrEnabled
+                    ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60'
+                    : 'bg-rose-950/60 text-rose-300 border-rose-700/60'
+                }`}
+              >
+                {qrEnabled ? (
+                  <>
+                    <ShieldCheck className="w-3 h-3" />
+                    <span>Đã cấp quyền</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldOff className="w-3 h-3" />
+                    <span>Đã khóa QR</span>
+                  </>
+                )}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowQrModal(true)}
+              className="w-full flex flex-col items-center p-2.5 rounded-xl bg-white hover:ring-2 hover:ring-cyan-400 transition-all cursor-pointer shadow-inner"
+              title="Nhấn để phóng to, tải xuống hoặc quản lý mã QR hồ sơ"
+            >
+              <EmployeeQRCodeSvg staff={resolvedStaff} value={qrPreviewUrl} size={144} theme="newprotec" />
+            </button>
+
+            <div className="text-center">
+              <div className="text-xs font-extrabold text-white tracking-wide uppercase truncate">
+                {empName}
+              </div>
+              <div className="text-[10px] font-bold text-cyan-300 uppercase tracking-wider mt-0.5 truncate">
+                {empPosition}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setShowQrModal(true)}
+                className="flex-1 py-1.5 px-2.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-600 border border-cyan-700/60 text-cyan-200 hover:text-white text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <QrCode className="w-3.5 h-3.5" />
+                <span>Mở &amp; Tải QR</span>
+              </button>
+
+              {allowManageQr && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleMyQrAccess(resolvedStaff, !qrEnabled)}
+                  title={qrEnabled ? 'Khóa quyền truy cập QR' : 'Cấp quyền truy cập QR'}
+                  className={`py-1.5 px-2.5 rounded-lg border text-[10px] font-bold transition-colors cursor-pointer ${
+                    qrEnabled
+                      ? 'bg-rose-950/60 hover:bg-rose-600 border-rose-700/60 text-rose-300 hover:text-white'
+                      : 'bg-emerald-950/60 hover:bg-emerald-600 border-emerald-700/60 text-emerald-300 hover:text-white'
+                  }`}
+                >
+                  {qrEnabled ? 'Khóa' : 'Cấp'}
+                </button>
               )}
             </div>
 
-            <h2 className="mt-3.5 text-base font-extrabold text-white tracking-wide uppercase">
-              {empName}
-            </h2>
-
-            <span className="mt-1.5 inline-block px-3 py-0.5 rounded-full bg-slate-900 border border-cyan-500/30 text-[10px] font-bold text-cyan-300 uppercase tracking-wider">
-              {empPosition}
-            </span>
+            <button
+              type="button"
+              onClick={() => setShowAttendanceQrScanner(true)}
+              className="w-full py-2 px-3 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-200 hover:text-white text-[11px] font-extrabold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm shadow-emerald-950/30"
+              title="Mở camera quét mã QR chấm công hoặc điền thời gian thủ công"
+            >
+              <ScanLine className="w-3.5 h-3.5 text-emerald-300" />
+              <span>CHẤM CÔNG QR</span>
+            </button>
           </div>
 
           {/* 4 Stacked Identity Boxes */}
@@ -1022,69 +1088,6 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </button>
           )}
 
-          {/* MÃ QR TRUY CẬP NHANH HỒ SƠ */}
-          <div className="p-3 rounded-xl bg-slate-900/75 border border-slate-800/90 space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
-                <QrCode className="w-3.5 h-3.5 text-cyan-400" />
-                <span>MÃ QR HỒ SƠ</span>
-              </span>
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border ${
-                  qrEnabled
-                    ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60'
-                    : 'bg-rose-950/60 text-rose-300 border-rose-700/60'
-                }`}
-              >
-                {qrEnabled ? (
-                  <>
-                    <ShieldCheck className="w-3 h-3" />
-                    <span>Đã cấp quyền</span>
-                  </>
-                ) : (
-                  <>
-                    <ShieldOff className="w-3 h-3" />
-                    <span>Đã khóa QR</span>
-                  </>
-                )}
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowQrModal(true)}
-              className="w-full flex flex-col items-center p-2.5 rounded-xl bg-white hover:ring-2 hover:ring-cyan-400 transition-all cursor-pointer shadow-inner"
-              title="Nhấn để phóng to, tải xuống hoặc quản lý mã QR hồ sơ"
-            >
-              <EmployeeQRCodeSvg staff={resolvedStaff} value={qrPreviewUrl} size={132} theme="newprotec" />
-            </button>
-
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setShowQrModal(true)}
-                className="flex-1 py-1.5 px-2.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-600 border border-cyan-700/60 text-cyan-200 hover:text-white text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <QrCode className="w-3.5 h-3.5" />
-                <span>Mở &amp; Tải QR</span>
-              </button>
-
-              {allowManageQr && (
-                <button
-                  type="button"
-                  onClick={() => handleToggleMyQrAccess(resolvedStaff, !qrEnabled)}
-                  title={qrEnabled ? 'Khóa quyền truy cập QR' : 'Cấp quyền truy cập QR'}
-                  className={`py-1.5 px-2.5 rounded-lg border text-[10px] font-bold transition-colors cursor-pointer ${
-                    qrEnabled
-                      ? 'bg-rose-950/60 hover:bg-rose-600 border-rose-700/60 text-rose-300 hover:text-white'
-                      : 'bg-emerald-950/60 hover:bg-emerald-600 border-emerald-700/60 text-emerald-300 hover:text-white'
-                  }`}
-                >
-                  {qrEnabled ? 'Khóa' : 'Cấp'}
-                </button>
-              )}
-            </div>
-          </div>
         </div>
 
         {/* Bottom Identity Card Footer */}
@@ -2816,6 +2819,31 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         canManage={allowManageQr}
         onToggleQrAccess={handleToggleMyQrAccess}
         onRegenerateQrToken={handleRegenerateMyQrToken}
+      />
+
+      <AttendanceQRScannerModal
+        isOpen={showAttendanceQrScanner}
+        staff={resolvedStaff}
+        allStaff={allStaff && allStaff.length > 0 ? allStaff : [resolvedStaff]}
+        onClose={() => setShowAttendanceQrScanner(false)}
+        onSuccess={(res) => {
+          setShowAttendanceQrScanner(false);
+          const [pYear, pMonth] = res.dateIso.split('-').map(Number);
+          if (pYear && pMonth) {
+            setSelectedYear(pYear);
+            setSelectedMonth(pMonth);
+          }
+          setMatrixRefreshTick((t) => t + 1);
+          const timeText =
+            res.mode === 'IN'
+              ? `Giờ Vào ${res.inTime}`
+              : res.mode === 'OUT'
+              ? `Giờ Ra ${res.outTime}`
+              : `${res.inTime || '--:--'} - ${res.outTime || '--:--'}`;
+          showToast(
+            `Đã chấm công ngày ${res.dateStr} (${timeText}) vào bảng chấm công bộ phận ${res.departmentLabel}!`
+          );
+        }}
       />
     </div>
   );

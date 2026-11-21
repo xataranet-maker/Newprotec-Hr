@@ -34,6 +34,7 @@ const ROLE_OPTIONS: { role: UserRole; label: string; desc: string }[] = [
   { role: 'multiauto', label: 'Trưởng ca / Multi Auto', desc: 'Quản lý sản xuất & chấm công' },
   { role: 'report_viewer', label: 'Xem Báo Cáo (Report Viewer)', desc: 'Chỉ xem báo cáo tổng hợp' },
   { role: 'view_all', label: 'Xem Toàn Bộ (View All)', desc: 'Quyền xem đa phân hệ' },
+  { role: 'qrcode', label: 'Trạm QR Chấm Công (QRCODE)', desc: 'Hiển thị mã QR chấm công tại trang chủ' },
 ];
 
 export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
@@ -660,6 +661,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
                   <option value="hr">HC &amp; NS</option>
                   <option value="admin">Quản Trị Viên (Admin)</option>
                   <option value="staff">Công Nhân / Nhân Viên</option>
+                  <option value="qrcode">Trạm QR Chấm Công (QRCODE)</option>
                 </select>
               </div>
 

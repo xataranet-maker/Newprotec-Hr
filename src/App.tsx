@@ -10,6 +10,7 @@ import { BackupRestore } from './components/common/BackupRestore';
 import { DepartmentTimekeepingMatrix } from './components/common/DepartmentTimekeepingMatrix';
 import { EmployeeProfile } from './components/hr/EmployeeProfile';
 import { AppQRModal } from './components/common/AppQRModal';
+import { AttendanceQRKiosk } from './components/common/AttendanceQRKiosk';
 import { QrCode, ShieldOff, LogIn, Loader2 } from 'lucide-react';
 import {
   parseStaffQrParamsFromUrl,
@@ -101,6 +102,13 @@ const loadFromStorage = (key: string, defaultValue: any) => {
   return defaultValue;
 };
 
+const ensureSeededQrUser = (list: UserAccount[]): UserAccount[] => {
+  const hasQr = list.some((u) => u.username.trim().toLowerCase() === 'qrcode');
+  if (hasQr) return list;
+  const qrSeed = INITIAL_USERS.find((u) => u.username.trim().toLowerCase() === 'qrcode');
+  return qrSeed ? [...list, qrSeed] : list;
+};
+
 export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
@@ -108,7 +116,7 @@ export default function App() {
 
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>(() => {
     const saved = loadFromStorage('app_users', null);
-    if (saved && saved.length > 0) return saved;
+    if (saved && saved.length > 0) return ensureSeededQrUser(saved);
     return INITIAL_USERS;
   });
 
@@ -275,6 +283,15 @@ export default function App() {
             })),
           };
         }
+        if (currentUser?.role === 'qrcode' && tab.id === 'home') {
+          return {
+            ...tab,
+            groups: tab.groups.map((grp) => ({
+              ...grp,
+              items: grp.items.filter((item) => item.id === 'qr_attendance_kiosk'),
+            })),
+          };
+        }
         return tab;
       });
   }, [currentUser]);
@@ -366,7 +383,9 @@ export default function App() {
   const applySyncedState = useCallback((s: Record<string, any>) => {
     if (!s || typeof s !== 'object') return;
     skipNextAutoPush.current = true;
-    if (Array.isArray(s.userAccounts) && s.userAccounts.length > 0) setUserAccounts(s.userAccounts);
+    if (Array.isArray(s.userAccounts) && s.userAccounts.length > 0) {
+      setUserAccounts(ensureSeededQrUser(s.userAccounts));
+    }
     if (s.language) setLanguage(s.language);
     if (Array.isArray(s.staffRecords)) setStaffRecords(s.staffRecords);
     if (Array.isArray(s.hrStaff)) setHrStaff(s.hrStaff);
@@ -661,6 +680,9 @@ export default function App() {
     if (user.role === 'staff') {
       setActiveTab('home');
       setActiveItem('personal_profile');
+    } else if (user.role === 'qrcode') {
+      setActiveTab('home');
+      setActiveItem('qr_attendance_kiosk');
     } else {
       setActiveTab('home');
       setActiveItem('dashboard_home');
@@ -808,6 +830,15 @@ export default function App() {
   const renderContent = () => {
     const id = activeItem.toLowerCase();
 
+    if (currentUser.role === 'qrcode') {
+      return (
+        <AttendanceQRKiosk
+          isStandaloneAccount={true}
+          onLogout={() => setCurrentUser(null)}
+        />
+      );
+    }
+
     if (currentUser.role === 'staff' && id !== 'home_announcements') {
       return (
         <EmployeeProfile
@@ -884,6 +915,12 @@ export default function App() {
           <ProductionPlanningHub
             onAddPlan={(p) => setProductionPlans([p, ...productionPlans])}
             currentUser={currentUser}
+          />
+        );
+      case 'qr_attendance_kiosk':
+        return (
+          <AttendanceQRKiosk
+            isStandaloneAccount={false}
           />
         );
       case 'home_announcements':

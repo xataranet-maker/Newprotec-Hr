@@ -23,13 +23,14 @@ import {
   ShieldCheck,
   CalendarPlus,
   Wallet,
+  QrCode,
 } from 'lucide-react';
 
 export const ribbonData: RibbonTab[] = [
   {
     id: 'home',
     label: 'HOME',
-    allowedRoles: ['admin', 'multiauto', 'hr', 'report_viewer', 'user', 'staff', 'view_all'],
+    allowedRoles: ['admin', 'multiauto', 'hr', 'report_viewer', 'user', 'staff', 'view_all', 'qrcode'],
     groups: [
       {
         id: 'home_overview',
@@ -37,6 +38,7 @@ export const ribbonData: RibbonTab[] = [
         items: [
           { id: 'dashboard_home', label: 'BÁO CÁO TỔNG HỢP', icon: LayoutDashboard, isLarge: true, color: 'text-blue-500' },
           { id: 'personal_profile', label: 'HỒ SƠ CÁ NHÂN', icon: UserCheck, isLarge: true, color: 'text-cyan-500' },
+          { id: 'qr_attendance_kiosk', label: 'MÃ QR CHẤM CÔNG', icon: QrCode, isLarge: true, color: 'text-emerald-400' },
           { id: 'home_announcements', label: 'THÔNG BÁO', icon: Megaphone, isLarge: true, color: 'text-red-500' },
         ],
       },

@@ -6,6 +6,7 @@ export const INITIAL_USERS: UserAccount[] = [
   { username: 'multiauto', password: '123', fullName: 'Trưởng Ca Multi Auto', role: 'multiauto', employeeId: 'MA001', department: 'MULTI' },
   { username: 'hr', password: '123', fullName: 'Hành Chính Nhân Sự', role: 'hr', employeeId: 'HR001', department: 'HR' },
   { username: 'NV001', password: '123', fullName: 'Nguyễn Văn Quân', role: 'staff', employeeId: 'NV001', department: 'MULTI' },
+  { username: 'QRCODE', password: '123', fullName: 'Trạm QR Chấm Công', role: 'qrcode', employeeId: 'QRCODE', department: 'ALL' },
 ];
 
 export const INITIAL_STAFF: StaffRecord[] = [

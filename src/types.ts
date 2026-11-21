@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'multiauto' | 'hr' | 'report_viewer' | 'user' | 'staff' | 'view_all';
+export type UserRole = 'admin' | 'multiauto' | 'hr' | 'report_viewer' | 'user' | 'staff' | 'view_all' | 'qrcode';
 
 export type Language = 'vi' | 'ko' | 'en';
 
