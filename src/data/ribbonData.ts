@@ -22,6 +22,7 @@ import {
   CalendarCheck2,
   ShieldCheck,
   CalendarPlus,
+  Wallet,
 } from 'lucide-react';
 
 export const ribbonData: RibbonTab[] = [
@@ -82,6 +83,7 @@ export const ribbonData: RibbonTab[] = [
           { id: 'hr_leave_register', label: 'ĐĂNG KÝ PHÉP', icon: CalendarPlus, isLarge: true, color: 'text-cyan-400' },
           { id: 'hr_leaves', label: 'NGHỈ PHÉP', icon: Plane, isLarge: false, color: 'text-cyan-400' },
           { id: 'hr_payroll', label: 'BẢNG CÔNG', icon: ClipboardCheck, isLarge: false, color: 'text-emerald-400' },
+          { id: 'hr_salary_table', label: 'BẢNG LƯƠNG', icon: Wallet, isLarge: true, color: 'text-emerald-400' },
           { id: 'hr_salary_slip', label: 'PHIẾU LƯƠNG', icon: Banknote, isLarge: true, color: 'text-emerald-400' },
         ],
       },

@@ -41,6 +41,7 @@ import { HRTimekeeping } from './components/hr/HRTimekeeping';
 import { HROvertime } from './components/hr/HROvertime';
 import { HRLeaves } from './components/hr/HRLeaves';
 import { HRPayroll } from './components/hr/HRPayroll';
+import { HRSalaryTable } from './components/hr/HRSalaryTable';
 import { HRSalarySlip } from './components/hr/HRSalarySlip';
 import { HRAssets } from './components/hr/HRAssets';
 import { HRDocuments } from './components/hr/HRDocuments';
@@ -1035,6 +1036,18 @@ export default function App() {
             payrollRecords={payrollRecords}
             setPayrollRecords={setPayrollRecords}
             allStaff={allStaff}
+            onViewProfile={setViewingProfileStaff}
+          />
+        );
+      case 'hr_salary_table':
+        return (
+          <HRSalaryTable
+            salarySlips={salarySlipRecords}
+            allStaff={allStaff}
+            salaryConfigs={salaryConfigs}
+            currentUser={currentUser}
+            salarySecurity={salarySecurity}
+            onViewProfile={setViewingProfileStaff}
           />
         );
       case 'hr_salary_slip':
