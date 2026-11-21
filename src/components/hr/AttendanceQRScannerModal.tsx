@@ -14,7 +14,6 @@ import {
   Camera,
   CheckCircle2,
   Clock,
-  ImagePlus,
   LogIn,
   LogOut,
   RefreshCw,
@@ -44,7 +43,6 @@ export const AttendanceQRScannerModal: React.FC<AttendanceQRScannerModalProps> =
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastInvalidScanRef = useRef<{ text: string; ts: number }>({ text: '', ts: 0 });
   const successLockedRef = useRef(false);
 
@@ -233,7 +231,7 @@ export const AttendanceQRScannerModal: React.FC<AttendanceQRScannerModalProps> =
       ) {
         setCameraState('error');
         setCameraError(
-          'Trình duyệt không hỗ trợ Camera trực tiếp. Bạn có thể chọn ảnh Mã QR hoặc nhấn "Bỏ qua" để chấm công thủ công.'
+          'Trình duyệt không hỗ trợ Camera trực tiếp. Vui lòng dùng thiết bị có Camera để quét trực tiếp hoặc nhấn "Bỏ qua" để chấm công thủ công.'
         );
         return;
       }
@@ -261,11 +259,11 @@ export const AttendanceQRScannerModal: React.FC<AttendanceQRScannerModalProps> =
         const errName = err?.name || '';
         if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
           setCameraError(
-            'Bạn đã từ chối quyền Camera. Vui lòng cấp quyền Camera, chọn ảnh QR, hoặc nhấn "Bỏ qua" để tự điền giờ.'
+            'Bạn đã từ chối quyền Camera. Vui lòng cấp quyền Camera để quét mã QR trực tiếp hoặc nhấn "Bỏ qua" để tự điền giờ.'
           );
         } else if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError') {
           setCameraError(
-            'Không tìm thấy Camera trên thiết bị này. Hãy chọn ảnh Mã QR hoặc nhấn "Bỏ qua" để tự điền giờ.'
+            'Không tìm thấy Camera trên thiết bị này. Vui lòng dùng thiết bị có Camera để quét trực tiếp hoặc nhấn "Bỏ qua" để tự điền giờ.'
           );
         } else {
           setCameraError(
@@ -331,47 +329,6 @@ export const AttendanceQRScannerModal: React.FC<AttendanceQRScannerModalProps> =
 
     return () => window.clearInterval(timer);
   }, [isOpen, mode, cameraState, punchResult, executeQrPunch]);
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-
-    setScanError(null);
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new window.Image();
-      img.onload = () => {
-        const tryDecodeAtScale = (maxDim: number) => {
-          const canvas = document.createElement('canvas');
-          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-          canvas.width = Math.max(1, Math.round(img.width * scale));
-          canvas.height = Math.max(1, Math.round(img.height * scale));
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          if (!ctx) return null;
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          return jsQR(imageData.data, imageData.width, imageData.height, {
-            inversionAttempts: 'attemptBoth',
-          });
-        };
-
-        const result =
-          tryDecodeAtScale(1200) || tryDecodeAtScale(800) || tryDecodeAtScale(1600);
-
-        if (result?.data) {
-          executeQrPunch(result.data);
-        } else {
-          setScanError(
-            'Không đọc được Mã QR Chấm Công trong ảnh đã chọn. Vui lòng thử ảnh rõ nét hơn hoặc nhấn "Bỏ qua".'
-          );
-        }
-      };
-      img.onerror = () => setScanError('Không thể đọc tệp hình ảnh đã chọn.');
-      img.src = String(reader.result || '');
-    };
-    reader.readAsDataURL(file);
-  };
 
   const manualHoursPreview = useMemo(() => {
     const parts = manualDate.split('-').map(Number);
@@ -611,36 +568,19 @@ export const AttendanceQRScannerModal: React.FC<AttendanceQRScannerModalProps> =
               </div>
             )}
 
-            {/* Camera Controls + Skip to Manual Entry */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))
-                }
-                className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-              >
-                <SwitchCamera className="w-4 h-4 text-cyan-400" />
-                <span>{facingMode === 'environment' ? 'Camera Sau' : 'Camera Trước'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="py-2 px-3 rounded-xl bg-cyan-600/15 hover:bg-cyan-600/30 border border-cyan-500/40 text-cyan-200 hover:text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-              >
-                <ImagePlus className="w-4 h-4 text-cyan-300" />
-                <span>Chọn Ảnh QR</span>
-              </button>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="hidden"
-              />
-            </div>
+            {/* Camera Switch Control (Live scan only - no saved photo upload allowed) */}
+            <button
+              type="button"
+              onClick={() =>
+                setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))
+              }
+              className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+            >
+              <SwitchCamera className="w-4 h-4 text-cyan-400" />
+              <span>
+                Đổi Camera ({facingMode === 'environment' ? 'Đang dùng Camera Sau' : 'Đang dùng Camera Trước'})
+              </span>
+            </button>
 
             {/* Skip QR -> Normal Manual Time Entry */}
             <button
