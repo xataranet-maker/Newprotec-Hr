@@ -166,7 +166,7 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
       {/* Subtle radial glow backdrop */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.12),transparent_55%)]" />
 
-      <div className="relative z-10 w-full max-w-3xl space-y-5">
+      <div className="relative z-10 w-full max-w-5xl space-y-5">
         {/* Top Kiosk Header Bar (shown prominently for standalone QRCODE login or compact controls) */}
         <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 shadow-xl">
           <div className="flex items-center gap-3">
@@ -240,7 +240,7 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
         {/* Main Kiosk Display Card */}
         <div className="bg-slate-900/90 border border-emerald-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
           {/* Left/Top QR Code Box */}
-          <div className="md:col-span-6 flex flex-col items-center">
+          <div className="md:col-span-5 flex flex-col items-center">
             <div className="p-4 sm:p-5 rounded-3xl bg-white shadow-[0_0_40px_rgba(16,185,129,0.2)] border-4 border-emerald-400/50">
               {qrDataUrl ? (
                 <img
@@ -254,22 +254,22 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                 </div>
               )}
             </div>
-            <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold uppercase tracking-wider">
-              <ScanLine className="w-3.5 h-3.5" />
+            <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold uppercase tracking-wider whitespace-nowrap">
+              <ScanLine className="w-3.5 h-3.5 shrink-0" />
               <span>Quét Mã Này Để Chấm Công Vào / Ra</span>
             </div>
           </div>
 
           {/* Right: Live Time, Shift & Instructions */}
-          <div className="md:col-span-6 space-y-5">
-            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2 text-center md:text-left">
-              <div className="flex items-center justify-center md:justify-between gap-2 text-xs text-slate-400">
-                <span className="flex items-center gap-1.5 uppercase font-bold tracking-wider text-cyan-300">
-                  <Clock className="w-4 h-4 text-cyan-400" />
+          <div className="md:col-span-7 space-y-5 min-w-0">
+            <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2 text-center md:text-left">
+              <div className="flex flex-wrap items-center justify-center md:justify-between gap-2 text-xs text-slate-400">
+                <span className="flex items-center gap-1.5 uppercase font-bold tracking-wider text-cyan-300 whitespace-nowrap shrink-0">
+                  <Clock className="w-4 h-4 text-cyan-400 shrink-0" />
                   <span>Giờ Hệ Thống Hiện Tại</span>
                 </span>
                 <span
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                  className={`px-3 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap shrink-0 ${
                     isDayShift
                       ? 'bg-amber-950/60 text-amber-300 border-amber-500/40'
                       : 'bg-indigo-950/60 text-indigo-300 border-indigo-500/40'
