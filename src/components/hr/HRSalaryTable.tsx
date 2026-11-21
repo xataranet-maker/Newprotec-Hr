@@ -53,11 +53,14 @@ interface HRSalaryTableProps {
 type SalaryViewMode = 'OVERVIEW' | 'DETAIL';
 
 interface DetailColumnDef {
+  id: string;
   key: keyof ComputedSalarySlipData;
+  qtyKey?: keyof ComputedSalarySlipData;
+  qtyUnit?: string;
   label: string;
   groupId: string;
   groupLabel: string;
-  type: 'text' | 'qty' | 'currency';
+  type: 'text' | 'qty' | 'currency' | 'paired';
   emphasize?: 'emerald' | 'cyan' | 'amber' | 'rose' | 'white';
   minWidth?: string;
 }
@@ -66,81 +69,70 @@ const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 const DETAIL_COLUMNS: DetailColumnDef[] = [
   // Thông tin & Lương cơ sở
-  { key: 'shiftLabel', label: 'Bộ phận / Ca làm', groupId: 'info', groupLabel: 'Thông Tin & Lương Cơ Sở', type: 'text', minWidth: 'min-w-[125px]' },
-  { key: 'totalSalary', label: 'Tổng lương chính', groupId: 'info', groupLabel: 'Thông Tin & Lương Cơ Sở', type: 'currency', emphasize: 'cyan', minWidth: 'min-w-[120px]' },
-  { key: 'ovtInsuranceBase', label: 'Lương tính BH & OVT', groupId: 'info', groupLabel: 'Thông Tin & Lương Cơ Sở', type: 'currency', emphasize: 'amber', minWidth: 'min-w-[125px]' },
+  { id: 'shiftLabel', key: 'shiftLabel', label: 'Bộ phận / Ca làm', groupId: 'info', groupLabel: 'Thông Tin & Lương Cơ Sở', type: 'text', minWidth: 'min-w-[125px]' },
+  { id: 'totalSalary', key: 'totalSalary', label: 'Tổng lương chính', groupId: 'info', groupLabel: 'Thông Tin & Lương Cơ Sở', type: 'currency', emphasize: 'cyan', minWidth: 'min-w-[120px]' },
+  { id: 'ovtInsuranceBase', key: 'ovtInsuranceBase', label: 'Lương tính BH & OVT', groupId: 'info', groupLabel: 'Thông Tin & Lương Cơ Sở', type: 'currency', emphasize: 'amber', minWidth: 'min-w-[125px]' },
 
   // I.1 Thu nhập theo HĐLĐ
-  { key: 'workDaysCount', label: 'Ngày công', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'qty', emphasize: 'emerald', minWidth: 'min-w-[82px]' },
-  { key: 'workDaySalaryAmount', label: 'Lương ngày công', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'leave70DayAmount', label: 'Lương ngày nghỉ 70%', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'attendanceAllowanceAmount', label: 'Trợ cấp chuyên cần', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'housingAllowanceAmount', label: 'Phụ cấp nhà ở', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[110px]' },
-  { key: 'livingAllowanceAmount', label: 'Phụ cấp đời sống', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[112px]' },
-  { key: 'languageAllowanceAmount', label: 'Phụ cấp ngôn ngữ', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'positionAllowanceAmount', label: 'Phụ cấp chức vụ', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[112px]' },
-  { key: 'seniorityAllowanceAmount', label: 'Phụ cấp thâm niên', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'processAllowanceAmount', label: 'Trợ cấp công đoạn', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'attractionAllowanceAmount', label: 'Trợ cấp thu hút', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[110px]' },
-  { key: 'cleanroomAllowanceAmount', label: 'Trợ cấp phòng sạch', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'phoneAllowanceAmount', label: 'Trợ cấp điện thoại', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'paidLeaveDays', label: 'Nghỉ nguyên lương (ngày)', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'qty', minWidth: 'min-w-[105px]' },
-  { key: 'paidLeaveAmount', label: 'Tiền nghỉ nguyên lương', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[120px]' },
-  { key: 'remainingLeaveDays', label: 'Phép còn lại (ngày)', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'qty', minWidth: 'min-w-[96px]' },
-  { key: 'unpaidLeaveDays', label: 'Nghỉ không lương (ngày)', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'qty', minWidth: 'min-w-[105px]' },
-  { key: 'unusedLeaveSettlementAmount', label: 'Thanh toán phép tồn', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[118px]' },
-  { key: 'section1Total', label: 'Tổng (1) Thu nhập HĐLĐ', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', emphasize: 'emerald', minWidth: 'min-w-[130px]' },
+  { id: 'workDaySalary', key: 'workDaySalaryAmount', qtyKey: 'workDaysCount', qtyUnit: 'ngày', label: 'Lương ngày công', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'paired', emphasize: 'emerald', minWidth: 'min-w-[118px]' },
+  { id: 'leave70Day', key: 'leave70DayAmount', qtyKey: 'leave70DayCount', qtyUnit: 'ngày', label: 'Lương ngày nghỉ 70%', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'paired', minWidth: 'min-w-[118px]' },
+  { id: 'attendanceAllowanceAmount', key: 'attendanceAllowanceAmount', label: 'Trợ cấp chuyên cần', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
+  { id: 'housingAllowanceAmount', key: 'housingAllowanceAmount', label: 'Phụ cấp nhà ở', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[110px]' },
+  { id: 'livingAllowanceAmount', key: 'livingAllowanceAmount', label: 'Phụ cấp đời sống', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[112px]' },
+  { id: 'languageAllowanceAmount', key: 'languageAllowanceAmount', label: 'Phụ cấp ngôn ngữ', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
+  { id: 'positionAllowanceAmount', key: 'positionAllowanceAmount', label: 'Phụ cấp chức vụ', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[112px]' },
+  { id: 'seniorityAllowanceAmount', key: 'seniorityAllowanceAmount', label: 'Phụ cấp thâm niên', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
+  { id: 'processAllowanceAmount', key: 'processAllowanceAmount', label: 'Trợ cấp công đoạn', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
+  { id: 'attractionAllowanceAmount', key: 'attractionAllowanceAmount', label: 'Trợ cấp thu hút', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[110px]' },
+  { id: 'cleanroomAllowanceAmount', key: 'cleanroomAllowanceAmount', label: 'Trợ cấp phòng sạch', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
+  { id: 'phoneAllowanceAmount', key: 'phoneAllowanceAmount', label: 'Trợ cấp điện thoại', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[115px]' },
+  { id: 'paidLeave', key: 'paidLeaveAmount', qtyKey: 'paidLeaveDays', qtyUnit: 'ngày', label: 'Nghỉ nguyên lương', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'paired', minWidth: 'min-w-[118px]' },
+  { id: 'remainingLeaveDays', key: 'remainingLeaveDays', qtyUnit: 'ngày', label: 'Phép còn lại', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'qty', minWidth: 'min-w-[92px]' },
+  { id: 'unpaidLeaveDays', key: 'unpaidLeaveDays', qtyUnit: 'ngày', label: 'Nghỉ không lương', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'qty', minWidth: 'min-w-[100px]' },
+  { id: 'unusedLeaveSettlementAmount', key: 'unusedLeaveSettlementAmount', label: 'Thanh toán phép tồn', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', minWidth: 'min-w-[118px]' },
+  { id: 'section1Total', key: 'section1Total', label: 'Tổng (1) Thu nhập HĐLĐ', groupId: 'sec1', groupLabel: '1. Thu Nhập Theo Hợp Đồng Lao Động', type: 'currency', emphasize: 'emerald', minWidth: 'min-w-[130px]' },
 
   // I.2 Tăng ca + PC ca đêm
-  { key: 'leave70HoursAmount', label: 'Nghỉ 70% lương (tiền)', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'regularNightHours', label: 'Giờ ca đêm 30%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'qty', minWidth: 'min-w-[90px]' },
-  { key: 'nightShift30Amount', label: 'PC ca đêm 30%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', minWidth: 'min-w-[112px]' },
-  { key: 'otNight195Amount', label: 'Tăng ca đêm 195%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'otNightHours', label: 'Giờ TC đêm 215%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'qty', minWidth: 'min-w-[90px]' },
-  { key: 'otNight215Amount', label: 'Tiền TC đêm 215%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'otDayHours', label: 'Giờ TC 150%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'qty', minWidth: 'min-w-[85px]' },
-  { key: 'otDay150Amount', label: 'Tiền TC 150%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', minWidth: 'min-w-[110px]' },
-  { key: 'otSundayDayHours', label: 'Giờ CN ngày 200%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'qty', minWidth: 'min-w-[92px]' },
-  { key: 'otSundayDay200Amount', label: 'Tiền CN ngày 200%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'otSundayNightHours', label: 'Giờ CN đêm 270%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'qty', minWidth: 'min-w-[92px]' },
-  { key: 'otSundayNight270Amount', label: 'Tiền CN đêm 270%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'otHolidayDayHours', label: 'Giờ Lễ ngày 300%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'qty', minWidth: 'min-w-[92px]' },
-  { key: 'otHolidayDay300Amount', label: 'Tiền Lễ ngày 300%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'otHolidayNightHours', label: 'Giờ Lễ đêm 390%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'qty', minWidth: 'min-w-[92px]' },
-  { key: 'otHolidayNight390Amount', label: 'Tiền Lễ đêm 390%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'section2Total', label: 'Tổng (2) Tăng ca + PC đêm', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', emphasize: 'amber', minWidth: 'min-w-[132px]' },
+  { id: 'leave70Hours', key: 'leave70HoursAmount', qtyKey: 'leave70Hours', qtyUnit: 'giờ', label: 'Nghỉ 70% lương', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'paired', minWidth: 'min-w-[115px]' },
+  { id: 'nightShift30', key: 'nightShift30Amount', qtyKey: 'regularNightHours', qtyUnit: 'giờ', label: 'PC ca đêm 30%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'paired', minWidth: 'min-w-[115px]' },
+  { id: 'otNight195', key: 'otNight195Amount', qtyKey: 'otNight195Hours', qtyUnit: 'giờ', label: 'Tăng ca đêm 195%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'paired', minWidth: 'min-w-[118px]' },
+  { id: 'otNight215', key: 'otNight215Amount', qtyKey: 'otNightHours', qtyUnit: 'giờ', label: 'Tăng ca đêm 215%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'paired', minWidth: 'min-w-[118px]' },
+  { id: 'otDay150', key: 'otDay150Amount', qtyKey: 'otDayHours', qtyUnit: 'giờ', label: 'Tăng ca ngày 150%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'paired', minWidth: 'min-w-[118px]' },
+  { id: 'otSundayDay200', key: 'otSundayDay200Amount', qtyKey: 'otSundayDayHours', qtyUnit: 'giờ', label: 'Tăng ca CN ngày 200%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'paired', minWidth: 'min-w-[125px]' },
+  { id: 'otSundayNight270', key: 'otSundayNight270Amount', qtyKey: 'otSundayNightHours', qtyUnit: 'giờ', label: 'Tăng ca CN đêm 270%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'paired', minWidth: 'min-w-[125px]' },
+  { id: 'otHolidayDay300', key: 'otHolidayDay300Amount', qtyKey: 'otHolidayDayHours', qtyUnit: 'giờ', label: 'Tăng ca Lễ ngày 300%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'paired', minWidth: 'min-w-[125px]' },
+  { id: 'otHolidayNight390', key: 'otHolidayNight390Amount', qtyKey: 'otHolidayNightHours', qtyUnit: 'giờ', label: 'Tăng ca Lễ đêm 390%', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'paired', minWidth: 'min-w-[125px]' },
+  { id: 'section2Total', key: 'section2Total', label: 'Tổng (2) Tăng ca + PC đêm', groupId: 'sec2', groupLabel: '2. Tăng Ca + Phụ Cấp Ca Đêm', type: 'currency', emphasize: 'amber', minWidth: 'min-w-[132px]' },
 
   // I.3 Ngoài HĐLĐ
-  { key: 'otMealDays', label: 'Buổi ăn tăng ca (>6h)', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'qty', minWidth: 'min-w-[100px]' },
-  { key: 'otMealAllowanceAmount', label: 'Tiền ăn tăng ca', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'currency', minWidth: 'min-w-[112px]' },
-  { key: 'bereavementWeddingAmount', label: 'Phụ cấp hiếu hỷ', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'currency', minWidth: 'min-w-[110px]' },
-  { key: 'childcareAllowanceAmount', label: 'Trợ cấp con nhỏ', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'currency', minWidth: 'min-w-[110px]' },
-  { key: 'productivityBonusAmount', label: 'Thưởng năng suất, CT', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'currency', minWidth: 'min-w-[118px]' },
-  { key: 'scopeSettingAllowanceAmount', label: 'TC soi kính & setting', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'currency', minWidth: 'min-w-[118px]' },
-  { key: 'section3Total', label: 'Tổng (3) Ngoài HĐLĐ', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'currency', emphasize: 'cyan', minWidth: 'min-w-[125px]' },
+  { id: 'otMealAllowance', key: 'otMealAllowanceAmount', qtyKey: 'otMealDays', qtyUnit: 'buổi', label: 'Tiền ăn tăng ca (>6h)', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'paired', minWidth: 'min-w-[125px]' },
+  { id: 'bereavementWedding', key: 'bereavementWeddingAmount', qtyKey: 'bereavementWeddingDays', qtyUnit: 'ngày', label: 'Phụ cấp hiếu hỷ', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'paired', minWidth: 'min-w-[115px]' },
+  { id: 'childcareAllowanceAmount', key: 'childcareAllowanceAmount', label: 'Trợ cấp con nhỏ', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'currency', minWidth: 'min-w-[110px]' },
+  { id: 'productivityBonusAmount', key: 'productivityBonusAmount', label: 'Thưởng năng suất, CT', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'currency', minWidth: 'min-w-[118px]' },
+  { id: 'scopeSettingAllowanceAmount', key: 'scopeSettingAllowanceAmount', label: 'TC soi kính & setting', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'currency', minWidth: 'min-w-[118px]' },
+  { id: 'section3Total', key: 'section3Total', label: 'Tổng (3) Ngoài HĐLĐ', groupId: 'sec3', groupLabel: '3. Thu Nhập Ngoài HĐLĐ', type: 'currency', emphasize: 'cyan', minWidth: 'min-w-[125px]' },
 
   // I. Tổng thu nhập
-  { key: 'sectionITotal', label: 'I/ Tổng Thu Nhập (1+2+3)', groupId: 'secI', groupLabel: 'I. Tổng Thu Nhập', type: 'currency', emphasize: 'white', minWidth: 'min-w-[138px]' },
+  { id: 'sectionITotal', key: 'sectionITotal', label: 'I/ Tổng Thu Nhập (1+2+3)', groupId: 'secI', groupLabel: 'I. Tổng Thu Nhập', type: 'currency', emphasize: 'white', minWidth: 'min-w-[138px]' },
 
   // II. Bảo hiểm & Công đoàn
-  { key: 'socialInsuranceAmount', label: 'BHXH+BHYT+BHTN (10.5%)', groupId: 'secII', groupLabel: 'II. Bảo Hiểm & Công Đoàn', type: 'currency', minWidth: 'min-w-[125px]' },
-  { key: 'unionFeeAmount', label: 'Công đoàn phí', groupId: 'secII', groupLabel: 'II. Bảo Hiểm & Công Đoàn', type: 'currency', minWidth: 'min-w-[108px]' },
-  { key: 'sectionIITotal', label: 'Tổng (II) BH & CĐ', groupId: 'secII', groupLabel: 'II. Bảo Hiểm & Công Đoàn', type: 'currency', emphasize: 'rose', minWidth: 'min-w-[122px]' },
+  { id: 'socialInsuranceAmount', key: 'socialInsuranceAmount', label: 'BHXH+BHYT+BHTN (10.5%)', groupId: 'secII', groupLabel: 'II. Bảo Hiểm & Công Đoàn', type: 'currency', minWidth: 'min-w-[125px]' },
+  { id: 'unionFeeAmount', key: 'unionFeeAmount', label: 'Công đoàn phí', groupId: 'secII', groupLabel: 'II. Bảo Hiểm & Công Đoàn', type: 'currency', minWidth: 'min-w-[108px]' },
+  { id: 'sectionIITotal', key: 'sectionIITotal', label: 'Tổng (II) BH & CĐ', groupId: 'secII', groupLabel: 'II. Bảo Hiểm & Công Đoàn', type: 'currency', emphasize: 'rose', minWidth: 'min-w-[122px]' },
 
   // III. Thuế TNCN
-  { key: 'personalIncomeTaxAmount', label: 'III. Thuế TNCN (10%)', groupId: 'secIII', groupLabel: 'III. Thuế TNCN', type: 'currency', emphasize: 'rose', minWidth: 'min-w-[120px]' },
+  { id: 'personalIncomeTaxAmount', key: 'personalIncomeTaxAmount', label: 'III. Thuế TNCN (10%)', groupId: 'secIII', groupLabel: 'III. Thuế TNCN', type: 'currency', emphasize: 'rose', minWidth: 'min-w-[120px]' },
 
   // IV. Các khoản trừ
-  { key: 'lateEarlyHours', label: 'Giờ đi muộn/về sớm', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'qty', minWidth: 'min-w-[96px]' },
-  { key: 'lateEarlyAmount', label: 'Trừ đi muộn/về sớm', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'currency', minWidth: 'min-w-[118px]' },
-  { key: 'unexcusedFineAmount', label: 'Phạt nghỉ không phép', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'currency', minWidth: 'min-w-[118px]' },
-  { key: 'uniformDeductionAmount', label: 'Mất, rách đồng phục', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'currency', minWidth: 'min-w-[118px]' },
-  { key: 'contractViolationAmount', label: 'Vi phạm hợp đồng', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'currency', minWidth: 'min-w-[115px]' },
-  { key: 'sectionIVTotal', label: 'Tổng (IV) Các khoản trừ', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'currency', emphasize: 'rose', minWidth: 'min-w-[128px]' },
+  { id: 'lateEarly', key: 'lateEarlyAmount', qtyKey: 'lateEarlyHours', qtyUnit: 'giờ', label: 'Trừ đi muộn/về sớm', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'paired', minWidth: 'min-w-[120px]' },
+  { id: 'unexcusedFine', key: 'unexcusedFineAmount', qtyKey: 'unexcusedFineHours', qtyUnit: 'giờ', label: 'Phạt nghỉ không phép', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'paired', minWidth: 'min-w-[122px]' },
+  { id: 'uniformDeductionAmount', key: 'uniformDeductionAmount', label: 'Mất, rách đồng phục', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'currency', minWidth: 'min-w-[118px]' },
+  { id: 'contractViolationAmount', key: 'contractViolationAmount', label: 'Vi phạm hợp đồng', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'currency', minWidth: 'min-w-[115px]' },
+  { id: 'sectionIVTotal', key: 'sectionIVTotal', label: 'Tổng (IV) Các khoản trừ', groupId: 'secIV', groupLabel: 'IV. Các Khoản Trừ', type: 'currency', emphasize: 'rose', minWidth: 'min-w-[128px]' },
 
   // V. Thực lĩnh & Công tác
-  { key: 'netSalaryAmount', label: 'V/ THỰC LĨNH (I-II-III-IV)', groupId: 'secV', groupLabel: 'V. Thực Lĩnh & Công Tác', type: 'currency', emphasize: 'emerald', minWidth: 'min-w-[148px]' },
-  { key: 'businessTripAmount', label: 'Công tác', groupId: 'secV', groupLabel: 'V. Thực Lĩnh & Công Tác', type: 'currency', minWidth: 'min-w-[105px]' },
+  { id: 'netSalaryAmount', key: 'netSalaryAmount', label: 'V/ THỰC LĨNH (I-II-III-IV)', groupId: 'secV', groupLabel: 'V. Thực Lĩnh & Công Tác', type: 'currency', emphasize: 'emerald', minWidth: 'min-w-[148px]' },
+  { id: 'businessTripAmount', key: 'businessTripAmount', label: 'Công tác', groupId: 'secV', groupLabel: 'V. Thực Lĩnh & Công Tác', type: 'currency', minWidth: 'min-w-[105px]' },
 ];
 
 const DETAIL_GROUPS = (() => {
@@ -158,16 +150,24 @@ const DETAIL_GROUPS = (() => {
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
-const formatDetailCell = (
+const formatQtyValue = (
   val: string | number | boolean,
-  type: DetailColumnDef['type'],
+  unit: string | undefined,
   masked: boolean
 ): string => {
-  if (type === 'text') return String(val || '—');
+  if (masked) return '••';
+  const num = round1(Number(val) || 0);
+  if (num === 0) return '—';
+  return unit ? `${num} ${unit}` : String(num);
+};
+
+const formatCurrencyValue = (
+  val: string | number | boolean,
+  masked: boolean
+): string => {
   if (masked) return '••••••';
   const num = Number(val) || 0;
   if (num === 0) return '—';
-  if (type === 'qty') return String(round1(num));
   return formatVnd(num);
 };
 
@@ -192,6 +192,7 @@ export const HRSalaryTable: React.FC<HRSalaryTableProps> = ({
   const [refreshTick, setRefreshTick] = useState(0);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [viewingSlipData, setViewingSlipData] = useState<ComputedSalarySlipData | null>(null);
+  const [hoveredEmpId, setHoveredEmpId] = useState<string | null>(null);
 
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const monthHeaderRefs = useRef<Record<number, HTMLTableCellElement | null>>({});
@@ -406,16 +407,20 @@ export const HRSalaryTable: React.FC<HRSalaryTableProps> = ({
     refreshTick,
   ]);
 
-  // Column totals for Detail Mode footer
+  // Column totals for Detail Mode footer (both qty & amount keys)
   const detailTotals = useMemo(() => {
     const sums: Record<string, number> = {};
     DETAIL_COLUMNS.forEach((col) => {
       if (col.type !== 'text') sums[col.key] = 0;
+      if (col.qtyKey) sums[col.qtyKey] = 0;
     });
     detailRows.forEach(({ slipData }) => {
       DETAIL_COLUMNS.forEach((col) => {
         if (col.type !== 'text') {
           sums[col.key] += Number(slipData[col.key]) || 0;
+        }
+        if (col.qtyKey) {
+          sums[col.qtyKey] += Number(slipData[col.qtyKey]) || 0;
         }
       });
     });
@@ -602,32 +607,88 @@ export const HRSalaryTable: React.FC<HRSalaryTableProps> = ({
       headerRow2.push(col.label);
     });
 
-    const dataRows = detailRows.map(({ staff, slipData }) => [
-      staff.fullName,
-      staff.employeeId,
-      ...DETAIL_COLUMNS.map((col) => {
-        const v = slipData[col.key];
-        if (col.type === 'text') return String(v || '');
-        if (col.type === 'qty') return round1(Number(v) || 0);
-        return Math.round(Number(v) || 0);
-      }),
-    ]);
+    const dataRows: (string | number)[][] = [];
+    let excelRowIndex = 2;
 
-    const totalRow: (string | number)[] = [
+    detailRows.forEach(({ staff, slipData }) => {
+      merges.push(
+        { s: { r: excelRowIndex, c: 0 }, e: { r: excelRowIndex + 1, c: 0 } },
+        { s: { r: excelRowIndex, c: 1 }, e: { r: excelRowIndex + 1, c: 1 } }
+      );
+
+      const topRow: (string | number)[] = [staff.fullName, staff.employeeId];
+      const bottomRow: (string | number)[] = ['', ''];
+
+      DETAIL_COLUMNS.forEach((col, colOffset) => {
+        const cIdx = 2 + colOffset;
+        if (col.type === 'paired' && col.qtyKey) {
+          const qVal = round1(Number(slipData[col.qtyKey]) || 0);
+          const amtVal = Math.round(Number(slipData[col.key]) || 0);
+          topRow.push(qVal > 0 ? `${qVal}${col.qtyUnit ? ` ${col.qtyUnit}` : ''}` : '—');
+          bottomRow.push(amtVal);
+        } else {
+          merges.push({
+            s: { r: excelRowIndex, c: cIdx },
+            e: { r: excelRowIndex + 1, c: cIdx },
+          });
+          const v = slipData[col.key];
+          if (col.type === 'text') {
+            topRow.push(String(v || ''));
+          } else if (col.type === 'qty') {
+            const qVal = round1(Number(v) || 0);
+            topRow.push(qVal > 0 ? `${qVal}${col.qtyUnit ? ` ${col.qtyUnit}` : ''}` : '—');
+          } else {
+            topRow.push(Math.round(Number(v) || 0));
+          }
+          bottomRow.push('');
+        }
+      });
+
+      dataRows.push(topRow, bottomRow);
+      excelRowIndex += 2;
+    });
+
+    merges.push(
+      { s: { r: excelRowIndex, c: 0 }, e: { r: excelRowIndex + 1, c: 0 } },
+      { s: { r: excelRowIndex, c: 1 }, e: { r: excelRowIndex + 1, c: 1 } }
+    );
+
+    const totalTopRow: (string | number)[] = [
       `TỔNG CỘNG (${detailRows.length} NV)`,
       `Tháng ${selectedMonth}/${selectedYear}`,
-      ...DETAIL_COLUMNS.map((col) => {
-        if (col.type === 'text') return '';
-        if (col.type === 'qty') return round1(detailTotals[col.key] || 0);
-        return Math.round(detailTotals[col.key] || 0);
-      }),
     ];
+    const totalBottomRow: (string | number)[] = ['', ''];
+
+    DETAIL_COLUMNS.forEach((col, colOffset) => {
+      const cIdx = 2 + colOffset;
+      if (col.type === 'paired' && col.qtyKey) {
+        const totQ = round1(detailTotals[col.qtyKey] || 0);
+        const totAmt = Math.round(detailTotals[col.key] || 0);
+        totalTopRow.push(totQ > 0 ? `${totQ}${col.qtyUnit ? ` ${col.qtyUnit}` : ''}` : '—');
+        totalBottomRow.push(totAmt);
+      } else {
+        merges.push({
+          s: { r: excelRowIndex, c: cIdx },
+          e: { r: excelRowIndex + 1, c: cIdx },
+        });
+        if (col.type === 'text') {
+          totalTopRow.push('');
+        } else if (col.type === 'qty') {
+          const totQ = round1(detailTotals[col.key] || 0);
+          totalTopRow.push(totQ > 0 ? `${totQ}${col.qtyUnit ? ` ${col.qtyUnit}` : ''}` : '—');
+        } else {
+          totalTopRow.push(Math.round(detailTotals[col.key] || 0));
+        }
+        totalBottomRow.push('');
+      }
+    });
 
     const ws = XLSX.utils.aoa_to_sheet([
       headerRow1,
       headerRow2,
       ...dataRows,
-      totalRow,
+      totalTopRow,
+      totalBottomRow,
     ]);
     ws['!merges'] = merges;
     ws['!cols'] = [
@@ -805,7 +866,7 @@ export const HRSalaryTable: React.FC<HRSalaryTableProps> = ({
           <p className="text-xs text-slate-400 mt-1">
             {viewMode === 'OVERVIEW'
               ? 'Bảng lương tổng hợp 12 tháng — di chuột vào từng ô tháng để hiện nút "Xem" và mở nhanh phiếu lương của nhân viên.'
-              : `Chế độ xem chi tiết Tháng ${selectedMonth}/${selectedYear} — toàn bộ các khoản mục trên phiếu lương được sắp xếp theo hàng ngang cho từng nhân viên.`}
+              : `Chế độ xem chi tiết Tháng ${selectedMonth}/${selectedYear} — mỗi nhân viên gồm 2 hàng ngang: hàng trên là số ngày/giờ làm, hàng dưới là số tiền tương ứng.`}
           </p>
         </div>
 
@@ -1063,7 +1124,7 @@ export const HRSalaryTable: React.FC<HRSalaryTableProps> = ({
           <div className="text-[11px] text-slate-400">
             {viewMode === 'OVERVIEW'
               ? 'Di chuột vào ô từng tháng để hiện nút "Xem" và mở phiếu lương chi tiết.'
-              : 'Cuộn ngang để xem toàn bộ tiêu đề & số liệu phiếu lương theo từng nhân viên.'}
+              : 'Mỗi nhân viên hiển thị 2 hàng ngang (trên: ngày/giờ, dưới: tiền) — cuộn ngang để xem toàn bộ phiếu lương.'}
           </div>
         </div>
 
@@ -1405,7 +1466,7 @@ export const HRSalaryTable: React.FC<HRSalaryTableProps> = ({
                 <tr className="border-b border-slate-700 text-[10px] font-bold">
                   {DETAIL_COLUMNS.map((col) => (
                     <th
-                      key={col.key}
+                      key={col.id}
                       className={`py-2 px-2 text-center border-r border-slate-800 whitespace-nowrap ${
                         col.minWidth || 'min-w-[110px]'
                       } ${
@@ -1420,13 +1481,18 @@ export const HRSalaryTable: React.FC<HRSalaryTableProps> = ({
                           : 'bg-slate-950 text-slate-300'
                       }`}
                     >
-                      {col.label}
+                      <div>{col.label}</div>
+                      {col.type === 'paired' && (
+                        <div className="text-[8.5px] font-normal text-slate-400 normal-case mt-0.5">
+                          Trên: {col.qtyUnit} · Dưới: VNĐ
+                        </div>
+                      )}
                     </th>
                   ))}
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-slate-800/70">
+              <tbody>
                 {detailRows.length === 0 ? (
                   <tr>
                     <td
@@ -1437,132 +1503,271 @@ export const HRSalaryTable: React.FC<HRSalaryTableProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  detailRows.map(({ staff, slipData, isIssued }) => (
-                    <tr
-                      key={staff.employeeId}
-                      className="hover:bg-slate-800/40 transition-colors group"
-                    >
-                      {/* Sticky Left Name */}
-                      <td className="sticky left-0 z-10 bg-slate-950 group-hover:bg-slate-900 py-2.5 px-3 border-r border-slate-800 w-[185px] min-w-[185px] max-w-[185px]">
-                        <button
-                          type="button"
-                          onClick={() => onViewProfile?.(staff)}
-                          title="Nhấn để xem hồ sơ nhân viên"
-                          className="font-bold text-slate-100 group-hover:text-cyan-300 hover:underline text-left truncate block w-full cursor-pointer"
+                  detailRows.map(({ staff, slipData, isIssued }, empIdx) => {
+                    const isHovered = hoveredEmpId === staff.employeeId;
+                    const rowStripeBg = isHovered
+                      ? 'bg-slate-800/45'
+                      : empIdx % 2 === 1
+                      ? 'bg-slate-900/30'
+                      : '';
+                    const stickyCellBg = isHovered
+                      ? 'bg-slate-900'
+                      : empIdx % 2 === 1
+                      ? 'bg-[#091122]'
+                      : 'bg-slate-950';
+
+                    const getAmountTextClass = (
+                      col: DetailColumnDef,
+                      numVal: number
+                    ) => {
+                      if (numVal === 0 || isAmountMasked) return 'text-slate-600';
+                      if (col.key === 'netSalaryAmount')
+                        return 'text-emerald-400 font-extrabold';
+                      if (col.emphasize === 'emerald')
+                        return 'text-emerald-300 font-bold';
+                      if (col.emphasize === 'cyan')
+                        return 'text-cyan-300 font-bold';
+                      if (col.emphasize === 'amber')
+                        return 'text-amber-300 font-bold';
+                      if (col.emphasize === 'rose')
+                        return 'text-rose-300 font-bold';
+                      if (col.emphasize === 'white')
+                        return 'text-white font-bold';
+                      return 'text-slate-200';
+                    };
+
+                    return (
+                      <React.Fragment key={staff.employeeId}>
+                        {/* ROW 1: Sticky identity (rowSpan=2) + Top row (Days / Hours) + Single-value columns (rowSpan=2) */}
+                        <tr
+                          onMouseEnter={() => setHoveredEmpId(staff.employeeId)}
+                          onMouseLeave={() => setHoveredEmpId(null)}
+                          className={`transition-colors ${rowStripeBg}`}
                         >
-                          {staff.fullName}
-                        </button>
-                        <div className="text-[10px] text-slate-400 truncate flex items-center gap-1">
-                          <span>{staff.department || 'MULTI'}</span>
-                          {isIssued && (
-                            <span className="px-1 rounded bg-emerald-500/15 text-emerald-300 text-[9px]">
-                              Đã phát
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Sticky Left Emp ID */}
-                      <td
-                        onClick={() => onViewProfile?.(staff)}
-                        title="Nhấn để xem hồ sơ nhân viên"
-                        className="sticky left-[185px] z-10 bg-slate-950 group-hover:bg-slate-900 py-2.5 px-2.5 border-r border-slate-700 w-[108px] min-w-[108px] max-w-[108px] font-mono font-bold text-cyan-400 hover:text-cyan-200 cursor-pointer whitespace-nowrap shadow-[4px_0_12px_rgba(0,0,0,0.65)]"
-                      >
-                        {staff.employeeId}
-                      </td>
-
-                      {/* All horizontal salary slip figures */}
-                      {DETAIL_COLUMNS.map((col) => {
-                        const rawVal = slipData[col.key];
-                        const formatted = formatDetailCell(
-                          rawVal,
-                          col.type,
-                          isAmountMasked
-                        );
-                        const numVal = Number(rawVal) || 0;
-                        const isZero = col.type !== 'text' && numVal === 0;
-
-                        let colorClass = 'text-slate-200';
-                        if (isZero || isAmountMasked) {
-                          colorClass = 'text-slate-600';
-                        } else if (col.key === 'netSalaryAmount') {
-                          colorClass = 'text-emerald-400 font-extrabold';
-                        } else if (col.emphasize === 'emerald') {
-                          colorClass = 'text-emerald-300 font-bold';
-                        } else if (col.emphasize === 'cyan') {
-                          colorClass = 'text-cyan-300 font-bold';
-                        } else if (col.emphasize === 'amber') {
-                          colorClass = 'text-amber-300 font-bold';
-                        } else if (col.emphasize === 'rose') {
-                          colorClass = 'text-rose-300 font-bold';
-                        } else if (col.emphasize === 'white') {
-                          colorClass = 'text-white font-bold';
-                        }
-
-                        return (
+                          {/* Sticky Left Name */}
                           <td
-                            key={`${staff.employeeId}-${col.key}`}
-                            className={`py-2 px-2.5 border-r border-slate-800/80 whitespace-nowrap tabular-nums ${
-                              col.type === 'text'
-                                ? 'text-center text-slate-300'
-                                : col.type === 'qty'
-                                ? 'text-center font-mono'
-                                : 'text-right font-mono'
-                            } ${
-                              col.key === 'netSalaryAmount'
-                                ? 'bg-emerald-950/20'
-                                : ''
-                            } ${colorClass}`}
+                            rowSpan={2}
+                            className={`sticky left-0 z-10 ${stickyCellBg} py-2.5 px-3 border-r border-b-2 border-slate-800 w-[185px] min-w-[185px] max-w-[185px] align-middle transition-colors`}
                           >
-                            {formatted}
+                            <button
+                              type="button"
+                              onClick={() => onViewProfile?.(staff)}
+                              title="Nhấn để xem hồ sơ nhân viên"
+                              className={`font-bold ${
+                                isHovered ? 'text-cyan-300' : 'text-slate-100'
+                              } hover:underline text-left truncate block w-full cursor-pointer`}
+                            >
+                              {staff.fullName}
+                            </button>
+                            <div className="text-[10px] text-slate-400 truncate flex items-center gap-1 mt-0.5">
+                              <span>{staff.department || 'MULTI'}</span>
+                              {isIssued && (
+                                <span className="px-1 rounded bg-emerald-500/15 text-emerald-300 text-[9px]">
+                                  Đã phát
+                                </span>
+                              )}
+                            </div>
                           </td>
-                        );
-                      })}
 
-                      {/* Open Slip Button */}
-                      <td className="py-1.5 px-2.5 text-center border-l border-slate-800">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenSlipModal(slipData)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/40 font-semibold text-[11px] transition-colors cursor-pointer"
+                          {/* Sticky Left Emp ID */}
+                          <td
+                            rowSpan={2}
+                            onClick={() => onViewProfile?.(staff)}
+                            title="Nhấn để xem hồ sơ nhân viên"
+                            className={`sticky left-[185px] z-10 ${stickyCellBg} py-2.5 px-2.5 border-r border-b-2 border-slate-700 w-[108px] min-w-[108px] max-w-[108px] font-mono font-bold text-cyan-400 hover:text-cyan-200 cursor-pointer whitespace-nowrap align-middle shadow-[4px_0_12px_rgba(0,0,0,0.65)] transition-colors`}
+                          >
+                            {staff.employeeId}
+                          </td>
+
+                          {/* Columns for Row 1 */}
+                          {DETAIL_COLUMNS.map((col) => {
+                            if (col.type === 'paired' && col.qtyKey) {
+                              const rawQty = slipData[col.qtyKey];
+                              const numQty = round1(Number(rawQty) || 0);
+                              const formattedQty = formatQtyValue(
+                                rawQty,
+                                col.qtyUnit,
+                                isAmountMasked
+                              );
+                              return (
+                                <td
+                                  key={`${staff.employeeId}-${col.id}-qty`}
+                                  className={`py-1 px-2 border-r border-b border-dashed border-slate-800/80 text-center font-mono text-[10.5px] whitespace-nowrap tabular-nums ${
+                                    isAmountMasked || numQty === 0
+                                      ? 'text-slate-600'
+                                      : col.groupId === 'secIV'
+                                      ? 'text-rose-300 font-semibold'
+                                      : col.groupId === 'sec2'
+                                      ? 'text-amber-300 font-semibold'
+                                      : 'text-cyan-300 font-semibold'
+                                  }`}
+                                >
+                                  {formattedQty}
+                                </td>
+                              );
+                            }
+
+                            const rawVal = slipData[col.key];
+                            const numVal = Number(rawVal) || 0;
+
+                            if (col.type === 'text') {
+                              return (
+                                <td
+                                  key={`${staff.employeeId}-${col.id}`}
+                                  rowSpan={2}
+                                  className="py-2 px-2.5 border-r border-b-2 border-slate-800/80 text-center text-slate-300 whitespace-nowrap align-middle"
+                                >
+                                  {String(rawVal || '—')}
+                                </td>
+                              );
+                            }
+
+                            if (col.type === 'qty') {
+                              return (
+                                <td
+                                  key={`${staff.employeeId}-${col.id}`}
+                                  rowSpan={2}
+                                  className={`py-2 px-2.5 border-r border-b-2 border-slate-800/80 text-center font-mono whitespace-nowrap tabular-nums align-middle ${
+                                    isAmountMasked || numVal === 0
+                                      ? 'text-slate-600'
+                                      : 'text-slate-200 font-semibold'
+                                  }`}
+                                >
+                                  {formatQtyValue(rawVal, col.qtyUnit, isAmountMasked)}
+                                </td>
+                              );
+                            }
+
+                            return (
+                              <td
+                                key={`${staff.employeeId}-${col.id}`}
+                                rowSpan={2}
+                                className={`py-2 px-2.5 border-r border-b-2 border-slate-800/80 text-right font-mono whitespace-nowrap tabular-nums align-middle ${
+                                  col.key === 'netSalaryAmount'
+                                    ? 'bg-emerald-950/20'
+                                    : ''
+                                } ${getAmountTextClass(col, numVal)}`}
+                              >
+                                {formatCurrencyValue(rawVal, isAmountMasked)}
+                              </td>
+                            );
+                          })}
+
+                          {/* Open Slip Button (rowSpan=2) */}
+                          <td
+                            rowSpan={2}
+                            className="py-1.5 px-2.5 text-center border-l border-b-2 border-slate-800 align-middle"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleOpenSlipModal(slipData)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/40 font-semibold text-[11px] transition-colors cursor-pointer"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Xem</span>
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* ROW 2: Bottom row (Amount in VNĐ for paired columns) */}
+                        <tr
+                          onMouseEnter={() => setHoveredEmpId(staff.employeeId)}
+                          onMouseLeave={() => setHoveredEmpId(null)}
+                          className={`transition-colors ${rowStripeBg}`}
                         >
-                          <Eye className="w-3 h-3" />
-                          <span>Xem</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                          {DETAIL_COLUMNS.filter(
+                            (col) => col.type === 'paired' && col.qtyKey
+                          ).map((col) => {
+                            const rawAmt = slipData[col.key];
+                            const numAmt = Number(rawAmt) || 0;
+                            return (
+                              <td
+                                key={`${staff.employeeId}-${col.id}-amt`}
+                                className={`py-1 px-2.5 border-r border-b-2 border-slate-800/80 text-right font-mono text-[11px] whitespace-nowrap tabular-nums ${getAmountTextClass(
+                                  col,
+                                  numAmt
+                                )}`}
+                              >
+                                {formatCurrencyValue(rawAmt, isAmountMasked)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })
                 )}
               </tbody>
 
               {detailRows.length > 0 && (
                 <tfoot className="sticky bottom-0 z-20 bg-slate-950 border-t-2 border-slate-700">
+                  {/* Footer Row 1: Totals for single columns + Top totals (days/hours) for paired columns */}
                   <tr className="font-mono font-bold text-[11px]">
-                    <td className="sticky left-0 z-30 bg-slate-950 py-2.5 px-3 border-r border-slate-800 text-white font-sans uppercase text-[10px] tracking-wider">
+                    <td
+                      rowSpan={2}
+                      className="sticky left-0 z-30 bg-slate-950 py-2 px-3 border-r border-slate-800 text-white font-sans uppercase text-[10px] tracking-wider align-middle"
+                    >
                       Tổng Cộng ({detailRows.length} NV)
                     </td>
-                    <td className="sticky left-[185px] z-30 bg-slate-950 py-2.5 px-2.5 border-r border-slate-700 text-cyan-400 text-[10px] shadow-[4px_0_12px_rgba(0,0,0,0.65)]">
+                    <td
+                      rowSpan={2}
+                      className="sticky left-[185px] z-30 bg-slate-950 py-2 px-2.5 border-r border-slate-700 text-cyan-400 text-[10px] align-middle shadow-[4px_0_12px_rgba(0,0,0,0.65)]"
+                    >
                       T{selectedMonth}/{selectedYear}
                     </td>
 
                     {DETAIL_COLUMNS.map((col) => {
+                      if (col.type === 'paired' && col.qtyKey) {
+                        const totQty = detailTotals[col.qtyKey] || 0;
+                        return (
+                          <td
+                            key={`tot-${col.id}-qty`}
+                            className={`py-1 px-2 text-center border-r border-b border-dashed border-slate-800/80 text-[10px] whitespace-nowrap tabular-nums ${
+                              isAmountMasked || round1(totQty) === 0
+                                ? 'text-slate-600'
+                                : col.groupId === 'secIV'
+                                ? 'text-rose-300'
+                                : col.groupId === 'sec2'
+                                ? 'text-amber-300'
+                                : 'text-cyan-300'
+                            }`}
+                          >
+                            {formatQtyValue(totQty, col.qtyUnit, isAmountMasked)}
+                          </td>
+                        );
+                      }
+
                       if (col.type === 'text') {
                         return (
                           <td
-                            key={`tot-${col.key}`}
-                            className="py-2.5 px-2 text-center border-r border-slate-800 text-slate-500"
+                            key={`tot-${col.id}`}
+                            rowSpan={2}
+                            className="py-2 px-2 text-center border-r border-slate-800 text-slate-500 align-middle"
                           >
                             —
                           </td>
                         );
                       }
+
+                      if (col.type === 'qty') {
+                        const totQ = detailTotals[col.key] || 0;
+                        return (
+                          <td
+                            key={`tot-${col.id}`}
+                            rowSpan={2}
+                            className="py-2 px-2.5 text-center border-r border-slate-800 text-slate-200 whitespace-nowrap tabular-nums align-middle"
+                          >
+                            {formatQtyValue(totQ, col.qtyUnit, isAmountMasked)}
+                          </td>
+                        );
+                      }
+
                       const totalVal = detailTotals[col.key] || 0;
                       return (
                         <td
-                          key={`tot-${col.key}`}
-                          className={`py-2.5 px-2.5 border-r border-slate-800 tabular-nums whitespace-nowrap ${
-                            col.type === 'qty' ? 'text-center' : 'text-right'
-                          } ${
+                          key={`tot-${col.id}`}
+                          rowSpan={2}
+                          className={`py-2 px-2.5 border-r border-slate-800 text-right tabular-nums whitespace-nowrap align-middle ${
                             col.key === 'netSalaryAmount'
                               ? 'text-emerald-400 bg-emerald-950/30'
                               : col.emphasize === 'rose'
@@ -1574,12 +1779,35 @@ export const HRSalaryTable: React.FC<HRSalaryTableProps> = ({
                               : 'text-slate-200'
                           }`}
                         >
-                          {formatDetailCell(totalVal, col.type, isAmountMasked)}
+                          {formatCurrencyValue(totalVal, isAmountMasked)}
                         </td>
                       );
                     })}
 
-                    <td className="py-2.5 px-2 border-l border-slate-800" />
+                    <td rowSpan={2} className="py-2 px-2 border-l border-slate-800" />
+                  </tr>
+
+                  {/* Footer Row 2: Total VND amounts for paired columns */}
+                  <tr className="font-mono font-bold text-[11px]">
+                    {DETAIL_COLUMNS.filter(
+                      (col) => col.type === 'paired' && col.qtyKey
+                    ).map((col) => {
+                      const totAmt = detailTotals[col.key] || 0;
+                      return (
+                        <td
+                          key={`tot-${col.id}-amt`}
+                          className={`py-1 px-2.5 border-r border-slate-800 text-right tabular-nums whitespace-nowrap ${
+                            col.emphasize === 'rose'
+                              ? 'text-rose-300'
+                              : col.emphasize === 'emerald'
+                              ? 'text-emerald-300'
+                              : 'text-slate-200'
+                          }`}
+                        >
+                          {formatCurrencyValue(totAmt, isAmountMasked)}
+                        </td>
+                      );
+                    })}
                   </tr>
                 </tfoot>
               )}
