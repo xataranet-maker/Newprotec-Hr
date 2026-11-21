@@ -76,6 +76,14 @@ export function parseStaffQrParamsFromUrl(): {
   return { employeeId: emp, token };
 }
 
+export function setStaffQrParamsInUrl(employeeId: string, token: string) {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  url.searchParams.set(QR_EMP_PARAM, employeeId.trim());
+  url.searchParams.set(QR_TOKEN_PARAM, token.trim());
+  window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
+}
+
 export function clearStaffQrParamsFromUrl() {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
@@ -83,3 +91,63 @@ export function clearStaffQrParamsFromUrl() {
   url.searchParams.delete(QR_TOKEN_PARAM);
   window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
 }
+
+export type ParsedStaffQrPayload =
+  | { type: 'STAFF_QR'; employeeId: string; token: string }
+  | { type: 'APP_URL' }
+  | { type: 'INVALID' };
+
+export function parseStaffQrPayload(rawText: string): ParsedStaffQrPayload {
+  const trimmed = (rawText || '').trim();
+  if (!trimmed) return { type: 'INVALID' };
+
+  // 1. Try URL parsing (full http(s) URL or relative path with query params)
+  try {
+    const parsedUrl = trimmed.startsWith('http://') || trimmed.startsWith('https://')
+      ? new URL(trimmed)
+      : trimmed.startsWith('/') || trimmed.includes('?')
+      ? new URL(trimmed.startsWith('/') ? trimmed : `/${trimmed}`, 'https://placeholder.local')
+      : null;
+
+    if (parsedUrl) {
+      const emp = parsedUrl.searchParams.get(QR_EMP_PARAM)?.trim();
+      const token = parsedUrl.searchParams.get(QR_TOKEN_PARAM)?.trim();
+      if (emp && token) {
+        return { type: 'STAFF_QR', employeeId: emp, token };
+      }
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        return { type: 'APP_URL' };
+      }
+    }
+  } catch {
+    // fallback to query/JSON parsing below
+  }
+
+  // 2. Try raw query string format (qr_emp=...&qr_token=...)
+  if (trimmed.includes(`${QR_EMP_PARAM}=`) && trimmed.includes(`${QR_TOKEN_PARAM}=`)) {
+    const cleanedQuery = trimmed.replace(/^\?/, '');
+    const params = new URLSearchParams(cleanedQuery);
+    const emp = params.get(QR_EMP_PARAM)?.trim();
+    const token = params.get(QR_TOKEN_PARAM)?.trim();
+    if (emp && token) {
+      return { type: 'STAFF_QR', employeeId: emp, token };
+    }
+  }
+
+  // 3. Try JSON format ({ employeeId, token } or { qr_emp, qr_token })
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const obj = JSON.parse(trimmed);
+      const emp = String(obj?.employeeId || obj?.qr_emp || '').trim();
+      const token = String(obj?.token || obj?.qr_token || '').trim();
+      if (emp && token) {
+        return { type: 'STAFF_QR', employeeId: emp, token };
+      }
+    } catch {
+      // ignore invalid JSON
+    }
+  }
+
+  return { type: 'INVALID' };
+}
+

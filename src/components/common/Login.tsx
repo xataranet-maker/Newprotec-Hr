@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { UserAccount, StaffRecord, Language } from '../../types';
 import { translations } from '../../data/locales';
-import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode } from 'lucide-react';
+import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode, ScanLine } from 'lucide-react';
 import { AppQRModal } from './AppQRModal';
+import { StaffQRScannerModal } from './StaffQRScannerModal';
 
 interface LoginProps {
   users: UserAccount[];
   allStaff: StaffRecord[];
   onLogin: (user: UserAccount) => void;
+  onQrQuickAccess?: (params: { employeeId: string; token: string }, staff: StaffRecord) => void;
   language: Language;
   onLanguageChange: (lang: Language) => void;
 }
@@ -16,6 +18,7 @@ export const Login: React.FC<LoginProps> = ({
   users,
   allStaff,
   onLogin,
+  onQrQuickAccess,
   language,
   onLanguageChange
 }) => {
@@ -23,6 +26,7 @@ export const Login: React.FC<LoginProps> = ({
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,6 +212,24 @@ export const Login: React.FC<LoginProps> = ({
               <ArrowRight className="w-4 h-4" />
             </button>
 
+            <div className="relative flex items-center py-0.5">
+              <div className="flex-grow border-t border-slate-800" />
+              <span className="shrink mx-3 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Hoặc truy cập nhanh
+              </span>
+              <div className="flex-grow border-t border-slate-800" />
+            </div>
+
+            {/* Scan Employee QR Code for Quick Access */}
+            <button
+              type="button"
+              onClick={() => setShowQRScanner(true)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-400/50 text-teal-200 hover:text-white text-xs font-bold shadow-md shadow-teal-950/30 transition-all cursor-pointer"
+            >
+              <ScanLine className="w-4 h-4 text-teal-300" />
+              <span>Quét Mã QR Truy Cập Nhanh</span>
+            </button>
+
             {/* Firebase Google Auth Button */}
             <button
               type="button"
@@ -249,6 +271,26 @@ export const Login: React.FC<LoginProps> = ({
       </div>
 
       <AppQRModal isOpen={showQRModal} onClose={() => setShowQRModal(false)} />
+
+      <StaffQRScannerModal
+        isOpen={showQRScanner}
+        allStaff={allStaff}
+        onClose={() => setShowQRScanner(false)}
+        onSuccess={(params, staff) => {
+          setShowQRScanner(false);
+          if (onQrQuickAccess) {
+            onQrQuickAccess(params, staff);
+          } else {
+            onLogin({
+              username: staff.employeeId,
+              fullName: staff.fullName,
+              role: 'staff',
+              employeeId: staff.employeeId,
+              department: staff.department || 'MULTI',
+            });
+          }
+        }}
+      />
     </div>
   );
 };

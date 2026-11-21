@@ -13,6 +13,7 @@ import { AppQRModal } from './components/common/AppQRModal';
 import { QrCode, ShieldOff, LogIn, Loader2 } from 'lucide-react';
 import {
   parseStaffQrParamsFromUrl,
+  setStaffQrParamsInUrl,
   clearStaffQrParamsFromUrl,
   isStaffQrEnabled,
   getStaffQrToken,
@@ -794,6 +795,10 @@ export default function App() {
         users={userAccounts}
         allStaff={allStaff}
         onLogin={handleLogin}
+        onQrQuickAccess={({ employeeId, token }) => {
+          setStaffQrParamsInUrl(employeeId, token);
+          setQrRouteParams({ employeeId, token });
+        }}
         language={language}
         onLanguageChange={setLanguage}
       />
