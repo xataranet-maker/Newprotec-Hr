@@ -905,8 +905,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         isModal ? 'h-full overflow-y-auto overflow-x-hidden lg:overflow-hidden custom-scrollbar' : 'lg:overflow-hidden'
       }`}
     >
-      {/* LEFT SIDEBAR: NEWPROTEC IDENTITY CARD */}
-      <aside className="w-full lg:w-[270px] shrink-0 bg-[#080f1e] border-b lg:border-b-0 lg:border-r border-slate-800/80 p-5 flex flex-col justify-between gap-5 lg:overflow-y-auto custom-scrollbar">
+      {/* LEFT SIDEBAR: NEWPROTEC IDENTITY CARD (Visible on overview tab on mobile, always visible on desktop) */}
+      <aside
+        className={`w-full lg:w-[270px] shrink-0 bg-[#080f1e] border-b lg:border-b-0 lg:border-r border-slate-800/80 p-5 ${
+          activeTab === 'overview' ? 'flex' : 'hidden lg:flex'
+        } flex-col justify-between gap-5 lg:overflow-y-auto custom-scrollbar`}
+      >
         <div className="space-y-4">
           {/* Avatar + Name + Position Pill */}
           <div className="flex flex-col items-center text-center pt-2">
@@ -1057,7 +1061,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       </aside>
 
       {/* RIGHT MAIN PANEL */}
-      <div ref={rightPanelRef} className="flex-none lg:flex-1 flex flex-col min-w-0 lg:min-h-0 bg-[#050a14]">
+      <div
+        ref={rightPanelRef}
+        className={`${
+          activeTab !== 'overview' ? 'flex-1' : 'flex-none lg:flex-1'
+        } flex flex-col min-w-0 lg:min-h-0 bg-[#050a14]`}
+      >
         {/* Top Tab Navigation + Month Switcher */}
         <div className={`px-3 sm:px-5 pt-3 pb-2 lg:pb-0 border-b border-slate-800/90 flex flex-wrap items-center justify-center sm:justify-between gap-2 sm:gap-3 ${isModal ? 'pr-12 sm:pr-14' : ''}`}>
           <div className={`${showEmployeeMobileMenu ? 'hidden md:flex' : 'flex'} w-full sm:w-auto max-w-full min-w-0 items-center overflow-x-auto custom-scrollbar pb-1 lg:pb-0`}>
@@ -2727,7 +2736,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
           onSelectTab={(tab) => {
             setActiveTab(tab);
             window.setTimeout(() => {
-              rightPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              if (tab === 'overview') {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              } else {
+                rightPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
             }, 50);
           }}
           onOpenQr={() => setShowQrModal(true)}
