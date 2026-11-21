@@ -119,6 +119,7 @@ export interface EmployeeProfileProps {
   onClose?: () => void;
   isQrDirectAccess?: boolean;
   canManageQr?: boolean;
+  canManualAttendance?: boolean;
 }
 
 type ProfileTab = 'overview' | 'confirm' | 'leave' | 'salary' | 'overtime' | 'contract';
@@ -155,6 +156,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   onClose,
   isQrDirectAccess = false,
   canManageQr,
+  canManualAttendance,
 }) => {
   const now = new Date();
   const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
@@ -240,6 +242,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const qrEnabled = isStaffQrEnabled(resolvedStaff);
   const qrPreviewUrl = useMemo(() => buildStaffQrUrl(resolvedStaff), [resolvedStaff]);
   const allowManageQr = Boolean(canManageQr ?? (isModal && !isQrDirectAccess));
+  const allowManualAttendance = Boolean(
+    canManualAttendance ??
+      (!isQrDirectAccess &&
+        (currentUser.role === 'admin' ||
+          currentUser.role === 'hr' ||
+          currentUser.role === 'multiauto'))
+  );
   const showEmployeeMobileMenu = !isModal && (currentUser.role === 'staff' || isQrDirectAccess);
   const rightPanelRef = useRef<HTMLDivElement | null>(null);
 
@@ -798,7 +807,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
   const handleSaveBcEdit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingBcDay) return;
+    if (!editingBcDay || !allowManualAttendance) return;
 
     const normIn = normalizeTimeString(editBcInTime);
     const normOut = normalizeTimeString(editBcOutTime);
@@ -1661,16 +1670,18 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                               {/* 12. Thao tác (trên 1 dòng) */}
                               <td className="py-2.5 px-3 text-right whitespace-nowrap">
                                 <div className="inline-flex items-center justify-end gap-1.5 whitespace-nowrap">
-                                  {/* Sửa Bảng Công */}
-                                  <button
-                                    type="button"
-                                    onClick={() => openEditBc(row)}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 hover:text-cyan-200 text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap"
-                                    title="Sửa giờ vào hoặc giờ ra của Bảng Chấm Công"
-                                  >
-                                    <Edit3 className="w-3 h-3 shrink-0" />
-                                    <span>Sửa BC</span>
-                                  </button>
+                                  {/* Sửa Bảng Công (Chỉ dành cho HC & NS, Admin, Trưởng ca bộ phận) */}
+                                  {allowManualAttendance && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditBc(row)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 hover:text-cyan-200 text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap"
+                                      title="Sửa giờ vào hoặc giờ ra của Bảng Chấm Công (Chỉ HC&NS / Admin / Trưởng ca)"
+                                    >
+                                      <Edit3 className="w-3 h-3 shrink-0" />
+                                      <span>Sửa BC</span>
+                                    </button>
+                                  )}
 
                                   {/* Giải trình NPT-FM-008 hoặc Xem lại */}
                                   {existingReq ? (
@@ -1914,40 +1925,40 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     {/* Quick presets */}
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">
-                        Điền nhanh theo chuẩn ca làm việc:
+                        Chọn nhanh thời gian làm việc:
                       </label>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <button
                           type="button"
-                          onClick={() =>
-                            applyBcPreset(
-                              editingBcDay.shift === 'NIGHT' ? '20:00' : '08:00',
-                              editingBcDay.shift === 'NIGHT' ? '05:00' : '17:00',
-                              editingBcDay.shift
-                            )
-                          }
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px] text-left cursor-pointer transition-colors"
+                          onClick={() => applyBcPreset('08:00', '17:00', 'DAY')}
+                          className="px-2.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px] text-left cursor-pointer transition-colors"
                         >
-                          <div className="font-bold text-cyan-300">Chuẩn 8h làm việc</div>
-                          <div className="text-[10px] text-slate-400">
-                            {editingBcDay.shift === 'NIGHT' ? '20:00 - 05:00' : '08:00 - 17:00'} (8h công)
-                          </div>
+                          <div className="font-bold text-cyan-300">Ca ngày (8:00~17:00)</div>
+                          <div className="text-[10px] text-slate-400">08:00 - 17:00 · Chuẩn 8h công</div>
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
-                            applyBcPreset(
-                              editingBcDay.shift === 'NIGHT' ? '20:00' : '08:00',
-                              editingBcDay.shift === 'NIGHT' ? '08:00' : '20:00',
-                              editingBcDay.shift
-                            )
-                          }
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px] text-left cursor-pointer transition-colors"
+                          onClick={() => applyBcPreset('08:00', '20:00', 'DAY')}
+                          className="px-2.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px] text-left cursor-pointer transition-colors"
                         >
-                          <div className="font-bold text-emerald-300">Tăng ca 11h (Chuẩn + 3h TC)</div>
-                          <div className="text-[10px] text-slate-400">
-                            {editingBcDay.shift === 'NIGHT' ? '20:00 - 08:00' : '08:00 - 20:00'} (8h + 3h TC)
-                          </div>
+                          <div className="font-bold text-emerald-300">Ca ngày (8:00~20:00)+3h</div>
+                          <div className="text-[10px] text-slate-400">08:00 - 20:00 · 8h + 3h tăng ca</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyBcPreset('20:00', '05:00', 'NIGHT')}
+                          className="px-2.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px] text-left cursor-pointer transition-colors"
+                        >
+                          <div className="font-bold text-indigo-300">Ca đêm (20:00~5:00)</div>
+                          <div className="text-[10px] text-slate-400">20:00 - 05:00 · Chuẩn 8h đêm</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyBcPreset('20:00', '08:00', 'NIGHT')}
+                          className="px-2.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-[11px] text-left cursor-pointer transition-colors"
+                        >
+                          <div className="font-bold text-amber-300">Ca đêm (20:00~8:00)+3h</div>
+                          <div className="text-[10px] text-slate-400">20:00 - 08:00 · 8h + 3h tăng ca</div>
                         </button>
                       </div>
 
@@ -1995,10 +2006,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                             }
                             className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 text-xs font-semibold focus:border-cyan-500"
                           >
-                            <option value="DAY_NORMAL">Ca Ngày (08:00 - 17:00)</option>
-                            <option value="DAY_OT">Ca Ngày (08:00 - 20:00) [+3h TC Ngày]</option>
-                            <option value="NIGHT_NORMAL">Ca Đêm (20:00 - 05:00) [Chuẩn 8h]</option>
-                            <option value="NIGHT_OT">Ca Đêm (20:00 - 08:00)</option>
+                            <option value="DAY_NORMAL">Ca ngày (8:00~17:00)</option>
+                            <option value="DAY_OT">Ca ngày (8:00~20:00)+3h</option>
+                            <option value="NIGHT_NORMAL">Ca đêm (20:00~5:00)</option>
+                            <option value="NIGHT_OT">Ca đêm (20:00~8:00)+3h</option>
                           </select>
                         </div>
                         <div>

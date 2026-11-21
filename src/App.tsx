@@ -773,6 +773,7 @@ export default function App() {
                 viewerHasSalaryAccess={true}
                 isQrDirectAccess={true}
                 canManageQr={false}
+                canManualAttendance={false}
               />
             </main>
             <PWAPrompt />
@@ -862,6 +863,7 @@ export default function App() {
           onUpdateStaffInfo={handleUpdateStaffInfo}
           onUpdateAvatar={handleUpdateAvatar}
           viewerHasSalaryAccess={true}
+          canManualAttendance={false}
         />
       );
     }
@@ -908,6 +910,11 @@ export default function App() {
             onUpdateStaffInfo={handleUpdateStaffInfo}
             onUpdateAvatar={handleUpdateAvatar}
             viewerHasSalaryAccess={true}
+            canManualAttendance={
+              currentUser.role === 'admin' ||
+              currentUser.role === 'hr' ||
+              currentUser.role === 'multiauto'
+            }
           />
         );
       case 'planning_hub':
@@ -1279,6 +1286,11 @@ export default function App() {
               )
             }
             canManageQr={currentUser.role !== 'staff'}
+            canManualAttendance={
+              currentUser.role === 'admin' ||
+              currentUser.role === 'hr' ||
+              currentUser.role === 'multiauto'
+            }
           />
         );
       })()}

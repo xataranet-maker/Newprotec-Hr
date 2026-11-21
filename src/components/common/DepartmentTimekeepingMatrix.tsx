@@ -571,7 +571,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otHolidayNightHours: staff.shift === 'NIGHT' ? 8 : 0,
             isHoliday: true,
             status: 'Đúng giờ',
-            isAutoDefault: true,
+            isAutoDefault: false,
+            isManual: true,
           };
         } else if (!isSunday) {
           days[day] = {
@@ -588,7 +589,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             otHolidayNightHours: 0,
             isHoliday: false,
             status: 'Đúng giờ',
-            isAutoDefault: true,
+            isAutoDefault: false,
+            isManual: true,
           };
         } else {
           days[day] = {
@@ -2692,10 +2694,10 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                     }
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-semibold focus:border-cyan-500 focus:outline-hidden"
                   >
-                    <option value="DAY_NORMAL">Ca Ngày (08:00 - 17:00)</option>
-                    <option value="DAY_OT">Ca Ngày (08:00 - 20:00) [+3h TC Ngày]</option>
-                    <option value="NIGHT_NORMAL">Ca Đêm (20:00 - 05:00) [Chuẩn 8h]</option>
-                    <option value="NIGHT_OT">Ca Đêm (20:00 - 08:00)</option>
+                    <option value="DAY_NORMAL">Ca ngày (8:00~17:00)</option>
+                    <option value="DAY_OT">Ca ngày (8:00~20:00)+3h</option>
+                    <option value="NIGHT_NORMAL">Ca đêm (20:00~5:00)</option>
+                    <option value="NIGHT_OT">Ca đêm (20:00~8:00)+3h</option>
                   </select>
                 </div>
                 <div>
@@ -2858,9 +2860,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         status: 'Đúng giờ',
                       })
                     }
-                    className="px-1.5 py-0.5 rounded text-[9px] bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                    className="px-2 py-0.5 rounded text-[9px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
                   >
-                    Ca chuẩn 8h (08:00 - 17:00)
+                    Ca ngày (8:00~17:00)
                   </button>
 
                   <button
@@ -2874,9 +2876,25 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         status: 'Đúng giờ',
                       })
                     }
-                    className="px-1.5 py-0.5 rounded text-[9px] bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800/40 cursor-pointer"
+                    className="px-2 py-0.5 rounded text-[9px] font-semibold bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800/40 cursor-pointer"
                   >
-                    +3h TC ngày (08:00 - 20:00)
+                    Ca ngày (8:00~20:00)+3h
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleTimeOrShiftChange({
+                        isHoliday: false,
+                        inTime: '20:00',
+                        outTime: '05:00',
+                        shift: 'NIGHT',
+                        status: 'Đúng giờ',
+                      })
+                    }
+                    className="px-2 py-0.5 rounded text-[9px] font-semibold bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/40 cursor-pointer"
+                  >
+                    Ca đêm (20:00~5:00)
                   </button>
 
                   <button
@@ -2890,9 +2908,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         status: 'Đúng giờ',
                       })
                     }
-                    className="px-1.5 py-0.5 rounded text-[9px] bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-800/40 cursor-pointer"
+                    className="px-2 py-0.5 rounded text-[9px] font-semibold bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-800/40 cursor-pointer"
                   >
-                    +3h TC đêm (20:00 - 08:00)
+                    Ca đêm (20:00~8:00)+3h
                   </button>
 
                   <button

@@ -354,8 +354,8 @@ export function buildDefaultEmployeeMonthDays(
     const isHoliday = Boolean(holidayDays[day]);
     const isFuture = isFutureCalendarDay(year, month, day);
 
-    // Không tự động điền giờ làm việc cho các ngày tương lai (> ngày hiện tại)
-    if (isFuture) {
+    // Không tự động điền giờ làm việc cho ngày mới (hôm nay) và các ngày tương lai
+    if (isFuture || isTodayCalendarDay(year, month, day)) {
       if (isHoliday || isSunday) {
         daysRecord[day] = {
           day,
@@ -412,7 +412,7 @@ export function buildDefaultEmployeeMonthDays(
         isAutoDefault: true,
       };
     } else {
-      // Ngày làm việc tiêu chuẩn theo ca của từng nhân viên
+      // Ngày làm việc tiêu chuẩn theo ca của từng nhân viên (chỉ cho các ngày trước đây)
       daysRecord[day] = buildStandardShiftEntry(staff, day, false);
     }
   }
@@ -652,24 +652,52 @@ export function applyJoinDateAndLockRules(
       continue;
     }
 
-    // 3. Today ("ngày mới"): auto-fill standard shift check-in / check-out if cell is empty & staff is NOT locked
-    if (isToday && !isSun && !isHol && !effectiveLocked) {
-      const existingStatusStr = String(existing?.status || '').trim();
-      const hasExistingWorkOrManual =
+    // 3. Today ("ngày mới"): KHÔNG tự động điền giờ làm việc; chỉ giữ dữ liệu thực tế đã quét QR hoặc HC&NS/Trưởng ca đã chấm.
+    if (isToday && !effectiveLocked) {
+      if (
         existing &&
-        (Boolean(existing.inTime?.trim()) ||
-          Boolean(existing.outTime?.trim()) ||
-          getMatrixEntryTotalHours(existing) > 0 ||
-          isLeaveMatrixStatus(existing.status) ||
-          existingStatusStr === 'Đã nghỉ việc' ||
-          existingStatusStr === 'Đã thôi việc' ||
-          existingStatusStr === 'Nghỉ chế độ' ||
-          Boolean(existing.isManual) ||
-          Boolean(existing.isRestored) ||
-          existing.leaveRecordId !== undefined);
-
-      if (!hasExistingWorkOrManual) {
-        nextDays[day] = buildStandardShiftEntry(staff, day, false);
+        existing.isAutoDefault &&
+        !existing.isManual &&
+        !existing.isRestored &&
+        existing.leaveRecordId === undefined
+      ) {
+        if (isHol || isSun) {
+          nextDays[day] = {
+            day,
+            shift: existing.shift || staff.shift,
+            inTime: '',
+            outTime: '',
+            regularHours: 0,
+            otDayHours: 0,
+            otNightHours: 0,
+            otSundayHours: 0,
+            otSundayNightHours: 0,
+            otHolidayHours: 0,
+            otHolidayNightHours: 0,
+            isHoliday: isHol,
+            status: (isHol ? 'Nghỉ lễ' : 'Nghỉ chủ nhật') as AttendanceStatus,
+            isAutoDefault: true,
+          };
+        }
+        continue;
+      }
+      if (!existing && (isHol || isSun)) {
+        nextDays[day] = {
+          day,
+          shift: staff.shift,
+          inTime: '',
+          outTime: '',
+          regularHours: 0,
+          otDayHours: 0,
+          otNightHours: 0,
+          otSundayHours: 0,
+          otSundayNightHours: 0,
+          otHolidayHours: 0,
+          otHolidayNightHours: 0,
+          isHoliday: isHol,
+          status: (isHol ? 'Nghỉ lễ' : 'Nghỉ chủ nhật') as AttendanceStatus,
+          isAutoDefault: true,
+        };
         continue;
       }
     }
@@ -1281,14 +1309,7 @@ export function removeLeaveRegistrationFromMatrices(
         Object.entries(nextDays).forEach(([dStr, entry]) => {
           if (entry && entry.leaveRecordId === recordId) {
             const dNum = Number(dStr);
-            const matchedStaff = staffById.get(rec.employeeId.trim().toLowerCase());
-            const isSun = new Date(year, month - 1, dNum).getDay() === 0;
-            const isHol = Boolean(holidays[dNum]);
-            if (isTodayCalendarDay(year, month, dNum) && !isSun && !isHol && matchedStaff) {
-              nextDays[dNum] = buildStandardShiftEntry(matchedStaff, dNum, false);
-            } else {
-              delete nextDays[dNum];
-            }
+            delete nextDays[dNum];
             empChanged = true;
           }
         });
