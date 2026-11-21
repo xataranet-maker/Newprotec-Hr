@@ -317,7 +317,8 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
                 <p className="text-slate-300 leading-relaxed">
                   Hệ thống tự động ghi nhận <strong className="text-white">Giờ Vào</strong> (lần quét đầu) hoặc{' '}
-                  <strong className="text-white">Giờ Ra</strong> (lần quét tiếp theo) vào đúng bảng chấm công phòng ban của bạn.
+                  <strong className="text-white">Giờ Ra</strong> (lần quét tiếp theo) vào mục{' '}
+                  <strong className="text-emerald-300">Chấm công QR</strong> theo phòng ban để đối chiếu với bảng chấm công.
                 </p>
               </div>
             </div>

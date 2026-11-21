@@ -51,6 +51,7 @@ export interface AbnormalAttendanceSourceContext {
   discrepancyType: string;
   discrepancyLabel: string;
   discrepancyDetail: string;
+  sourceMode?: 'MQT' | 'QR';
 }
 
 function formatDateDisplayVN(dateVal?: string): string {
@@ -1019,9 +1020,21 @@ export const AbnormalAttendanceModal: React.FC<AbnormalAttendanceModalProps> = (
                           Vào: {sourceContext.bcInTime || '—'} · Ra: {sourceContext.bcOutTime || '—'}
                         </div>
                       </div>
-                      <div className="p-2 rounded-lg bg-rose-950/25 border border-rose-700/40">
-                        <div className="text-[10px] font-sans font-bold text-rose-300 uppercase mb-0.5">
-                          Máy Quẹt Thẻ (MQT)
+                      <div
+                        className={`p-2 rounded-lg border ${
+                          sourceContext.sourceMode === 'QR'
+                            ? 'bg-emerald-950/25 border-emerald-700/40'
+                            : 'bg-rose-950/25 border-rose-700/40'
+                        }`}
+                      >
+                        <div
+                          className={`text-[10px] font-sans font-bold uppercase mb-0.5 ${
+                            sourceContext.sourceMode === 'QR' ? 'text-emerald-300' : 'text-rose-300'
+                          }`}
+                        >
+                          {sourceContext.sourceMode === 'QR'
+                            ? 'Chấm Công Bằng QR'
+                            : 'Máy Quẹt Thẻ (MQT)'}
                         </div>
                         <div className="text-white font-bold">
                           Vào: {sourceContext.rawInTime || 'Thiếu'} · Ra:{' '}
@@ -1191,7 +1204,8 @@ export const AbnormalAttendanceModal: React.FC<AbnormalAttendanceModalProps> = (
                   />
                   <div className="space-y-0.5">
                     <div className="font-bold text-emerald-300">
-                      Xác nhận sửa &amp; cập nhật giờ vào/ra vào Dữ liệu Máy Quẹt Thẻ ngay
+                      Xác nhận sửa &amp; cập nhật giờ vào/ra vào Dữ liệu{' '}
+                      {sourceContext?.sourceMode === 'QR' ? 'Chấm Công QR' : 'Máy Quẹt Thẻ'} ngay
                     </div>
                     <div className="text-[11px] text-slate-400">
                       {checkInChecked && !checkOutChecked

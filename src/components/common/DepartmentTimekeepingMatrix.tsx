@@ -8,6 +8,7 @@ import {
   MatrixEmployeeTimekeeping,
   LeaveRegistrationRecord,
   StaffLockType,
+  MachineSwipeRecord,
 } from '../../types';
 import {
   CalendarDays,
@@ -27,12 +28,18 @@ import {
   Lock,
   Unlock,
   CalendarHeart,
+  QrCode,
+  AlertTriangle,
+  CheckCircle2,
+  Edit3,
+  Info,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
   getHolidayStorageKey,
   getMatrixEntryTotalHours,
   getMatrixStorageKey,
+  getQrPunchStorageKey,
   isMatrixEntryWorking,
   loadOrInitDepartmentMatrix,
   recalculateStaffTotals,
@@ -47,6 +54,14 @@ import {
   MATRIX_UPDATED_EVENT,
   calculateMatrixDayHoursFromTimes,
 } from '../../lib/matrixTimekeeping';
+import { loadQrPunchMap } from '../../lib/attendanceQr';
+import {
+  getMachineSwipeStorageKey,
+  buildComparisonRowForEmployeeDay,
+  ComparisonRow,
+  importMachineSwipesFromArrayBuffer,
+  normalizeTimeString,
+} from '../hr/HRTimekeeping';
 import { EmployeeLockModal } from './EmployeeLockModal';
 
 interface DepartmentTimekeepingMatrixProps {
@@ -95,11 +110,30 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
   const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth() + 1);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterShift, setFilterShift] = useState<'ALL' | 'DAY' | 'NIGHT'>('ALL');
+  const [viewMode, setViewMode] = useState<'MATRIX' | 'COMPARE'>('MATRIX');
+  const [compareSource, setCompareSource] = useState<'MQT' | 'QR'>('MQT');
+  const [compareDayFilter, setCompareDayFilter] = useState<string>('ALL');
+  const [compareStatusFilter, setCompareStatusFilter] = useState<'ALL' | 'ERRORS_ONLY' | 'MATCH'>('ALL');
   const [saveToast, setSaveToast] = useState<string | null>(null);
 
   // Storage keys
   const storageKey = getMatrixStorageKey(department, selectedYear, selectedMonth);
   const holidayStorageKey = getHolidayStorageKey(department, selectedYear, selectedMonth);
+  const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
+  const qrStorageKey = getQrPunchStorageKey(selectedYear, selectedMonth);
+
+  const [swipeRecords, setSwipeRecords] = useState<Record<string, MachineSwipeRecord>>(() => {
+    try {
+      const saved = localStorage.getItem(swipeStorageKey);
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return {};
+  });
+  const [qrPunchRecords, setQrPunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
+    loadQrPunchMap(selectedYear, selectedMonth)
+  );
 
   // Holiday dates map: day (1..31) -> boolean
   const [holidayDays, setHolidayDays] = useState<Record<number, boolean>>(() => {
@@ -207,9 +241,31 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     setMatrixData(matrix);
   }, [storageKey, targetStaff, selectedYear, selectedMonth, department, leaveRecords]);
 
-  // Reload if updated externally (e.g. edited from HRTimekeeping, Leave registration, or sibling matrix)
+  // Reload swipe & QR punch maps on month/year change
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem(swipeStorageKey);
+      setSwipeRecords(saved ? JSON.parse(saved) : {});
+    } catch {
+      setSwipeRecords({});
+    }
+    setQrPunchRecords(loadQrPunchMap(selectedYear, selectedMonth));
+  }, [swipeStorageKey, qrStorageKey, selectedYear, selectedMonth]);
+
+  // Reload if updated externally (e.g. edited from HRTimekeeping, Leave registration, QR scan, or sibling matrix)
+  useEffect(() => {
+    const refreshPunches = () => {
+      try {
+        const saved = localStorage.getItem(swipeStorageKey);
+        setSwipeRecords(saved ? JSON.parse(saved) : {});
+      } catch {
+        // ignore
+      }
+      setQrPunchRecords(loadQrPunchMap(selectedYear, selectedMonth));
+    };
+
     const onExternalMatrixUpdate = (ev: Event) => {
+      refreshPunches();
       if (skipNextMatrixEventRef.current) {
         skipNextMatrixEventRef.current = false;
         return;
@@ -238,8 +294,12 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       }
     };
     window.addEventListener(MATRIX_UPDATED_EVENT, onExternalMatrixUpdate);
-    return () => window.removeEventListener(MATRIX_UPDATED_EVENT, onExternalMatrixUpdate);
-  }, [department, selectedYear, selectedMonth, targetStaff, leaveRecords]);
+    window.addEventListener('storage', refreshPunches);
+    return () => {
+      window.removeEventListener(MATRIX_UPDATED_EVENT, onExternalMatrixUpdate);
+      window.removeEventListener('storage', refreshPunches);
+    };
+  }, [department, selectedYear, selectedMonth, targetStaff, leaveRecords, swipeStorageKey, qrStorageKey]);
 
   const showToast = (msg: string) => {
     setSaveToast(msg);
@@ -1129,7 +1189,130 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     return map;
   }, [monthDaysMeta, displayedStaff, matrixData]);
 
+  const deptComparisonRows = useMemo<ComparisonRow[]>(() => {
+    const rows: ComparisonRow[] = [];
+    const activeMap = compareSource === 'QR' ? qrPunchRecords : swipeRecords;
+    displayedStaff.forEach((staff) => {
+      const daysMap = matrixData[staff.employeeId]?.days || {};
+      monthDaysMeta.forEach((m) => {
+        const key = `${staff.employeeId.trim().toLowerCase()}_${m.day}`;
+        rows.push(
+          buildComparisonRowForEmployeeDay({
+            staff,
+            day: m.day,
+            selectedYear,
+            selectedMonth,
+            bcEntry: daysMap[m.day],
+            holidayMap: holidayDays,
+            swipeRecord: activeMap[key],
+            compareSource,
+          })
+        );
+      });
+    });
+    return rows;
+  }, [
+    displayedStaff,
+    matrixData,
+    monthDaysMeta,
+    selectedYear,
+    selectedMonth,
+    holidayDays,
+    swipeRecords,
+    qrPunchRecords,
+    compareSource,
+  ]);
+
+  const filteredDeptComparisonRows = useMemo(() => {
+    return deptComparisonRows.filter((r) => {
+      if (compareDayFilter !== 'ALL' && r.day !== Number(compareDayFilter)) return false;
+      if (compareStatusFilter === 'ERRORS_ONLY') {
+        return (
+          r.discrepancyType === 'MISSING_IN' ||
+          r.discrepancyType === 'MISSING_OUT' ||
+          r.discrepancyType === 'MISSING_BOTH' ||
+          r.discrepancyType === 'LATE_IN' ||
+          r.discrepancyType === 'EARLY_OUT' ||
+          r.discrepancyType === 'LATE_AND_EARLY' ||
+          r.discrepancyType === 'OT_MISMATCH' ||
+          r.discrepancyType === 'UNSCHEDULED_SWIPE'
+        );
+      }
+      if (compareStatusFilter === 'MATCH') return r.discrepancyType === 'MATCH';
+      return true;
+    });
+  }, [deptComparisonRows, compareDayFilter, compareStatusFilter]);
+
+  const deptCompareStats = useMemo(() => {
+    let workDays = 0;
+    let matchCount = 0;
+    let missingCount = 0;
+    let mismatchCount = 0;
+    deptComparisonRows.forEach((r) => {
+      if (r.hasBcWork) {
+        workDays++;
+        if (r.discrepancyType === 'MATCH') matchCount++;
+        else if (
+          r.discrepancyType === 'MISSING_IN' ||
+          r.discrepancyType === 'MISSING_OUT' ||
+          r.discrepancyType === 'MISSING_BOTH'
+        ) {
+          missingCount++;
+        } else {
+          mismatchCount++;
+        }
+      }
+    });
+    return { workDays, matchCount, missingCount, mismatchCount };
+  }, [deptComparisonRows]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const swipeFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportSwipeExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const buffer = evt.target?.result as ArrayBuffer;
+        const staffPool = allStaff.length > 0 ? allStaff : targetStaff;
+        const res = importMachineSwipesFromArrayBuffer(
+          buffer,
+          staffPool,
+          selectedYear,
+          selectedMonth,
+          department
+        );
+        if (res.errorMsg) {
+          showToast(res.errorMsg);
+          return;
+        }
+        if (res.success) {
+          const curKey = `${selectedYear}_${selectedMonth}`;
+          if (res.monthlyUpdates.has(curKey)) {
+            setSwipeRecords({ ...res.monthlyUpdates.get(curKey)! });
+          } else {
+            const best = [...res.monthCounts].sort((a, b) => b.count - a.count)[0];
+            setSelectedYear(best.year);
+            setSelectedMonth(best.month);
+            setSwipeRecords({ ...(res.monthlyUpdates.get(`${best.year}_${best.month}`) || {}) });
+          }
+          showToast(
+            `Đã nạp ${res.rawPunchesParsed} dòng máy quẹt thẻ cho ${res.matchedEmployees.length} nhân viên để đối chiếu!`
+          );
+        } else {
+          showToast('Không tìm thấy dữ liệu nhân viên hợp lệ trong file máy quẹt thẻ.');
+        }
+      } catch (err) {
+        console.error('Import machine swipe error', err);
+        showToast('Lỗi khi đọc file Excel máy quẹt thẻ.');
+      } finally {
+        if (swipeFileInputRef.current) swipeFileInputRef.current.value = '';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   // Export to Excel matching the exact expected layout in user image
   const handleExportExcel = () => {
@@ -1697,22 +1880,53 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
           </div>
 
           <div className="w-full sm:w-auto flex flex-wrap items-center justify-center gap-2">
-            <button
-              onClick={handleAutoFillStandard}
-              className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-200 border border-indigo-700/60 text-[11px] sm:text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
-              title="Điền tự động công chuẩn 8h cho các ngày trong tuần"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-              <span>Điền Chuẩn</span>
-            </button>
+            {/* Chuyển chế độ: Bảng Công Thường vs Đối Chiếu Quẹt Thẻ / QR */}
+            <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-900 border border-slate-700/80">
+              <button
+                type="button"
+                onClick={() => setViewMode('MATRIX')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                  viewMode === 'MATRIX'
+                    ? 'bg-cyan-600 text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Bảng Công Thường
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('COMPARE')}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                  viewMode === 'COMPARE'
+                    ? 'bg-blue-600 text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <QrCode className="w-3 h-3" />
+                <span>Đối Chiếu MQT / QR</span>
+              </button>
+            </div>
 
-            <button
-              onClick={handleSaveMatrix}
-              className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] sm:text-xs font-bold shadow-md cursor-pointer transition-colors whitespace-nowrap"
-            >
-              <Save className="w-3.5 h-3.5 shrink-0" />
-              <span>Lưu Bảng Công</span>
-            </button>
+            {viewMode === 'MATRIX' && (
+              <>
+                <button
+                  onClick={handleAutoFillStandard}
+                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-200 border border-indigo-700/60 text-[11px] sm:text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
+                  title="Điền tự động công chuẩn 8h cho các ngày trong tuần"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span>Điền Chuẩn</span>
+                </button>
+
+                <button
+                  onClick={handleSaveMatrix}
+                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] sm:text-xs font-bold shadow-md cursor-pointer transition-colors whitespace-nowrap"
+                >
+                  <Save className="w-3.5 h-3.5 shrink-0" />
+                  <span>Lưu Bảng Công</span>
+                </button>
+              </>
+            )}
 
             <input
               ref={fileInputRef}
@@ -1721,25 +1935,47 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               onChange={handleImportExcel}
               className="hidden"
             />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] sm:text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
-              title="Nhập bảng chấm công từ Excel"
-            >
-              <Upload className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-              <span>Nhập Excel</span>
-            </button>
+            <input
+              ref={swipeFileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleImportSwipeExcel}
+              className="hidden"
+            />
 
-            <button
-              type="button"
-              onClick={handleExportExcel}
-              className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold shadow-md cursor-pointer transition-colors whitespace-nowrap"
-              title="Xuất ma trận chấm công ra Excel"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
-              <span>Xuất Excel</span>
-            </button>
+            {viewMode === 'MATRIX' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] sm:text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap"
+                  title="Nhập bảng chấm công từ Excel"
+                >
+                  <Upload className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  <span>Nhập Excel</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-bold shadow-md cursor-pointer transition-colors whitespace-nowrap"
+                  title="Xuất ma trận chấm công ra Excel"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+                  <span>Xuất Excel</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => swipeFileInputRef.current?.click()}
+                className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] sm:text-xs font-bold shadow-md cursor-pointer transition-colors whitespace-nowrap"
+                title="Tải file Excel Máy quẹt thẻ để đối chiếu"
+              >
+                <Upload className="w-3.5 h-3.5 shrink-0" />
+                <span>Nạp File Máy Quẹt</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1750,6 +1986,303 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
           <span>{saveToast}</span>
         </div>
       )}
+
+      {viewMode === 'COMPARE' ? (
+        <div className="space-y-4">
+          {/* Sub-controls + Info banner for Đối chiếu QR / Quẹt thẻ vs Chấm công thường */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5 text-xs">
+              <Info className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+              <div className="text-slate-300 space-y-0.5">
+                <div>
+                  <strong className="text-white">
+                    Đối Chiếu Dữ Liệu {compareSource === 'QR' ? 'Quét QR' : 'Máy Quẹt Thẻ'} vs Chấm Công Thường (BC)
+                  </strong>{' '}
+                  — Phòng <strong className="text-cyan-300">{departmentTitle}</strong>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Khi nhân viên quét mã QR, giờ vào/ra được lưu riêng vào cột <strong className="text-cyan-300">QR</strong> (không ghi đè ô chấm công thường). Chuyển nhanh giữa <strong className="text-blue-300">Quẹt thẻ</strong> và <strong className="text-cyan-300">QR</strong> ngay tại tiêu đề cột nhóm 2 để đối chiếu với bảng chấm công thường.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <select
+                value={compareDayFilter}
+                onChange={(e) => setCompareDayFilter(e.target.value)}
+                className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 cursor-pointer"
+              >
+                <option value="ALL">Tất cả ngày ({daysInMonth} ngày)</option>
+                {monthDaysMeta.map((m) => (
+                  <option key={m.day} value={String(m.day)}>
+                    Ngày {String(m.day).padStart(2, '0')}/{String(selectedMonth).padStart(2, '0')} ({m.dayOfWeek})
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={compareStatusFilter}
+                onChange={(e) =>
+                  setCompareStatusFilter(e.target.value as 'ALL' | 'ERRORS_ONLY' | 'MATCH')
+                }
+                className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 cursor-pointer"
+              >
+                <option value="ALL">Tất cả trạng thái</option>
+                <option value="ERRORS_ONLY">Chỉ ngày lệch / thiếu giờ</option>
+                <option value="MATCH">Khớp chuẩn</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Summary KPI Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl">
+              <div className="text-[10px] text-slate-400 uppercase font-semibold">Ngày Có Lịch BC</div>
+              <div className="text-lg font-bold font-mono text-white mt-0.5">{deptCompareStats.workDays}</div>
+            </div>
+            <div className="bg-emerald-950/30 border border-emerald-700/50 p-3 rounded-xl">
+              <div className="text-[10px] text-emerald-300 uppercase font-semibold">Khớp Chuẩn</div>
+              <div className="text-lg font-bold font-mono text-emerald-400 mt-0.5">{deptCompareStats.matchCount}</div>
+            </div>
+            <div className="bg-rose-950/30 border border-rose-700/50 p-3 rounded-xl">
+              <div className="text-[10px] text-rose-300 uppercase font-semibold">
+                {compareSource === 'QR' ? 'Thiếu Giờ Quét QR' : 'Thiếu Giờ Quẹt Thẻ'}
+              </div>
+              <div className="text-lg font-bold font-mono text-rose-400 mt-0.5">{deptCompareStats.missingCount}</div>
+            </div>
+            <div className="bg-amber-950/30 border border-amber-700/50 p-3 rounded-xl">
+              <div className="text-[10px] text-amber-300 uppercase font-semibold">Muộn / Sớm / Lệch TC</div>
+              <div className="text-lg font-bold font-mono text-amber-400 mt-0.5">{deptCompareStats.mismatchCount}</div>
+            </div>
+          </div>
+
+          {/* Comparison Table with [Quẹt thẻ | QR] inside Group 2 header */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
+            <div className="overflow-auto custom-scrollbar max-h-[68vh]">
+              <table className="w-full min-w-[1440px] text-left border-collapse text-xs whitespace-nowrap">
+                <thead className="bg-slate-950 text-[10px] uppercase tracking-wider text-slate-300 font-semibold sticky top-0 z-30">
+                  <tr className="border-b border-slate-800">
+                    <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-800 min-w-[190px] sticky left-0 z-40 bg-slate-950">
+                      Nhân Viên
+                    </th>
+                    <th rowSpan={2} className="py-2.5 px-2.5 text-center border-r border-slate-800 min-w-[95px]">
+                      Ngày / Thứ
+                    </th>
+                    <th rowSpan={2} className="py-2.5 px-2.5 text-center border-r border-slate-800 min-w-[85px]">
+                      Ca
+                    </th>
+                    <th
+                      colSpan={3}
+                      className="py-1.5 px-3 text-center border-r border-slate-800 bg-amber-950/35 text-amber-300 font-bold border-b border-amber-800/40"
+                    >
+                      1. CHẤM CÔNG THƯỜNG (BC)
+                    </th>
+                    <th
+                      colSpan={3}
+                      className={`py-1.5 px-3 text-center border-r border-slate-800 font-bold border-b ${
+                        compareSource === 'QR'
+                          ? 'bg-cyan-950/35 text-cyan-300 border-cyan-800/40'
+                          : 'bg-blue-950/35 text-blue-300 border-blue-800/40'
+                      }`}
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        <span>
+                          {compareSource === 'QR' ? '2. CHẤM CÔNG BẰNG MÃ QR' : '2. MÁY QUẸT THẺ (MQT)'}
+                        </span>
+                        <span className="inline-flex items-center p-0.5 rounded bg-slate-950/90 border border-slate-700/80">
+                          <button
+                            type="button"
+                            onClick={() => setCompareSource('MQT')}
+                            className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
+                              compareSource === 'MQT'
+                                ? 'bg-blue-600 text-white'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Quẹt thẻ
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCompareSource('QR')}
+                            className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
+                              compareSource === 'QR'
+                                ? 'bg-cyan-600 text-white'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            QR
+                          </button>
+                        </span>
+                      </div>
+                    </th>
+                    <th rowSpan={2} className="py-2.5 px-3 text-center border-r border-slate-800 min-w-[130px] text-white font-bold">
+                      Trạng Thái
+                    </th>
+                    <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-800 min-w-[300px] text-white font-bold">
+                      Chi Tiết Đối Chiếu ({compareSource === 'QR' ? 'QR vs BC' : 'MQT vs BC'})
+                    </th>
+                    <th rowSpan={2} className="py-2.5 px-3 text-right min-w-[105px]">
+                      Thao Tác
+                    </th>
+                  </tr>
+                  <tr className="border-b border-slate-800 text-[10px] text-slate-400">
+                    <th className="py-2 px-2.5 text-center border-r border-slate-800 bg-amber-950/15 text-amber-300">
+                      Giờ Vào (BC)
+                    </th>
+                    <th className="py-2 px-2.5 text-center border-r border-slate-800 bg-amber-950/15 text-amber-300">
+                      Giờ Ra (BC)
+                    </th>
+                    <th className="py-2 px-2.5 text-center border-r border-slate-800 bg-amber-950/15 text-amber-400 font-bold">
+                      Tăng Ca (BC)
+                    </th>
+                    <th
+                      className={`py-2 px-2.5 text-center border-r border-slate-800 ${
+                        compareSource === 'QR' ? 'bg-cyan-950/15 text-cyan-300' : 'bg-blue-950/15 text-blue-300'
+                      }`}
+                    >
+                      {compareSource === 'QR' ? 'Giờ Vào (QR)' : 'Giờ Vào (MQT)'}
+                    </th>
+                    <th
+                      className={`py-2 px-2.5 text-center border-r border-slate-800 ${
+                        compareSource === 'QR' ? 'bg-cyan-950/15 text-cyan-300' : 'bg-blue-950/15 text-blue-300'
+                      }`}
+                    >
+                      {compareSource === 'QR' ? 'Giờ Ra (QR)' : 'Giờ Ra (MQT)'}
+                    </th>
+                    <th className="py-2 px-2.5 text-center border-r border-slate-800 bg-blue-950/15 text-cyan-300 font-bold">
+                      {compareSource === 'QR' ? 'Tăng Ca (QR)' : 'Tăng Ca (MQT)'}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/70">
+                  {filteredDeptComparisonRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={12} className="py-10 text-center text-slate-500">
+                        Không có dữ liệu đối chiếu phù hợp với bộ lọc đang chọn.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredDeptComparisonRows.map((row) => {
+                      const t = row.discrepancyType;
+                      let badgeCls = 'bg-slate-900 text-slate-300 border-slate-700';
+                      if (t === 'MATCH') badgeCls = 'bg-emerald-950/70 text-emerald-300 border-emerald-500/40';
+                      else if (t === 'MISSING_IN' || t === 'MISSING_BOTH')
+                        badgeCls = 'bg-rose-950/80 text-rose-300 border-rose-500/50';
+                      else if (t === 'MISSING_OUT' || t === 'LATE_IN' || t === 'EARLY_OUT')
+                        badgeCls = 'bg-amber-950/80 text-amber-300 border-amber-500/50';
+                      else if (t === 'LATE_AND_EARLY')
+                        badgeCls = 'bg-rose-950/70 text-rose-300 border-rose-500/40';
+                      else if (t === 'OT_MISMATCH')
+                        badgeCls = 'bg-purple-950/70 text-purple-300 border-purple-500/40';
+                      else if (t === 'UNSCHEDULED_SWIPE')
+                        badgeCls = 'bg-sky-950/70 text-sky-300 border-sky-500/40';
+
+                      const dayMeta = monthDaysMeta.find((m) => m.day === row.day);
+
+                      return (
+                        <tr key={row.rowId} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-2 px-3 border-r border-slate-800 sticky left-0 z-20 bg-slate-900">
+                            <div className="font-semibold text-white truncate max-w-[170px]">{row.staff.fullName}</div>
+                            <div className="text-[10px] font-mono text-cyan-400">{row.staff.employeeId}</div>
+                          </td>
+                          <td className="py-2 px-2.5 text-center border-r border-slate-800 font-mono">
+                            <span className="font-bold text-slate-200">{row.dateStr}</span>{' '}
+                            <span className={row.isSunday ? 'text-rose-400 font-bold' : 'text-slate-400'}>
+                              ({row.dayOfWeek})
+                            </span>
+                          </td>
+                          <td className="py-2 px-2.5 text-center border-r border-slate-800">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                                row.shift === 'NIGHT'
+                                  ? 'bg-purple-950/80 text-purple-300 border border-purple-500/40'
+                                  : 'bg-amber-950/60 text-amber-300 border border-amber-500/40'
+                              }`}
+                            >
+                              {row.shift === 'NIGHT' ? 'Ca Đêm' : 'Ca Ngày'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2.5 text-center font-mono border-r border-slate-800 bg-amber-950/5">
+                            {row.bcInTime ? (
+                              <span className="font-semibold text-amber-200">{row.bcInTime}</span>
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2.5 text-center font-mono border-r border-slate-800 bg-amber-950/5">
+                            {row.bcOutTime ? (
+                              <span className="font-semibold text-amber-200">{row.bcOutTime}</span>
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2.5 text-center font-mono border-r border-slate-800 bg-amber-950/10">
+                            <strong className={row.bcOtHours > 0 ? 'text-amber-300' : 'text-slate-500'}>
+                              {row.bcOtHours > 0 ? `+${row.bcOtHours}h` : '0h'}
+                            </strong>
+                          </td>
+                          <td className="py-2 px-2.5 text-center font-mono border-r border-slate-800 bg-blue-950/5">
+                            {row.mqtInTime ? (
+                              <span className={row.isClampedIn ? 'text-cyan-300 font-semibold' : 'text-emerald-400 font-semibold'}>
+                                {row.mqtInTime}
+                              </span>
+                            ) : row.hasBcWork ? (
+                              <span className="text-[10px] text-rose-400 font-sans font-bold">
+                                {compareSource === 'QR' ? 'Chưa quét' : 'Thiếu vào'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2.5 text-center font-mono border-r border-slate-800 bg-blue-950/5">
+                            {row.mqtOutTime ? (
+                              <span className={row.isClampedOut ? 'text-cyan-300 font-semibold' : 'text-emerald-400 font-semibold'}>
+                                {row.mqtOutTime}
+                              </span>
+                            ) : row.hasBcWork ? (
+                              <span className="text-[10px] text-amber-400 font-sans font-bold">
+                                {compareSource === 'QR' ? 'Chưa quét' : 'Thiếu ra'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2.5 text-center font-mono border-r border-slate-800 bg-blue-950/10">
+                            <strong className={row.mqtOtHours > 0 ? 'text-emerald-400' : 'text-slate-500'}>
+                              {row.mqtOtHours > 0 ? `+${row.mqtOtHours}h` : '0h'}
+                            </strong>
+                          </td>
+                          <td className="py-2 px-3 text-center border-r border-slate-800">
+                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${badgeCls}`}>
+                              {row.discrepancyLabel}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 border-r border-slate-800 text-[11px] text-slate-300 font-sans">
+                            {row.discrepancyDetail}
+                          </td>
+                          <td className="py-2 px-3 text-right">
+                            {dayMeta && (
+                              <button
+                                type="button"
+                                onClick={() => openEditCell(row.staff, dayMeta)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 text-[11px] font-semibold cursor-pointer"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                                <span>Sửa BC</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
 
       {/* 8 Aggregate KPI Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
@@ -2474,6 +3007,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
           * Kích chuột vào tiêu đề ngày (NGÀY 1..{daysInMonth}) để chọn/hủy Ngày Lễ · Kích vào ô ngày để sửa giờ vào/ra & tăng ca.
         </div>
       </div>
+        </>
+      )}
 
       {/* Day Header Modal: Chọn Ngày Lễ / Ngày Thường */}
       {dayTypeModal && (
@@ -2652,6 +3187,64 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   <span>Áp dụng loại ngày (Ngày Lễ / Ngày Thường) cho toàn bộ Ngày {editingCell.day}/{selectedMonth}</span>
                 </label>
               </div>
+
+              {/* Dữ liệu tham chiếu từ Máy Quẹt Thẻ & Quét QR (nếu có) */}
+              {(() => {
+                const punchKey = `${editingCell.staff.employeeId.trim().toLowerCase()}_${editingCell.day}`;
+                const qrRec = qrPunchRecords[punchKey];
+                const mqtRec = swipeRecords[punchKey];
+                if (!qrRec && !mqtRec) return null;
+                return (
+                  <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1.5 text-[11px]">
+                    <div className="text-[10px] font-bold uppercase text-slate-400">
+                      Dữ liệu ghi nhận để đối chiếu / áp dụng nhanh:
+                    </div>
+                    {qrRec && (qrRec.rawInTime || qrRec.rawOutTime) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const defIn = editingCell.entry.shift === 'NIGHT' ? '20:00' : '08:00';
+                          const defOut = editingCell.entry.shift === 'NIGHT' ? '05:00' : '17:00';
+                          handleTimeOrShiftChange({
+                            inTime: normalizeTimeString(qrRec.rawInTime) || defIn,
+                            outTime: normalizeTimeString(qrRec.rawOutTime) || defOut,
+                          });
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-cyan-950/40 hover:bg-cyan-950/80 border border-cyan-600/40 text-cyan-300 flex items-center justify-between cursor-pointer transition-colors"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <QrCode className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>
+                            <strong>Giờ Quét QR:</strong>{' '}
+                            <span className="font-mono">{qrRec.rawInTime || '--:--'} - {qrRec.rawOutTime || '--:--'}</span>
+                          </span>
+                        </span>
+                        <span className="text-[10px] underline">Lấy vào BC</span>
+                      </button>
+                    )}
+                    {mqtRec && (mqtRec.rawInTime || mqtRec.rawOutTime) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const defIn = editingCell.entry.shift === 'NIGHT' ? '20:00' : '08:00';
+                          const defOut = editingCell.entry.shift === 'NIGHT' ? '05:00' : '17:00';
+                          handleTimeOrShiftChange({
+                            inTime: normalizeTimeString(mqtRec.rawInTime) || defIn,
+                            outTime: normalizeTimeString(mqtRec.rawOutTime) || defOut,
+                          });
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-blue-950/40 hover:bg-blue-950/80 border border-blue-600/40 text-blue-300 flex items-center justify-between cursor-pointer transition-colors"
+                      >
+                        <span>
+                          <strong>Máy Quẹt Thẻ:</strong>{' '}
+                          <span className="font-mono">{mqtRec.rawInTime || '--:--'} - {mqtRec.rawOutTime || '--:--'}</span>
+                        </span>
+                        <span className="text-[10px] underline">Lấy vào BC</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Check-in & Check-out Time Inputs */}
               <div className="grid grid-cols-2 gap-3">

@@ -453,7 +453,7 @@ export const AttendanceQRScannerModal: React.FC<AttendanceQRScannerModalProps> =
                 Vào: {punchResult.inTime || '--:--'} · Ra: {punchResult.outTime || '--:--'}
               </div>
               <div className="text-[11px] text-slate-300">
-                Đã đồng bộ vào bảng chấm công bộ phận {punchResult.departmentLabel}
+                Đã ghi vào cột chấm công QR bộ phận {punchResult.departmentLabel} để đối chiếu
               </div>
             </div>
           )}
@@ -481,7 +481,7 @@ export const AttendanceQRScannerModal: React.FC<AttendanceQRScannerModalProps> =
         </button>
 
         <p className="text-[11px] text-slate-400 text-center leading-relaxed">
-          Quét trực tiếp Mã QR tại trạm QRCODE để ghi nhận Giờ Vào / Giờ Ra. Chấm công thủ công chỉ dành cho HC &amp; NS, Admin hoặc Trưởng ca bộ phận.
+          Quét trực tiếp Mã QR tại trạm QRCODE để ghi nhận Giờ Vào / Giờ Ra vào mục Chấm công QR (tách biệt với Bảng chấm công thường để đối chiếu). Chấm công thủ công chỉ dành cho HC &amp; NS, Admin hoặc Trưởng ca bộ phận.
         </p>
       </div>
     </div>

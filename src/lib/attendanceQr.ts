@@ -1,8 +1,9 @@
-import { AttendanceStatus, StaffRecord } from '../types';
+import { AttendanceStatus, MachineSwipeRecord, StaffRecord } from '../types';
 import {
   calculateMatrixDayHoursFromTimes,
+  dispatchMatrixUpdatedEvent,
   getEmployeeProfileMatrixData,
-  updateEmployeeMatrixDayEntry,
+  getQrPunchStorageKey,
 } from './matrixTimekeeping';
 import { parseStaffQrPayload } from './staffQr';
 
@@ -82,6 +83,38 @@ export function formatIsoDate(date: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
+export function loadQrPunchMap(
+  year: number,
+  month: number
+): Record<string, MachineSwipeRecord> {
+  try {
+    const raw = localStorage.getItem(getQrPunchStorageKey(year, month));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return parsed as Record<string, MachineSwipeRecord>;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+export function saveQrPunchMap(
+  year: number,
+  month: number,
+  nextMap: Record<string, MachineSwipeRecord>,
+  department = 'MULTI'
+): void {
+  try {
+    localStorage.setItem(getQrPunchStorageKey(year, month), JSON.stringify(nextMap));
+    dispatchMatrixUpdatedEvent(department || 'MULTI', year, month);
+  } catch (e) {
+    console.error('Save QR punch map error', e);
+  }
+}
+
 function parseHhMmMins(t?: string): number | null {
   if (!t) return null;
   const m = t.trim().match(/^(\d{1,2}):(\d{2})$/);
@@ -122,13 +155,12 @@ export function getDateMatrixPunchState(
   );
 
   const entry = days[day];
-  const isRealSaved = Boolean(
-    entry &&
-      !entry.isAutoDefault &&
-      (entry.isManual || entry.isRestored || entry.leaveRecordId !== undefined)
-  );
-  const existingInTime = isRealSaved ? (entry?.inTime || '').trim() : '';
-  const existingOutTime = isRealSaved ? (entry?.outTime || '').trim() : '';
+  const qrMap = loadQrPunchMap(year, month);
+  const qrKey = `${staff.employeeId.trim().toLowerCase()}_${day}`;
+  const qrRecord = qrMap[qrKey];
+
+  const existingInTime = (qrRecord?.rawInTime || '').trim();
+  const existingOutTime = (qrRecord?.rawOutTime || '').trim();
   const existingShift: 'DAY' | 'NIGHT' =
     entry?.shift || (staff.shift === 'NIGHT' ? 'NIGHT' : 'DAY');
   const isSunday = new Date(year, month - 1, day).getDay() === 0;
@@ -180,7 +212,7 @@ export function recordEmployeeAttendancePunch(params: {
   note?: string;
   method?: 'QR' | 'MANUAL';
 }): AttendancePunchResult {
-  const { staff, allStaff, year, month, day, mode } = params;
+  const { staff, year, month, day, mode } = params;
   const state = getDateMatrixPunchState(staff, year, month, day);
   const nowHhMm = formatCurrentHhMm();
 
@@ -201,7 +233,7 @@ export function recordEmployeeAttendancePunch(params: {
   if (!nextInTime && !nextOutTime) {
     return {
       ok: false,
-      error: 'Vui lòng nhập ít nhất Giờ Vào hoặc Giờ Ra hợp lệ.',
+      error: 'Không có dữ liệu Giờ Vào hoặc Giờ Ra hợp lệ.',
       mode,
       dateStr: state.dateStr,
       dateIso: state.dateIso,
@@ -218,12 +250,6 @@ export function recordEmployeeAttendancePunch(params: {
   const shift: 'DAY' | 'NIGHT' = params.shift || state.existingShift || 'DAY';
 
   let regularHours = 0;
-  let otDayHours = 0;
-  let otNightHours = 0;
-  let otSundayHours = 0;
-  let otSundayNightHours = 0;
-  let otHolidayHours = 0;
-  let otHolidayNightHours = 0;
   let totalOtHours = 0;
   let status: AttendanceStatus = state.isHoliday
     ? 'Nghỉ lễ'
@@ -240,12 +266,6 @@ export function recordEmployeeAttendancePunch(params: {
       state.isHoliday
     );
     regularHours = calc.regularHours;
-    otDayHours = calc.otDayHours;
-    otNightHours = calc.otNightHours;
-    otSundayHours = calc.otSundayHours;
-    otSundayNightHours = calc.otSundayNightHours;
-    otHolidayHours = calc.otHolidayHours;
-    otHolidayNightHours = calc.otHolidayNightHours;
     totalOtHours = calc.totalOtHours;
     status = calc.suggestedStatus;
   } else if (nextInTime) {
@@ -268,50 +288,26 @@ export function recordEmployeeAttendancePunch(params: {
     }
   }
 
-  const methodTag = params.method === 'MANUAL' ? 'Chấm công thủ công' : 'Quét QR chấm công';
-  const note = params.note?.trim() || `${methodTag} (${formatCurrentHhMm()})`;
+  const deptDisplay = staff.department?.trim().toUpperCase() || state.sourceDepartment || 'MULTI';
+  const qrMap = loadQrPunchMap(year, month);
+  const qrKey = `${staff.employeeId.trim().toLowerCase()}_${day}`;
+  const note = params.note?.trim() || `Quét QR chấm công lúc ${formatCurrentHhMm()}`;
 
-  const updateRes = updateEmployeeMatrixDayEntry({
-    staff,
-    allStaff: allStaff.length > 0 ? allStaff : [staff],
-    year,
-    month,
-    day,
-    entryPatch: {
-      inTime: nextInTime,
-      outTime: nextOutTime,
-      shift,
-      regularHours,
-      otDayHours,
-      otNightHours,
-      otSundayHours,
-      otSundayNightHours,
-      otHolidayHours,
-      otHolidayNightHours,
-      isHoliday: state.isHoliday,
-      status,
+  const nextQrMap: Record<string, MachineSwipeRecord> = {
+    ...qrMap,
+    [qrKey]: {
+      id: qrKey,
+      employeeId: staff.employeeId,
+      fullName: staff.fullName,
+      department: deptDisplay,
+      date: state.dateStr,
+      rawInTime: nextInTime,
+      rawOutTime: nextOutTime,
       note,
     },
-  });
+  };
 
-  const deptDisplay = staff.department?.trim().toUpperCase() || updateRes.sourceDepartment || 'MULTI';
-
-  if (!updateRes.ok) {
-    return {
-      ok: false,
-      error: updateRes.error || 'Không thể lưu dữ liệu vào bảng chấm công.',
-      mode,
-      dateStr: state.dateStr,
-      dateIso: state.dateIso,
-      inTime: nextInTime,
-      outTime: nextOutTime,
-      shift,
-      status,
-      departmentLabel: deptDisplay,
-      regularHours,
-      totalOtHours,
-    };
-  }
+  saveQrPunchMap(year, month, nextQrMap, deptDisplay);
 
   return {
     ok: true,
@@ -327,3 +323,4 @@ export function recordEmployeeAttendancePunch(params: {
     totalOtHours,
   };
 }
+

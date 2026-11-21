@@ -20,6 +20,9 @@ export const getHolidayStorageKey = (department: string, year: number, month: nu
 export const getMatrixMetaStorageKey = (department: string, year: number, month: number): string =>
   `app_matrix_meta_${department.toLowerCase()}_${year}_${month}`;
 
+export const getQrPunchStorageKey = (year: number, month: number): string =>
+  `app_timekeeping_qr_punches_${year}_${month}`;
+
 export function isMatrixEntryWorking(entry: MatrixDayTimeEntry | undefined): boolean {
   if (!entry) return false;
   const totalHours = getMatrixEntryTotalHours(entry);
@@ -1610,7 +1613,8 @@ export function getAllStoredMatrixSnapshots(): Record<string, string> {
         (key.startsWith('app_matrix_timekeeping_') ||
           key.startsWith('app_matrix_holidays_') ||
           key.startsWith('app_matrix_meta_') ||
-          key.startsWith('app_timekeeping_machine_swipes_'))
+          key.startsWith('app_timekeeping_machine_swipes_') ||
+          key.startsWith('app_timekeeping_qr_punches_'))
       ) {
         const val = localStorage.getItem(key);
         if (val !== null) snapshots[key] = val;
@@ -1630,7 +1634,8 @@ export function restoreStoredMatrixSnapshots(snapshots: Record<string, string> |
         (key.startsWith('app_matrix_timekeeping_') ||
           key.startsWith('app_matrix_holidays_') ||
           key.startsWith('app_matrix_meta_') ||
-          key.startsWith('app_timekeeping_machine_swipes_')) &&
+          key.startsWith('app_timekeeping_machine_swipes_') ||
+          key.startsWith('app_timekeeping_qr_punches_')) &&
         typeof val === 'string'
       ) {
         localStorage.setItem(key, val);
@@ -1692,7 +1697,10 @@ export function deleteEmployeeFromAllMatrixStorage(employeeId: string) {
         } catch (err) {
           console.error('Error purging employee from matrix storage', key, err);
         }
-      } else if (key.startsWith('app_timekeeping_machine_swipes_')) {
+      } else if (
+        key.startsWith('app_timekeeping_machine_swipes_') ||
+        key.startsWith('app_timekeeping_qr_punches_')
+      ) {
         try {
           const raw = localStorage.getItem(key);
           if (!raw) return;

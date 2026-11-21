@@ -36,6 +36,7 @@ import {
   FileText,
   Eye,
   Printer,
+  QrCode,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -44,7 +45,9 @@ import {
   dispatchMatrixUpdatedEvent,
   calculateMatrixDayHoursFromTimes,
   updateEmployeeMatrixDayEntry,
+  getQrPunchStorageKey,
 } from '../../lib/matrixTimekeeping';
+import { loadQrPunchMap, saveQrPunchMap } from '../../lib/attendanceQr';
 import {
   AbnormalAttendanceHistorySection,
   AbnormalAttendanceModal,
@@ -93,7 +96,8 @@ export interface ComparisonRow {
   bcStatus: string;
   hasBcWork: boolean;
 
-  // MÁY QUẸT THẺ (3 cột)
+  // MÁY QUẸT THẺ / CHẤM CÔNG QR (3 cột)
+  compareSource?: 'MQT' | 'QR';
   rawInTime: string;
   rawOutTime: string;
   mqtInTime: string; // After applying rule
@@ -502,8 +506,20 @@ export function buildComparisonRowForEmployeeDay(params: {
   bcEntry?: MatrixDayTimeEntry;
   holidayMap?: Record<number, boolean>;
   swipeRecord?: MachineSwipeRecord;
+  compareSource?: 'MQT' | 'QR';
 }): ComparisonRow {
-  const { staff, day, selectedYear, selectedMonth, bcEntry, holidayMap = {}, swipeRecord } = params;
+  const {
+    staff,
+    day,
+    selectedYear,
+    selectedMonth,
+    bcEntry,
+    holidayMap = {},
+    swipeRecord,
+    compareSource = 'MQT',
+  } = params;
+  const isQrMode = compareSource === 'QR';
+  const srcShort = isQrMode ? 'QR' : 'MQT';
 
   const dateObj = new Date(selectedYear, selectedMonth - 1, day);
   const dayOfWeekNum = dateObj.getDay();
@@ -516,7 +532,7 @@ export function buildComparisonRowForEmployeeDay(params: {
   const effectiveShift: 'DAY' | 'NIGHT' = bcEntry?.shift || staff.shift || 'DAY';
   const shiftLabel = effectiveShift === 'NIGHT' ? 'Ca Đêm (20:00 - 08:00)' : 'Ca Ngày (08:00 - 20:00)';
 
-  // 1. DATA FROM BẢNG CHẤM CÔNG (BC)
+  // 1. DATA FROM BẢNG CHẤM CÔNG (BC / Chấm công thường)
   const bcInTime = bcEntry?.inTime ? normalizeTimeString(bcEntry.inTime) : '';
   const bcOutTime = bcEntry?.outTime ? normalizeTimeString(bcEntry.outTime) : '';
   const bcOtHours = bcEntry
@@ -547,12 +563,12 @@ export function buildComparisonRowForEmployeeDay(params: {
       (bcInTime || bcOutTime || (bcEntry?.regularHours || 0) > 0 || bcOtHours > 0)
   );
 
-  // 2. DATA FROM MÁY QUẸT THẺ (MQT)
+  // 2. DATA FROM MÁY QUẸT THẺ (MQT) OR CHẤM CÔNG QR (QR)
   const rawInTime = swipeRecord?.rawInTime || '';
   const rawOutTime = swipeRecord?.rawOutTime || '';
   const hasMqtSwipe = Boolean(rawInTime || rawOutTime);
 
-  // Compute MQT times using user rules
+  // Compute standardized times & OT using shift rules
   const calc = calculateMachineTimes(rawInTime, rawOutTime, effectiveShift, isSunday || isHoliday);
   const mqtInTime = calc.mqtIn;
   const mqtOutTime = calc.mqtOut;
@@ -561,7 +577,9 @@ export function buildComparisonRowForEmployeeDay(params: {
   // 3. COMPARE & ANALYZE DISCREPANCIES
   let discrepancyType: DiscrepancyType = 'MATCH';
   let discrepancyLabel = 'Khớp chuẩn';
-  let discrepancyDetail = 'Dữ liệu quẹt thẻ khớp 100% với bảng chấm công.';
+  let discrepancyDetail = isQrMode
+    ? 'Dữ liệu quét QR khớp 100% với bảng chấm công thường.'
+    : 'Dữ liệu quẹt thẻ khớp 100% với bảng chấm công.';
   let lateMinutes = 0;
   let earlyMinutes = 0;
   let otDifference = 0;
@@ -582,25 +600,33 @@ export function buildComparisonRowForEmployeeDay(params: {
         : 'Nghỉ theo lịch phân công.';
     } else {
       discrepancyType = 'UNSCHEDULED_SWIPE';
-      discrepancyLabel = 'Quẹt ngoài lịch';
-      discrepancyDetail = `Có quẹt thẻ ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'}`;
+      discrepancyLabel = isQrMode ? 'Quét QR ngoài lịch' : 'Quẹt ngoài lịch';
+      discrepancyDetail = isQrMode
+        ? `Có quét QR ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'} (Bảng công thường chưa có giờ)`
+        : `Có quẹt thẻ ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'}`;
     }
   } else {
-    // Bảng công có ca làm việc cần quẹt thẻ
+    // Bảng công có ca làm việc cần chấm công
     if (!rawInTime && !rawOutTime) {
       discrepancyType = 'MISSING_BOTH';
-      discrepancyLabel = 'Chưa quẹt thẻ';
-      discrepancyDetail = `Máy quẹt thẻ chưa ghi nhận giờ vào và giờ ra (BC yêu cầu: ${bcInTime || '08:00'} - ${bcOutTime || '20:00'}).`;
+      discrepancyLabel = isQrMode ? 'Chưa quét QR' : 'Chưa quẹt thẻ';
+      discrepancyDetail = isQrMode
+        ? `Chưa quét QR giờ vào và giờ ra (Bảng chấm công thường: ${bcInTime || '08:00'} - ${bcOutTime || '20:00'}).`
+        : `Máy quẹt thẻ chưa ghi nhận giờ vào và giờ ra (BC yêu cầu: ${bcInTime || '08:00'} - ${bcOutTime || '20:00'}).`;
     } else if (!rawInTime && rawOutTime) {
       discrepancyType = 'MISSING_IN';
       discrepancyLabel = 'Thiếu giờ vào';
-      discrepancyDetail = `Thiếu giờ vào trên máy quẹt thẻ (Bảng công ghi nhận vào lúc ${bcInTime || (effectiveShift === 'NIGHT' ? '20:00' : '08:00')}).`;
+      discrepancyDetail = isQrMode
+        ? `Thiếu giờ vào bằng QR (Bảng chấm công thường ghi nhận vào lúc ${bcInTime || (effectiveShift === 'NIGHT' ? '20:00' : '08:00')}).`
+        : `Thiếu giờ vào trên máy quẹt thẻ (Bảng công ghi nhận vào lúc ${bcInTime || (effectiveShift === 'NIGHT' ? '20:00' : '08:00')}).`;
     } else if (rawInTime && !rawOutTime) {
       discrepancyType = 'MISSING_OUT';
       discrepancyLabel = 'Thiếu giờ ra';
-      discrepancyDetail = `Thiếu giờ ra trên máy quẹt thẻ (Bảng công ghi nhận ra lúc ${bcOutTime || (effectiveShift === 'NIGHT' ? '08:00' : '20:00')}).`;
+      discrepancyDetail = isQrMode
+        ? `Thiếu giờ ra bằng QR (Bảng chấm công thường ghi nhận ra lúc ${bcOutTime || (effectiveShift === 'NIGHT' ? '08:00' : '20:00')}).`
+        : `Thiếu giờ ra trên máy quẹt thẻ (Bảng công ghi nhận ra lúc ${bcOutTime || (effectiveShift === 'NIGHT' ? '08:00' : '20:00')}).`;
     } else {
-      // Có cả giờ vào và giờ ra trên máy quẹt thẻ -> So sánh chi tiết (xử lý ca đêm qua nửa đêm)
+      // Có cả giờ vào và giờ ra -> So sánh chi tiết (xử lý ca đêm qua nửa đêm)
       const toShiftMins = (mins: number | null, isOut: boolean): number | null => {
         if (mins === null) return null;
         if (effectiveShift === 'NIGHT' && (isOut ? mins <= 720 : mins < 720)) {
@@ -634,23 +660,25 @@ export function buildComparisonRowForEmployeeDay(params: {
       if (lateMinutes > 0 && earlyMinutes > 0) {
         discrepancyType = 'LATE_AND_EARLY';
         discrepancyLabel = 'Muộn & Về sớm';
-        discrepancyDetail = `Đi muộn ${formatMinutes(lateMinutes)} (MQT: ${mqtInTime} vs BC: ${bcInTime}) & Về sớm ${formatMinutes(earlyMinutes)} (MQT: ${mqtOutTime} vs BC: ${bcOutTime}).`;
+        discrepancyDetail = `Đi muộn ${formatMinutes(lateMinutes)} (${srcShort}: ${mqtInTime} vs BC: ${bcInTime}) & Về sớm ${formatMinutes(earlyMinutes)} (${srcShort}: ${mqtOutTime} vs BC: ${bcOutTime}).`;
       } else if (lateMinutes > 0) {
         discrepancyType = 'LATE_IN';
         discrepancyLabel = 'Đi muộn';
-        discrepancyDetail = `Vào trễ ${formatMinutes(lateMinutes)} (MQT: ${mqtInTime} vs BC: ${bcInTime}).`;
+        discrepancyDetail = `Vào trễ ${formatMinutes(lateMinutes)} (${srcShort}: ${mqtInTime} vs BC: ${bcInTime}).`;
       } else if (earlyMinutes > 0) {
         discrepancyType = 'EARLY_OUT';
         discrepancyLabel = 'Về sớm';
-        discrepancyDetail = `Về sớm ${formatMinutes(earlyMinutes)} (MQT: ${mqtOutTime} vs BC: ${bcOutTime}).`;
+        discrepancyDetail = `Về sớm ${formatMinutes(earlyMinutes)} (${srcShort}: ${mqtOutTime} vs BC: ${bcOutTime}).`;
       } else if (Math.abs(otDifference) >= 0.2) {
         discrepancyType = 'OT_MISMATCH';
         discrepancyLabel = 'Lệch tăng ca';
-        discrepancyDetail = `Lệch tăng ca: Bảng công ${bcOtHours}h vs Máy quẹt ${mqtOtHours}h (Chênh ${otDifference > 0 ? '+' : ''}${otDifference}h).`;
+        discrepancyDetail = `Lệch tăng ca: Bảng công ${bcOtHours}h vs ${isQrMode ? 'Quét QR' : 'Máy quẹt'} ${mqtOtHours}h (Chênh ${otDifference > 0 ? '+' : ''}${otDifference}h).`;
       } else {
         discrepancyType = 'MATCH';
         discrepancyLabel = 'Khớp chuẩn';
-        discrepancyDetail = 'Dữ liệu quẹt thẻ khớp 100% với bảng chấm công.';
+        discrepancyDetail = isQrMode
+          ? 'Dữ liệu quét QR khớp 100% với bảng chấm công thường.'
+          : 'Dữ liệu quẹt thẻ khớp 100% với bảng chấm công.';
       }
     }
   }
@@ -672,6 +700,7 @@ export function buildComparisonRowForEmployeeDay(params: {
     bcOtHours,
     bcStatus,
     hasBcWork,
+    compareSource,
     rawInTime,
     rawOutTime,
     mqtInTime,
@@ -687,6 +716,498 @@ export function buildComparisonRowForEmployeeDay(params: {
     lateMinutes,
     earlyMinutes,
     otDifference,
+  };
+}
+
+export interface SwipeExcelImportResult {
+  success: boolean;
+  errorMsg?: string;
+  monthlyUpdates: Map<string, Record<string, MachineSwipeRecord>>;
+  monthCounts: Array<{ year: number; month: number; count: number }>;
+  matchedEmployees: Array<{ name: string; employeeId: string; count: number }>;
+  unmatchedNames: string[];
+  rawPunchesParsed: number;
+}
+
+export function importMachineSwipesFromArrayBuffer(
+  buffer: ArrayBuffer,
+  allStaff: StaffRecord[],
+  selectedYear: number,
+  selectedMonth: number,
+  departmentHint = 'MULTI'
+): SwipeExcelImportResult {
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
+  const wsName = wb.SheetNames[0];
+  const ws = wb.Sheets[wsName];
+  const sheetRows = XLSX.utils.sheet_to_json<any[]>(ws, {
+    header: 1,
+    defval: '',
+    raw: true,
+  });
+
+  if (!sheetRows || sheetRows.length === 0) {
+    return {
+      success: false,
+      errorMsg: 'File Excel trống hoặc không có dữ liệu!',
+      monthlyUpdates: new Map(),
+      monthCounts: [],
+      matchedEmployees: [],
+      unmatchedNames: [],
+      rawPunchesParsed: 0,
+    };
+  }
+
+  const HEADER_KEYWORDS = new Set([
+    'idnguoi',
+    'ten',
+    'hovaten',
+    'hoten',
+    'hovatennhanvien',
+    'hovatennv',
+    'thoigian',
+    'ngaygio',
+    'ngay',
+    'bophan',
+    'manhanvien',
+    'manv',
+    'employeeid',
+    'userid',
+    'macc',
+    'giovao',
+    'giovaocheckin',
+    'checkin',
+    'giora',
+    'gioracheckout',
+    'checkout',
+    'tinhtrangchuyencan',
+    'diemkiemtrachamcong',
+    'nguondulieu',
+  ]);
+
+  let headerRowIdx = 0;
+  let bestScore = -1;
+  const scanLimit = Math.min(sheetRows.length, 15);
+  for (let r = 0; r < scanLimit; r++) {
+    const row = sheetRows[r];
+    if (!Array.isArray(row)) continue;
+    let score = 0;
+    let nonEmpty = 0;
+    row.forEach((cell) => {
+      const norm = normalizeColumnKey(String(cell || ''));
+      if (norm) nonEmpty++;
+      if (HEADER_KEYWORDS.has(norm)) score += 3;
+    });
+    if (nonEmpty >= 2 && score > bestScore) {
+      bestScore = score;
+      headerRowIdx = r;
+    }
+  }
+
+  const headerRow = (sheetRows[headerRowIdx] || []).map((h) => normalizeColumnKey(String(h || '')));
+  const headerSet = new Set(headerRow.filter(Boolean));
+
+  const dataObjects: Record<string, any>[] = [];
+  for (let r = headerRowIdx + 1; r < sheetRows.length; r++) {
+    const cells = sheetRows[r];
+    if (!Array.isArray(cells)) continue;
+    const hasAnyValue = cells.some((c) => cleanCellText(c) !== '');
+    if (!hasAnyValue) continue;
+    const obj: Record<string, any> = {};
+    headerRow.forEach((colKey, idx) => {
+      if (colKey) obj[colKey] = cells[idx];
+    });
+    dataObjects.push(obj);
+  }
+
+  if (dataObjects.length === 0) {
+    return {
+      success: false,
+      errorMsg: 'Không tìm thấy dòng dữ liệu hợp lệ trong file đã tải lên!',
+      monthlyUpdates: new Map(),
+      monthCounts: [],
+      matchedEmployees: [],
+      unmatchedNames: [],
+      rawPunchesParsed: 0,
+    };
+  }
+
+  const staffById = new Map<string, StaffRecord>();
+  const staffByName = new Map<string, StaffRecord[]>();
+  allStaff.forEach((s) => {
+    staffById.set(s.employeeId.trim().toLowerCase(), s);
+    const normName = normalizeVietnameseName(s.fullName);
+    if (normName) {
+      const list = staffByName.get(normName) || [];
+      list.push(s);
+      staffByName.set(normName, list);
+    }
+  });
+
+  const resolveStaffMatch = (
+    rawEmpCode: string,
+    rawPersonId: string,
+    rawName: string,
+    rawDept: string
+  ): StaffRecord | undefined => {
+    if (rawEmpCode && staffById.has(rawEmpCode.toLowerCase())) {
+      return staffById.get(rawEmpCode.toLowerCase());
+    }
+    if (rawPersonId && staffById.has(rawPersonId.toLowerCase())) {
+      return staffById.get(rawPersonId.toLowerCase());
+    }
+    const normName = normalizeVietnameseName(rawName);
+    if (normName && staffByName.has(normName)) {
+      const candidates = staffByName.get(normName)!;
+      if (candidates.length === 1) return candidates[0];
+      if (rawDept) {
+        const normDept = normalizeVietnameseName(rawDept);
+        const deptMatch = candidates.find(
+          (c) =>
+            normalizeVietnameseName(c.department).includes(normDept) ||
+            normDept.includes(normalizeVietnameseName(c.department))
+        );
+        if (deptMatch) return deptMatch;
+      }
+      return candidates[0];
+    }
+    return undefined;
+  };
+
+  const hasPairedInOutCols =
+    headerSet.has('giovao') ||
+    headerSet.has('giovaocheckin') ||
+    headerSet.has('checkin') ||
+    headerSet.has('vao') ||
+    headerSet.has('giora') ||
+    headerSet.has('gioracheckout') ||
+    headerSet.has('checkout') ||
+    headerSet.has('ra');
+  const hasCombinedTimestampCol =
+    headerSet.has('thoigian') ||
+    headerSet.has('ngaygio') ||
+    headerSet.has('datetime') ||
+    headerSet.has('timestamp') ||
+    headerSet.has('checktime');
+
+  const isRawPunchFormat = hasCombinedTimestampCol && !hasPairedInOutCols;
+
+  const monthlyUpdates = new Map<string, Record<string, MachineSwipeRecord>>();
+  const matchedEmpStats = new Map<string, { name: string; employeeId: string; count: number }>();
+  const unmatchedSet = new Set<string>();
+
+  const matrixShiftCache = new Map<string, Record<number, 'DAY' | 'NIGHT'>>();
+  const getEffectiveShiftForDate = (
+    staff: StaffRecord,
+    year: number,
+    month: number,
+    day: number
+  ): 'DAY' | 'NIGHT' => {
+    const cacheKey = `${staff.employeeId}_${year}_${month}`;
+    let dayShifts = matrixShiftCache.get(cacheKey);
+    if (!dayShifts) {
+      const matrixData = getEmployeeProfileMatrixData(
+        staff.employeeId,
+        staff.department || departmentHint || 'MULTI',
+        year,
+        month,
+        staff
+      );
+      dayShifts = {};
+      Object.entries(matrixData.days || {}).forEach(([dStr, entry]) => {
+        if (entry?.shift) dayShifts![Number(dStr)] = entry.shift;
+      });
+      matrixShiftCache.set(cacheKey, dayShifts);
+    }
+    return dayShifts[day] || staff.shift || 'DAY';
+  };
+
+  const addRecordToMonthBucket = (
+    year: number,
+    month: number,
+    day: number,
+    record: MachineSwipeRecord
+  ) => {
+    const bucketKey = `${year}_${month}`;
+    if (!monthlyUpdates.has(bucketKey)) {
+      let existing: Record<string, MachineSwipeRecord> = {};
+      try {
+        const saved = localStorage.getItem(getMachineSwipeStorageKey(year, month));
+        if (saved) existing = JSON.parse(saved);
+      } catch {
+        existing = {};
+      }
+      monthlyUpdates.set(bucketKey, existing);
+    }
+    const bucket = monthlyUpdates.get(bucketKey)!;
+    const swipeKey = `${record.employeeId.trim().toLowerCase()}_${day}`;
+    bucket[swipeKey] = record;
+
+    const statKey = record.employeeId.trim().toLowerCase();
+    const prevStat = matchedEmpStats.get(statKey);
+    if (prevStat) {
+      prevStat.count += 1;
+    } else {
+      matchedEmpStats.set(statKey, {
+        name: record.fullName || record.employeeId,
+        employeeId: record.employeeId,
+        count: 1,
+      });
+    }
+  };
+
+  let rawPunchesParsed = 0;
+
+  if (isRawPunchFormat) {
+    interface EmployeePunchItem {
+      parsed: ParsedPunchDateTime;
+      rawDept: string;
+      point: string;
+      source: string;
+    }
+    const punchesByStaff = new Map<string, { staff: StaffRecord; punches: EmployeePunchItem[] }>();
+
+    dataObjects.forEach((row) => {
+      const rawEmpCode = cleanCellText(
+        row['manhanvien'] || row['manv'] || row['employeeid'] || row['macc']
+      );
+      const rawPersonId = cleanCellText(row['idnguoi'] || row['userid'] || row['id']);
+      const rawName = cleanCellText(
+        row['ten'] ||
+          row['hovaten'] ||
+          row['hovatennv'] ||
+          row['hovatennhanvien'] ||
+          row['hoten'] ||
+          row['fullname'] ||
+          row['name']
+      );
+      const rawDept = cleanCellText(row['bophan'] || row['department']);
+      const rawTimeVal =
+        row['thoigian'] ?? row['ngaygio'] ?? row['datetime'] ?? row['timestamp'] ?? row['checktime'];
+
+      const parsed = parsePunchDateTime(rawTimeVal, selectedYear, selectedMonth);
+      if (!parsed || !parsed.hasTime) return;
+
+      const matchedStaff = resolveStaffMatch(rawEmpCode, rawPersonId, rawName, rawDept);
+      if (!matchedStaff) {
+        const label = rawName || rawEmpCode || rawPersonId;
+        if (label) unmatchedSet.add(label);
+        return;
+      }
+
+      rawPunchesParsed++;
+      const sKey = matchedStaff.employeeId.trim().toLowerCase();
+      if (!punchesByStaff.has(sKey)) {
+        punchesByStaff.set(sKey, { staff: matchedStaff, punches: [] });
+      }
+      punchesByStaff.get(sKey)!.punches.push({
+        parsed,
+        rawDept,
+        point: cleanCellText(row['diemkiemtrachamcong']),
+        source: cleanCellText(row['nguondulieu']),
+      });
+    });
+
+    punchesByStaff.forEach(({ staff, punches }) => {
+      punches.sort((a, b) => a.parsed.timestamp - b.parsed.timestamp);
+
+      const byDateIso = new Map<string, EmployeePunchItem[]>();
+      punches.forEach((p) => {
+        const iso = `${p.parsed.year}-${String(p.parsed.month).padStart(2, '0')}-${String(p.parsed.day).padStart(2, '0')}`;
+        const list = byDateIso.get(iso) || [];
+        list.push(p);
+        byDateIso.set(iso, list);
+      });
+
+      const sortedIsos = Array.from(byDateIso.keys()).sort();
+      const consumedTimestamps = new Set<number>();
+
+      sortedIsos.forEach((dateIso) => {
+        const [yStr, mStr, dStr] = dateIso.split('-');
+        const y = Number(yStr);
+        const m = Number(mStr);
+        const d = Number(dStr);
+        const dayPunches = (byDateIso.get(dateIso) || []).filter(
+          (p) => !consumedTimestamps.has(p.parsed.timestamp)
+        );
+        if (dayPunches.length === 0) return;
+
+        const effectiveShift = getEffectiveShiftForDate(staff, y, m, d);
+        let rawInTime = '';
+        let rawOutTime = '';
+        const noteParts: string[] = [];
+
+        if (effectiveShift === 'NIGHT') {
+          const orphanMorning = dayPunches.filter((p) => p.parsed.minutesOfDay <= 12 * 60);
+          if (orphanMorning.length > 0) {
+            const prevDateObj = new Date(y, m - 1, d - 1);
+            const prevY = prevDateObj.getFullYear();
+            const prevM = prevDateObj.getMonth() + 1;
+            const prevD = prevDateObj.getDate();
+            const prevShift = getEffectiveShiftForDate(staff, prevY, prevM, prevD);
+            if (prevShift === 'NIGHT') {
+              const prevBucket = monthlyUpdates.get(`${prevY}_${prevM}`);
+              const prevKey = `${staff.employeeId.trim().toLowerCase()}_${prevD}`;
+              const existingPrev = prevBucket?.[prevKey];
+              if (!existingPrev?.rawOutTime) {
+                const lastMorning = orphanMorning[orphanMorning.length - 1];
+                addRecordToMonthBucket(prevY, prevM, prevD, {
+                  id: prevKey,
+                  employeeId: staff.employeeId,
+                  fullName: staff.fullName,
+                  department: staff.department || departmentHint || 'MULTI',
+                  date: `${String(prevD).padStart(2, '0')}/${String(prevM).padStart(2, '0')}/${prevY}`,
+                  rawInTime: existingPrev?.rawInTime || '',
+                  rawOutTime: lastMorning.parsed.timeStr,
+                  note: `${existingPrev?.note ? `${existingPrev.note} | ` : ''}Ra sáng ${d}/${m}: ${orphanMorning.map((p) => p.parsed.fullTimeStr).join(', ')}`,
+                });
+                orphanMorning.forEach((p) => consumedTimestamps.add(p.parsed.timestamp));
+              }
+            }
+          }
+
+          const eveningPunches = dayPunches.filter(
+            (p) => !consumedTimestamps.has(p.parsed.timestamp) && p.parsed.minutesOfDay >= 15 * 60
+          );
+          const nextDateObj = new Date(y, m - 1, d + 1);
+          const nextIso = `${nextDateObj.getFullYear()}-${String(nextDateObj.getMonth() + 1).padStart(2, '0')}-${String(nextDateObj.getDate()).padStart(2, '0')}`;
+          const nextMorningPunches = (byDateIso.get(nextIso) || []).filter(
+            (p) => !consumedTimestamps.has(p.parsed.timestamp) && p.parsed.minutesOfDay <= 12 * 60
+          );
+
+          if (eveningPunches.length > 0) {
+            rawInTime = eveningPunches[0].parsed.timeStr;
+            eveningPunches.forEach((p) => consumedTimestamps.add(p.parsed.timestamp));
+            noteParts.push(`Vào: ${eveningPunches.map((p) => p.parsed.fullTimeStr).join(', ')}`);
+
+            if (nextMorningPunches.length > 0) {
+              rawOutTime = nextMorningPunches[nextMorningPunches.length - 1].parsed.timeStr;
+              nextMorningPunches.forEach((p) => consumedTimestamps.add(p.parsed.timestamp));
+              noteParts.push(
+                `Ra sáng hôm sau: ${nextMorningPunches.map((p) => p.parsed.fullTimeStr).join(', ')}`
+              );
+            }
+          }
+        } else {
+          const first = dayPunches[0];
+          const last = dayPunches[dayPunches.length - 1];
+          const spanMinutes = last.parsed.minutesOfDay - first.parsed.minutesOfDay;
+
+          if (spanMinutes >= 30) {
+            rawInTime = first.parsed.timeStr;
+            rawOutTime = last.parsed.timeStr;
+          } else if (first.parsed.minutesOfDay < 12 * 60 + 30) {
+            rawInTime = first.parsed.timeStr;
+            rawOutTime = '';
+          } else {
+            rawInTime = '';
+            rawOutTime = last.parsed.timeStr;
+          }
+          dayPunches.forEach((p) => consumedTimestamps.add(p.parsed.timestamp));
+          noteParts.push(
+            `Quẹt gốc (${dayPunches.length} lượt): ${dayPunches.map((p) => p.parsed.fullTimeStr).join(', ')}`
+          );
+        }
+
+        if (!rawInTime && !rawOutTime) return;
+
+        const dateStr = `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+        const swipeKey = `${staff.employeeId.trim().toLowerCase()}_${d}`;
+        addRecordToMonthBucket(y, m, d, {
+          id: swipeKey,
+          employeeId: staff.employeeId,
+          fullName: staff.fullName,
+          department: staff.department || departmentHint || 'MULTI',
+          date: dateStr,
+          rawInTime,
+          rawOutTime,
+          note: noteParts.join(' | '),
+        });
+      });
+    });
+  } else {
+    dataObjects.forEach((row) => {
+      const rawEmpCode = cleanCellText(
+        row['manhanvien'] || row['manv'] || row['employeeid'] || row['macc']
+      );
+      const rawPersonId = cleanCellText(row['idnguoi'] || row['userid'] || row['id']);
+      const rawName = cleanCellText(
+        row['ten'] ||
+          row['hovaten'] ||
+          row['hovatennv'] ||
+          row['hovatennhanvien'] ||
+          row['hoten'] ||
+          row['fullname'] ||
+          row['name']
+      );
+      const rawDept = cleanCellText(row['bophan'] || row['department']);
+
+      const matchedStaff = resolveStaffMatch(rawEmpCode, rawPersonId, rawName, rawDept);
+      const empId = matchedStaff ? matchedStaff.employeeId : rawEmpCode || rawPersonId;
+      if (!empId) {
+        if (rawName) unmatchedSet.add(rawName);
+        return;
+      }
+      if (!matchedStaff && rawName) {
+        unmatchedSet.add(rawName);
+      }
+
+      const rawDay = row['ngay'] ?? row['date'] ?? row['day'] ?? row['thoigian'];
+      const parsedDate = parsePunchDateTime(rawDay, selectedYear, selectedMonth);
+      if (!parsedDate) return;
+
+      const rawIn =
+        row['giovao'] ?? row['giovaocheckin'] ?? row['checkin'] ?? row['vao'] ?? row['in'] ?? row['vao1'] ?? '';
+      const rawOut =
+        row['giora'] ?? row['gioracheckout'] ?? row['checkout'] ?? row['ra'] ?? row['out'] ?? row['ra1'] ?? row['ra2'] ?? '';
+      const note = cleanCellText(row['ghichu'] || row['note']);
+
+      const normalizedIn = normalizeTimeString(rawIn);
+      const normalizedOut = normalizeTimeString(rawOut);
+      if (!normalizedIn && !normalizedOut) return;
+
+      rawPunchesParsed++;
+      const key = `${empId.trim().toLowerCase()}_${parsedDate.day}`;
+      addRecordToMonthBucket(parsedDate.year, parsedDate.month, parsedDate.day, {
+        id: key,
+        employeeId: empId,
+        fullName: matchedStaff?.fullName || rawName || empId,
+        department: matchedStaff?.department || rawDept || departmentHint || 'MULTI',
+        date: `${String(parsedDate.day).padStart(2, '0')}/${String(parsedDate.month).padStart(2, '0')}/${parsedDate.year}`,
+        rawInTime: normalizedIn,
+        rawOutTime: normalizedOut,
+        note,
+      });
+    });
+  }
+
+  const monthCounts: Array<{ year: number; month: number; count: number }> = [];
+
+  monthlyUpdates.forEach((bucket, bucketKey) => {
+    const [yStr, mStr] = bucketKey.split('_');
+    const y = Number(yStr);
+    const m = Number(mStr);
+    try {
+      localStorage.setItem(getMachineSwipeStorageKey(y, m), JSON.stringify(bucket));
+      dispatchMatrixUpdatedEvent(departmentHint || 'MULTI', y, m);
+    } catch (err) {
+      console.error('Save multi-month swipes error', err);
+    }
+    const count = Object.keys(bucket).length;
+    monthCounts.push({ year: y, month: m, count });
+  });
+
+  monthCounts.sort((a, b) => (a.year !== b.year ? a.year - b.year : a.month - b.month));
+
+  const matchedEmployees = Array.from(matchedEmpStats.values());
+  const unmatchedNames = Array.from(unmatchedSet);
+
+  return {
+    success: matchedEmployees.length > 0 && monthCounts.length > 0,
+    monthlyUpdates,
+    monthCounts,
+    matchedEmployees,
+    unmatchedNames,
+    rawPunchesParsed,
   };
 }
 
@@ -707,10 +1228,11 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
   const [filterDept, setFilterDept] = useState<string>('ALL');
   const [filterShift, setFilterShift] = useState<'ALL' | 'DAY' | 'NIGHT'>('ALL');
   const [filterDiscrepancy, setFilterDiscrepancy] = useState<string>('ALL');
+  const [punchSource, setPunchSource] = useState<'MQT' | 'QR'>('MQT');
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
 
-  // Modal manual edit swipe (MQT)
+  // Modal manual edit swipe (MQT / QR)
   const [editingRow, setEditingRow] = useState<ComparisonRow | null>(null);
   const [editInTime, setEditInTime] = useState('');
   const [editOutTime, setEditOutTime] = useState('');
@@ -740,6 +1262,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
 
   // State: Machine Swipes by date and empId: map of `${empId.toLowerCase()}_${day}` -> MachineSwipeRecord
   const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
+  const qrStorageKey = getQrPunchStorageKey(selectedYear, selectedMonth);
   const [swipeRecords, setSwipeRecords] = useState<Record<string, MachineSwipeRecord>>(() => {
     try {
       const saved = localStorage.getItem(swipeStorageKey);
@@ -749,20 +1272,20 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     }
     return {};
   });
+  const [qrPunchRecords, setQrPunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
+    loadQrPunchMap(selectedYear, selectedMonth)
+  );
 
-  // Reload swipe records when year/month changes
+  // Reload swipe & QR punch records when year/month changes
   useEffect(() => {
     try {
       const saved = localStorage.getItem(swipeStorageKey);
-      if (saved) {
-        setSwipeRecords(JSON.parse(saved));
-        return;
-      }
+      setSwipeRecords(saved ? JSON.parse(saved) : {});
     } catch {
-      // ignore
+      setSwipeRecords({});
     }
-    setSwipeRecords({});
-  }, [swipeStorageKey]);
+    setQrPunchRecords(loadQrPunchMap(selectedYear, selectedMonth));
+  }, [swipeStorageKey, qrStorageKey, selectedYear, selectedMonth]);
 
   // Persist machine swipe records
   const saveSwipes = (next: Record<string, MachineSwipeRecord>) => {
@@ -773,6 +1296,12 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     } catch (e) {
       console.error('Save swipes error', e);
     }
+  };
+
+  // Persist QR punch records
+  const saveQrPunches = (next: Record<string, MachineSwipeRecord>) => {
+    setQrPunchRecords(next);
+    saveQrPunchMap(selectedYear, selectedMonth, next, 'MULTI');
   };
 
   // Days in month
@@ -797,12 +1326,11 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       setMatrixVersion((v) => v + 1);
       try {
         const saved = localStorage.getItem(swipeStorageKey);
-        if (saved) {
-          setSwipeRecords(JSON.parse(saved));
-        }
+        setSwipeRecords(saved ? JSON.parse(saved) : {});
       } catch {
         // ignore
       }
+      setQrPunchRecords(loadQrPunchMap(selectedYear, selectedMonth));
     };
     window.addEventListener(MATRIX_UPDATED_EVENT, handleUpdate);
     window.addEventListener('storage', handleUpdate);
@@ -810,11 +1338,12 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       window.removeEventListener(MATRIX_UPDATED_EVENT, handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
-  }, [swipeStorageKey]);
+  }, [swipeStorageKey, qrStorageKey, selectedYear, selectedMonth]);
 
   // --- BUILD COMPARISON MATRIX ROWS ---
   const allComparisonRows = useMemo<ComparisonRow[]>(() => {
     const rows: ComparisonRow[] = [];
+    const activePunchMap = punchSource === 'QR' ? qrPunchRecords : swipeRecords;
 
     allStaff.forEach((staff) => {
       // Get Matrix Timekeeping Data for this employee for selectedMonth/Year
@@ -831,7 +1360,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
 
       for (let day = 1; day <= daysInMonth; day++) {
         const swipeKey = `${staff.employeeId.trim().toLowerCase()}_${day}`;
-        const swipeRec = swipeRecords[swipeKey];
+        const swipeRec = activePunchMap[swipeKey];
         const bcEntry = daysMap[day];
 
         rows.push(
@@ -843,13 +1372,14 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             bcEntry,
             holidayMap,
             swipeRecord: swipeRec,
+            compareSource: punchSource,
           })
         );
       }
     });
 
     return rows;
-  }, [allStaff, daysInMonth, selectedYear, selectedMonth, swipeRecords, matrixVersion]);
+  }, [allStaff, daysInMonth, selectedYear, selectedMonth, swipeRecords, qrPunchRecords, punchSource, matrixVersion]);
 
   // --- FILTERED ROWS ---
   const filteredRows = useMemo(() => {
@@ -966,485 +1496,34 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const buffer = evt.target?.result;
-        const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
-        const wsName = wb.SheetNames[0];
-        const ws = wb.Sheets[wsName];
-        const sheetRows = XLSX.utils.sheet_to_json<any[]>(ws, {
-          header: 1,
-          defval: '',
-          raw: true,
-        });
+        const buffer = evt.target?.result as ArrayBuffer;
+        const result = importMachineSwipesFromArrayBuffer(
+          buffer,
+          allStaff,
+          selectedYear,
+          selectedMonth,
+          'MULTI'
+        );
 
-        if (!sheetRows || sheetRows.length === 0) {
-          showToast('File Excel trống hoặc không có dữ liệu!', 'error');
+        if (result.errorMsg) {
+          showToast(result.errorMsg, 'error');
           return;
         }
 
-        // Auto-detect real header row (handles Row 1 banner like "Báo Cáo Chi Chép Gốc")
-        const HEADER_KEYWORDS = new Set([
-          'idnguoi',
-          'ten',
-          'hovaten',
-          'hoten',
-          'hovatennhanvien',
-          'hovatennv',
-          'thoigian',
-          'ngaygio',
-          'ngay',
-          'bophan',
-          'manhanvien',
-          'manv',
-          'employeeid',
-          'userid',
-          'macc',
-          'giovao',
-          'giovaocheckin',
-          'checkin',
-          'giora',
-          'gioracheckout',
-          'checkout',
-          'tinhtrangchuyencan',
-          'diemkiemtrachamcong',
-          'nguondulieu',
-        ]);
+        const {
+          monthlyUpdates,
+          monthCounts,
+          matchedEmployees,
+          unmatchedNames,
+          rawPunchesParsed,
+          success,
+        } = result;
 
-        let headerRowIdx = 0;
-        let bestScore = -1;
-        const scanLimit = Math.min(sheetRows.length, 15);
-        for (let r = 0; r < scanLimit; r++) {
-          const row = sheetRows[r];
-          if (!Array.isArray(row)) continue;
-          let score = 0;
-          let nonEmpty = 0;
-          row.forEach((cell) => {
-            const norm = normalizeColumnKey(String(cell || ''));
-            if (norm) nonEmpty++;
-            if (HEADER_KEYWORDS.has(norm)) score += 3;
-          });
-          if (nonEmpty >= 2 && score > bestScore) {
-            bestScore = score;
-            headerRowIdx = r;
-          }
-        }
-
-        const headerRow = (sheetRows[headerRowIdx] || []).map((h) => normalizeColumnKey(String(h || '')));
-        const headerSet = new Set(headerRow.filter(Boolean));
-
-        const dataObjects: Record<string, any>[] = [];
-        for (let r = headerRowIdx + 1; r < sheetRows.length; r++) {
-          const cells = sheetRows[r];
-          if (!Array.isArray(cells)) continue;
-          const hasAnyValue = cells.some((c) => cleanCellText(c) !== '');
-          if (!hasAnyValue) continue;
-          const obj: Record<string, any> = {};
-          headerRow.forEach((colKey, idx) => {
-            if (colKey) obj[colKey] = cells[idx];
-          });
-          dataObjects.push(obj);
-        }
-
-        if (dataObjects.length === 0) {
-          showToast('Không tìm thấy dòng dữ liệu hợp lệ trong file đã tải lên!', 'error');
-          return;
-        }
-
-        // Build lookup indexes from allStaff (both Employee ID and normalized Vietnamese Full Name)
-        const staffById = new Map<string, StaffRecord>();
-        const staffByName = new Map<string, StaffRecord[]>();
-        allStaff.forEach((s) => {
-          staffById.set(s.employeeId.trim().toLowerCase(), s);
-          const normName = normalizeVietnameseName(s.fullName);
-          if (normName) {
-            const list = staffByName.get(normName) || [];
-            list.push(s);
-            staffByName.set(normName, list);
-          }
-        });
-
-        const resolveStaffMatch = (
-          rawEmpCode: string,
-          rawPersonId: string,
-          rawName: string,
-          rawDept: string
-        ): StaffRecord | undefined => {
-          if (rawEmpCode && staffById.has(rawEmpCode.toLowerCase())) {
-            return staffById.get(rawEmpCode.toLowerCase());
-          }
-          if (rawPersonId && staffById.has(rawPersonId.toLowerCase())) {
-            return staffById.get(rawPersonId.toLowerCase());
-          }
-          const normName = normalizeVietnameseName(rawName);
-          if (normName && staffByName.has(normName)) {
-            const candidates = staffByName.get(normName)!;
-            if (candidates.length === 1) return candidates[0];
-            if (rawDept) {
-              const normDept = normalizeVietnameseName(rawDept);
-              const deptMatch = candidates.find(
-                (c) =>
-                  normalizeVietnameseName(c.department).includes(normDept) ||
-                  normDept.includes(normalizeVietnameseName(c.department))
-              );
-              if (deptMatch) return deptMatch;
-            }
-            return candidates[0];
-          }
-          return undefined;
-        };
-
-        // Determine Format: Raw Machine Punch Log (combined Thời gian column, no separate Giờ Vào / Giờ Ra)
-        const hasPairedInOutCols =
-          headerSet.has('giovao') ||
-          headerSet.has('giovaocheckin') ||
-          headerSet.has('checkin') ||
-          headerSet.has('vao') ||
-          headerSet.has('giora') ||
-          headerSet.has('gioracheckout') ||
-          headerSet.has('checkout') ||
-          headerSet.has('ra');
-        const hasCombinedTimestampCol =
-          headerSet.has('thoigian') ||
-          headerSet.has('ngaygio') ||
-          headerSet.has('datetime') ||
-          headerSet.has('timestamp') ||
-          headerSet.has('checktime');
-
-        const isRawPunchFormat = hasCombinedTimestampCol && !hasPairedInOutCols;
-
-        // Multi-month accumulation buckets: Map<"year_month", Record<swipeKey, MachineSwipeRecord>>
-        const monthlyUpdates = new Map<string, Record<string, MachineSwipeRecord>>();
-        const matchedEmpStats = new Map<string, { name: string; employeeId: string; count: number }>();
-        const unmatchedSet = new Set<string>();
-
-        // Cache matrix lookups per employee/month so we align punches with actual shifts (DAY vs NIGHT)
-        const matrixShiftCache = new Map<string, Record<number, 'DAY' | 'NIGHT'>>();
-        const getEffectiveShiftForDate = (
-          staff: StaffRecord,
-          year: number,
-          month: number,
-          day: number
-        ): 'DAY' | 'NIGHT' => {
-          const cacheKey = `${staff.employeeId}_${year}_${month}`;
-          let dayShifts = matrixShiftCache.get(cacheKey);
-          if (!dayShifts) {
-            const matrixData = getEmployeeProfileMatrixData(
-              staff.employeeId,
-              staff.department || 'MULTI',
-              year,
-              month,
-              staff
-            );
-            dayShifts = {};
-            Object.entries(matrixData.days || {}).forEach(([dStr, entry]) => {
-              if (entry?.shift) dayShifts![Number(dStr)] = entry.shift;
-            });
-            matrixShiftCache.set(cacheKey, dayShifts);
-          }
-          return dayShifts[day] || staff.shift || 'DAY';
-        };
-
-        const addRecordToMonthBucket = (
-          year: number,
-          month: number,
-          day: number,
-          record: MachineSwipeRecord
-        ) => {
-          const bucketKey = `${year}_${month}`;
-          if (!monthlyUpdates.has(bucketKey)) {
-            let existing: Record<string, MachineSwipeRecord> = {};
-            try {
-              const saved = localStorage.getItem(getMachineSwipeStorageKey(year, month));
-              if (saved) existing = JSON.parse(saved);
-            } catch {
-              existing = {};
-            }
-            monthlyUpdates.set(bucketKey, existing);
-          }
-          const bucket = monthlyUpdates.get(bucketKey)!;
-          const swipeKey = `${record.employeeId.trim().toLowerCase()}_${day}`;
-          bucket[swipeKey] = record;
-
-          const statKey = record.employeeId.trim().toLowerCase();
-          const prevStat = matchedEmpStats.get(statKey);
-          if (prevStat) {
-            prevStat.count += 1;
-          } else {
-            matchedEmpStats.set(statKey, {
-              name: record.fullName || record.employeeId,
-              employeeId: record.employeeId,
-              count: 1,
-            });
-          }
-        };
-
-        let rawPunchesParsed = 0;
-
-        if (isRawPunchFormat) {
-          // --- FORMAT A: RAW MACHINE LOG ("Báo Cáo Chi Chép Gốc") ---
-          interface EmployeePunchItem {
-            parsed: ParsedPunchDateTime;
-            rawDept: string;
-            point: string;
-            source: string;
-          }
-          const punchesByStaff = new Map<
-            string,
-            { staff: StaffRecord; punches: EmployeePunchItem[] }
-          >();
-
-          dataObjects.forEach((row) => {
-            const rawEmpCode = cleanCellText(
-              row['manhanvien'] || row['manv'] || row['employeeid'] || row['macc']
-            );
-            const rawPersonId = cleanCellText(row['idnguoi'] || row['userid'] || row['id']);
-            const rawName = cleanCellText(
-              row['ten'] ||
-                row['hovaten'] ||
-                row['hovatennv'] ||
-                row['hovatennhanvien'] ||
-                row['hoten'] ||
-                row['fullname'] ||
-                row['name']
-            );
-            const rawDept = cleanCellText(row['bophan'] || row['department']);
-            const rawTimeVal =
-              row['thoigian'] ??
-              row['ngaygio'] ??
-              row['datetime'] ??
-              row['timestamp'] ??
-              row['checktime'];
-
-            const parsed = parsePunchDateTime(rawTimeVal, selectedYear, selectedMonth);
-            if (!parsed || !parsed.hasTime) return;
-
-            const matchedStaff = resolveStaffMatch(rawEmpCode, rawPersonId, rawName, rawDept);
-            if (!matchedStaff) {
-              const label = rawName || rawEmpCode || rawPersonId;
-              if (label) unmatchedSet.add(label);
-              return;
-            }
-
-            rawPunchesParsed++;
-            const sKey = matchedStaff.employeeId.trim().toLowerCase();
-            if (!punchesByStaff.has(sKey)) {
-              punchesByStaff.set(sKey, { staff: matchedStaff, punches: [] });
-            }
-            punchesByStaff.get(sKey)!.punches.push({
-              parsed,
-              rawDept,
-              point: cleanCellText(row['diemkiemtrachamcong']),
-              source: cleanCellText(row['nguondulieu']),
-            });
-          });
-
-          // Group punches per matched employee by calendar date + shift
-          punchesByStaff.forEach(({ staff, punches }) => {
-            punches.sort((a, b) => a.parsed.timestamp - b.parsed.timestamp);
-
-            const byDateIso = new Map<string, EmployeePunchItem[]>();
-            punches.forEach((p) => {
-              const iso = `${p.parsed.year}-${String(p.parsed.month).padStart(2, '0')}-${String(p.parsed.day).padStart(2, '0')}`;
-              const list = byDateIso.get(iso) || [];
-              list.push(p);
-              byDateIso.set(iso, list);
-            });
-
-            const sortedIsos = Array.from(byDateIso.keys()).sort();
-            const consumedTimestamps = new Set<number>();
-
-            sortedIsos.forEach((dateIso) => {
-              const [yStr, mStr, dStr] = dateIso.split('-');
-              const y = Number(yStr);
-              const m = Number(mStr);
-              const d = Number(dStr);
-              const dayPunches = (byDateIso.get(dateIso) || []).filter(
-                (p) => !consumedTimestamps.has(p.parsed.timestamp)
-              );
-              if (dayPunches.length === 0) return;
-
-              const effectiveShift = getEffectiveShiftForDate(staff, y, m, d);
-              let rawInTime = '';
-              let rawOutTime = '';
-              let noteParts: string[] = [];
-
-              if (effectiveShift === 'NIGHT') {
-                // Nếu còn lượt quẹt sáng ngày D (<= 12:00) chưa ghép cho ca đêm D-1 trước đó
-                const orphanMorning = dayPunches.filter((p) => p.parsed.minutesOfDay <= 12 * 60);
-                if (orphanMorning.length > 0) {
-                  const prevDateObj = new Date(y, m - 1, d - 1);
-                  const prevY = prevDateObj.getFullYear();
-                  const prevM = prevDateObj.getMonth() + 1;
-                  const prevD = prevDateObj.getDate();
-                  const prevShift = getEffectiveShiftForDate(staff, prevY, prevM, prevD);
-                  if (prevShift === 'NIGHT') {
-                    const prevBucket = monthlyUpdates.get(`${prevY}_${prevM}`);
-                    const prevKey = `${staff.employeeId.trim().toLowerCase()}_${prevD}`;
-                    const existingPrev = prevBucket?.[prevKey];
-                    if (!existingPrev?.rawOutTime) {
-                      const lastMorning = orphanMorning[orphanMorning.length - 1];
-                      addRecordToMonthBucket(prevY, prevM, prevD, {
-                        id: prevKey,
-                        employeeId: staff.employeeId,
-                        fullName: staff.fullName,
-                        department: staff.department || 'MULTI',
-                        date: `${String(prevD).padStart(2, '0')}/${String(prevM).padStart(2, '0')}/${prevY}`,
-                        rawInTime: existingPrev?.rawInTime || '',
-                        rawOutTime: lastMorning.parsed.timeStr,
-                        note: `${existingPrev?.note ? `${existingPrev.note} | ` : ''}Ra sáng ${d}/${m}: ${orphanMorning.map((p) => p.parsed.fullTimeStr).join(', ')}`,
-                      });
-                      orphanMorning.forEach((p) => consumedTimestamps.add(p.parsed.timestamp));
-                    }
-                  }
-                }
-
-                // Ca đêm ngày D: Vào ca buổi chiều/tối ngày D (>= 15:00) & Ra ca sáng ngày D+1 (<= 12:00)
-                const eveningPunches = dayPunches.filter(
-                  (p) => !consumedTimestamps.has(p.parsed.timestamp) && p.parsed.minutesOfDay >= 15 * 60
-                );
-                const nextDateObj = new Date(y, m - 1, d + 1);
-                const nextIso = `${nextDateObj.getFullYear()}-${String(nextDateObj.getMonth() + 1).padStart(2, '0')}-${String(nextDateObj.getDate()).padStart(2, '0')}`;
-                const nextMorningPunches = (byDateIso.get(nextIso) || []).filter(
-                  (p) => !consumedTimestamps.has(p.parsed.timestamp) && p.parsed.minutesOfDay <= 12 * 60
-                );
-
-                if (eveningPunches.length > 0) {
-                  rawInTime = eveningPunches[0].parsed.timeStr;
-                  eveningPunches.forEach((p) => consumedTimestamps.add(p.parsed.timestamp));
-                  noteParts.push(`Vào: ${eveningPunches.map((p) => p.parsed.fullTimeStr).join(', ')}`);
-
-                  if (nextMorningPunches.length > 0) {
-                    rawOutTime = nextMorningPunches[nextMorningPunches.length - 1].parsed.timeStr;
-                    nextMorningPunches.forEach((p) => consumedTimestamps.add(p.parsed.timestamp));
-                    noteParts.push(
-                      `Ra sáng hôm sau: ${nextMorningPunches.map((p) => p.parsed.fullTimeStr).join(', ')}`
-                    );
-                  }
-                }
-              } else {
-                // Ca ngày: gộp các lượt quẹt trong ngày D
-                const first = dayPunches[0];
-                const last = dayPunches[dayPunches.length - 1];
-                const spanMinutes = last.parsed.minutesOfDay - first.parsed.minutesOfDay;
-
-                if (spanMinutes >= 30) {
-                  rawInTime = first.parsed.timeStr;
-                  rawOutTime = last.parsed.timeStr;
-                } else if (first.parsed.minutesOfDay < 12 * 60 + 30) {
-                  // Chỉ quẹt 1 lượt (hoặc quẹt trùng 2-3 giây) trước 12:30 -> Giờ vào, thiếu giờ ra
-                  rawInTime = first.parsed.timeStr;
-                  rawOutTime = '';
-                } else {
-                  // Chỉ quẹt 1 lượt từ 12:30 trở đi -> Giờ ra, thiếu giờ vào
-                  rawInTime = '';
-                  rawOutTime = last.parsed.timeStr;
-                }
-                dayPunches.forEach((p) => consumedTimestamps.add(p.parsed.timestamp));
-                noteParts.push(
-                  `Quẹt gốc (${dayPunches.length} lượt): ${dayPunches.map((p) => p.parsed.fullTimeStr).join(', ')}`
-                );
-              }
-
-              if (!rawInTime && !rawOutTime) return;
-
-              const dateStr = `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
-              const swipeKey = `${staff.employeeId.trim().toLowerCase()}_${d}`;
-              addRecordToMonthBucket(y, m, d, {
-                id: swipeKey,
-                employeeId: staff.employeeId,
-                fullName: staff.fullName,
-                department: staff.department || 'MULTI',
-                date: dateStr,
-                rawInTime,
-                rawOutTime,
-                note: noteParts.join(' | '),
-              });
-            });
-          });
-        } else {
-          // --- FORMAT B: PAIRED TEMPLATE (Mã NV / Tên + Ngày + Giờ Vào / Giờ Ra) ---
-          dataObjects.forEach((row) => {
-            const rawEmpCode = cleanCellText(
-              row['manhanvien'] || row['manv'] || row['employeeid'] || row['macc']
-            );
-            const rawPersonId = cleanCellText(row['idnguoi'] || row['userid'] || row['id']);
-            const rawName = cleanCellText(
-              row['ten'] ||
-                row['hovaten'] ||
-                row['hovatennv'] ||
-                row['hovatennhanvien'] ||
-                row['hoten'] ||
-                row['fullname'] ||
-                row['name']
-            );
-            const rawDept = cleanCellText(row['bophan'] || row['department']);
-
-            const matchedStaff = resolveStaffMatch(rawEmpCode, rawPersonId, rawName, rawDept);
-            const empId = matchedStaff ? matchedStaff.employeeId : rawEmpCode || rawPersonId;
-            if (!empId) {
-              if (rawName) unmatchedSet.add(rawName);
-              return;
-            }
-            if (!matchedStaff && rawName) {
-              unmatchedSet.add(rawName);
-            }
-
-            const rawDay = row['ngay'] ?? row['date'] ?? row['day'] ?? row['thoigian'];
-            const parsedDate = parsePunchDateTime(rawDay, selectedYear, selectedMonth);
-            if (!parsedDate) return;
-
-            const rawIn =
-              row['giovao'] ?? row['giovaocheckin'] ?? row['checkin'] ?? row['vao'] ?? row['in'] ?? row['vao1'] ?? '';
-            const rawOut =
-              row['giora'] ?? row['gioracheckout'] ?? row['checkout'] ?? row['ra'] ?? row['out'] ?? row['ra1'] ?? row['ra2'] ?? '';
-            const note = cleanCellText(row['ghichu'] || row['note']);
-
-            const normalizedIn = normalizeTimeString(rawIn);
-            const normalizedOut = normalizeTimeString(rawOut);
-            if (!normalizedIn && !normalizedOut) return;
-
-            rawPunchesParsed++;
-            const key = `${empId.trim().toLowerCase()}_${parsedDate.day}`;
-            addRecordToMonthBucket(parsedDate.year, parsedDate.month, parsedDate.day, {
-              id: key,
-              employeeId: empId,
-              fullName: matchedStaff?.fullName || rawName || empId,
-              department: matchedStaff?.department || rawDept || 'MULTI',
-              date: `${String(parsedDate.day).padStart(2, '0')}/${String(parsedDate.month).padStart(2, '0')}/${parsedDate.year}`,
-              rawInTime: normalizedIn,
-              rawOutTime: normalizedOut,
-              note,
-            });
-          });
-        }
-
-        // Persist all updated months to localStorage
-        const monthCounts: Array<{ year: number; month: number; count: number }> = [];
-
-        monthlyUpdates.forEach((bucket, bucketKey) => {
-          const [yStr, mStr] = bucketKey.split('_');
-          const y = Number(yStr);
-          const m = Number(mStr);
-          try {
-            localStorage.setItem(getMachineSwipeStorageKey(y, m), JSON.stringify(bucket));
-            dispatchMatrixUpdatedEvent('MULTI', y, m);
-          } catch (err) {
-            console.error('Save multi-month swipes error', err);
-          }
-          const count = Object.keys(bucket).length;
-          monthCounts.push({ year: y, month: m, count });
-        });
-
-        monthCounts.sort((a, b) => (a.year !== b.year ? a.year - b.year : a.month - b.month));
-
-        const matchedEmployees = Array.from(matchedEmpStats.values());
-        const unmatchedNames = Array.from(unmatchedSet);
-
-        if (matchedEmployees.length > 0 && monthCounts.length > 0) {
+        if (success) {
           const currentBucketKey = `${selectedYear}_${selectedMonth}`;
           if (monthlyUpdates.has(currentBucketKey)) {
             setSwipeRecords({ ...monthlyUpdates.get(currentBucketKey)! });
           } else {
-            // Auto-switch to the month in the file that has the most records
             const bestMonth = [...monthCounts].sort((a, b) => b.count - a.count)[0];
             setSelectedYear(bestMonth.year);
             setSelectedMonth(bestMonth.month);
@@ -1648,6 +1727,8 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
   // --- ACTIONS: EXPORT REPORT ---
   const handleExportReport = () => {
     const wb = XLSX.utils.book_new();
+    const isQr = punchSource === 'QR';
+    const srcName = isQr ? 'Quét QR' : 'Máy Quẹt';
     const headers = [
       'STT',
       'Họ và Tên',
@@ -1661,13 +1742,13 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       'Giờ Vào (Bảng Công)',
       'Giờ Ra (Bảng Công)',
       'Tăng Ca (Bảng Công)',
-      'Giờ Vào (Máy Quẹt)',
-      'Giờ Ra (Máy Quẹt)',
-      'Tăng Ca (Máy Quẹt)',
+      `Giờ Vào (${srcName})`,
+      `Giờ Ra (${srcName})`,
+      `Tăng Ca (${srcName})`,
       // KẾT QUẢ ĐỐI SOÁT
       'Trạng Thái Đối Soát',
       'Chi Tiết Sai Lệch',
-      'Giờ Quẹt Gốc (Vào - Ra)',
+      isQr ? 'Giờ Quét QR Gốc (Vào - Ra)' : 'Giờ Quẹt Gốc (Vào - Ra)',
     ];
 
     const data = filteredRows.map((r, idx) => [
@@ -1687,7 +1768,11 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       r.mqtOtHours > 0 ? `${r.mqtOtHours}h` : '0h',
       r.discrepancyLabel,
       r.discrepancyDetail,
-      r.rawInTime || r.rawOutTime ? `${r.rawInTime || '--'} - ${r.rawOutTime || '--'}` : 'Chưa quẹt thẻ',
+      r.rawInTime || r.rawOutTime
+        ? `${r.rawInTime || '--'} - ${r.rawOutTime || '--'}`
+        : isQr
+        ? 'Chưa quét QR'
+        : 'Chưa quẹt thẻ',
     ]);
 
     const summaryRow = [
@@ -1711,7 +1796,11 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     ];
 
     const ws = XLSX.utils.aoa_to_sheet([
-      [`BÁO CÁO ĐỐI SOÁT DỮ LIỆU CÔNG - BẢNG CHẤM CÔNG VS MÁY QUẸT THẺ`],
+      [
+        `BÁO CÁO ĐỐI SOÁT DỮ LIỆU CÔNG - BẢNG CHẤM CÔNG VS ${
+          isQr ? 'CHẤM CÔNG QR' : 'MÁY QUẸT THẺ'
+        }`,
+      ],
       [`Tháng ${selectedMonth}/${selectedYear} · Đơn vị: Newprotec Vina · Tỷ lệ khớp: ${summaryStats.matchRate}%`],
       [],
       headers,
@@ -1720,7 +1809,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     ]);
 
     XLSX.utils.book_append_sheet(wb, ws, `Doi_Soat_T${selectedMonth}_${selectedYear}`);
-    XLSX.writeFile(wb, `Bao_Cao_Doi_Soat_Cong_T${selectedMonth}_${selectedYear}.xlsx`);
+    XLSX.writeFile(wb, `Bao_Cao_Doi_Soat_Cong_${isQr ? 'QR_' : ''}T${selectedMonth}_${selectedYear}.xlsx`);
     showToast('Đã xuất file Excel báo cáo đối soát công thành công!');
   };
 
@@ -1730,23 +1819,28 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     if (!editingRow) return;
 
     const key = `${editingRow.staff.employeeId.trim().toLowerCase()}_${editingRow.day}`;
-    const nextSwipes = {
-      ...swipeRecords,
-      [key]: {
-        id: key,
-        employeeId: editingRow.staff.employeeId,
-        fullName: editingRow.staff.fullName,
-        department: editingRow.staff.department,
-        date: editingRow.dateStr,
-        rawInTime: normalizeTimeString(editInTime),
-        rawOutTime: normalizeTimeString(editOutTime),
-        note: editNote.trim() || 'Cập nhật thủ công bởi HC-NS',
-      },
+    const isQr = punchSource === 'QR';
+    const nextRecord: MachineSwipeRecord = {
+      id: key,
+      employeeId: editingRow.staff.employeeId,
+      fullName: editingRow.staff.fullName,
+      department: editingRow.staff.department,
+      date: editingRow.dateStr,
+      rawInTime: normalizeTimeString(editInTime),
+      rawOutTime: normalizeTimeString(editOutTime),
+      note: editNote.trim() || (isQr ? 'Cập nhật giờ QR bởi HC-NS' : 'Cập nhật thủ công bởi HC-NS'),
     };
 
-    saveSwipes(nextSwipes);
+    if (isQr) {
+      saveQrPunches({ ...qrPunchRecords, [key]: nextRecord });
+    } else {
+      saveSwipes({ ...swipeRecords, [key]: nextRecord });
+    }
+
     setEditingRow(null);
-    showToast(`Đã cập nhật giờ quẹt thẻ ngày ${editingRow.dateStr} cho ${editingRow.staff.fullName}!`);
+    showToast(
+      `Đã cập nhật giờ ${isQr ? 'chấm công QR' : 'quẹt thẻ'} ngày ${editingRow.dateStr} cho ${editingRow.staff.fullName}!`
+    );
   };
 
   // --- ACTIONS: EDIT BẢNG CHẤM CÔNG (BC) ---
@@ -1849,32 +1943,34 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
 
     if (applyFixToMachine) {
       const key = `${requestModalRow.staff.employeeId.trim().toLowerCase()}_${requestModalRow.day}`;
-      const existingSwipe = swipeRecords[key];
+      const isQr = (requestModalRow.compareSource || punchSource) === 'QR';
+      const existingRecord = isQr ? qrPunchRecords[key] : swipeRecords[key];
       const nextIn =
         normalizeTimeString(confirmedInTime) ||
-        existingSwipe?.rawInTime ||
+        existingRecord?.rawInTime ||
         requestModalRow.rawInTime ||
         '';
       const nextOut =
         normalizeTimeString(confirmedOutTime) ||
-        existingSwipe?.rawOutTime ||
+        existingRecord?.rawOutTime ||
         requestModalRow.rawOutTime ||
         '';
 
-      const nextSwipes = {
-        ...swipeRecords,
-        [key]: {
-          id: key,
-          employeeId: requestModalRow.staff.employeeId,
-          fullName: requestModalRow.staff.fullName,
-          department: requestModalRow.staff.department,
-          date: requestModalRow.dateStr,
-          rawInTime: nextIn,
-          rawOutTime: nextOut,
-          note: `Xác nhận NPT-FM-008: ${request.reason}`,
-        },
+      const updatedRec: MachineSwipeRecord = {
+        id: key,
+        employeeId: requestModalRow.staff.employeeId,
+        fullName: requestModalRow.staff.fullName,
+        department: requestModalRow.staff.department,
+        date: requestModalRow.dateStr,
+        rawInTime: nextIn,
+        rawOutTime: nextOut,
+        note: `Xác nhận NPT-FM-008: ${request.reason}`,
       };
-      saveSwipes(nextSwipes);
+      if (isQr) {
+        saveQrPunches({ ...qrPunchRecords, [key]: updatedRec });
+      } else {
+        saveSwipes({ ...swipeRecords, [key]: updatedRec });
+      }
       showToast(
         `Đã lưu phiếu NPT-FM-008 & cập nhật giờ (${nextIn || '--:--'} - ${nextOut || '--:--'}) cho ${requestModalRow.staff.fullName}!`
       );
@@ -1896,7 +1992,11 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             </div>
             <div>
               <h2 className="text-sm sm:text-lg font-bold text-white flex flex-wrap items-center justify-center sm:justify-start gap-2 uppercase tracking-wide">
-                <span>Dữ Liệu Công &amp; Đối Soát Máy Quẹt Thẻ</span>
+                <span>
+                  {punchSource === 'QR'
+                    ? 'Dữ Liệu Công & Đối Soát Chấm Công QR'
+                    : 'Dữ Liệu Công & Đối Soát Máy Quẹt Thẻ'}
+                </span>
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-mono">
                   Tháng {selectedMonth}/{selectedYear}
                 </span>
@@ -1905,7 +2005,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-slate-400 mt-1 sm:mt-0.5 text-center sm:text-left">
-                Tự động đối chiếu 6 cột giờ vào, giờ ra, tăng ca giữa Bảng chấm công &amp; File máy quẹt thẻ. Quy chuẩn trước 8h/20h, sau 20h/8h theo ca.
+                {punchSource === 'QR'
+                  ? 'Đang đối chiếu 6 cột giờ vào, giờ ra, tăng ca giữa Bảng chấm công thường & Chấm công bằng Mã QR.'
+                  : 'Tự động đối chiếu 6 cột giờ vào, giờ ra, tăng ca giữa Bảng chấm công & File máy quẹt thẻ. Có thể chuyển sang QR để đối chiếu chấm công QR.'}
               </p>
             </div>
           </div>
@@ -2118,11 +2220,29 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             </div>
           </div>
         </div>
-        <div className="shrink-0 flex items-center gap-2 text-[11px] font-mono">
-          <span className="text-slate-400">Dữ liệu quẹt thẻ:</span>
-          <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-bold">
-            {Object.keys(swipeRecords).length} lượt
-          </span>
+        <div className="shrink-0 flex flex-wrap items-center gap-2 text-[11px] font-mono">
+          <button
+            type="button"
+            onClick={() => setPunchSource('MQT')}
+            className={`px-2.5 py-1 rounded-full border font-bold cursor-pointer transition-colors ${
+              punchSource === 'MQT'
+                ? 'bg-blue-500/25 text-blue-200 border-blue-500/60'
+                : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+            }`}
+          >
+            Quẹt thẻ: {Object.keys(swipeRecords).length} lượt
+          </button>
+          <button
+            type="button"
+            onClick={() => setPunchSource('QR')}
+            className={`px-2.5 py-1 rounded-full border font-bold cursor-pointer transition-colors ${
+              punchSource === 'QR'
+                ? 'bg-emerald-500/25 text-emerald-200 border-emerald-500/60'
+                : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+            }`}
+          >
+            Quét QR: {Object.keys(qrPunchRecords).length} lượt
+          </button>
         </div>
       </div>
 
@@ -2200,7 +2320,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
 
         <div className="bg-purple-950/25 border border-purple-700/50 p-3 rounded-xl">
           <div className="text-[10px] text-purple-300 uppercase font-semibold flex items-center justify-between">
-            <span>Tăng Ca BC vs MQT</span>
+            <span>Tăng Ca BC vs {punchSource === 'QR' ? 'QR' : 'MQT'}</span>
             <Timer className="w-3.5 h-3.5 text-purple-400" />
           </div>
           <div className="text-xl font-bold font-mono text-purple-300 mt-1">
@@ -2218,6 +2338,33 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       {/* Filter Toolbar */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
         <div className="flex flex-wrap items-center gap-2">
+          {/* Source Mode Switcher: Quẹt thẻ vs QR */}
+          <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs">
+            <button
+              type="button"
+              onClick={() => setPunchSource('MQT')}
+              className={`px-2.5 py-1 rounded-md font-bold transition-colors cursor-pointer ${
+                punchSource === 'MQT'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Máy quẹt thẻ
+            </button>
+            <button
+              type="button"
+              onClick={() => setPunchSource('QR')}
+              className={`px-2.5 py-1 rounded-md font-bold inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                punchSource === 'QR'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>Chấm công QR</span>
+            </button>
+          </div>
+
           {/* Day Filter */}
           <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs">
             <span className="text-slate-400 font-semibold">Xem ngày:</span>
@@ -2272,7 +2419,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             <option value="ERRORS_ONLY">🚨 Chỉ xem có sai lệch / Lỗi</option>
             <option value="MISSING_IN">❌ Thiếu giờ vào</option>
             <option value="MISSING_OUT">❌ Thiếu giờ ra</option>
-            <option value="MISSING_BOTH">⛔ Chưa quẹt thẻ cả ca</option>
+            <option value="MISSING_BOTH">
+              {punchSource === 'QR' ? '⛔ Chưa quét QR cả ca' : '⛔ Chưa quẹt thẻ cả ca'}
+            </option>
             <option value="LATE_EARLY">⏱️ Đi muộn / Về sớm</option>
             <option value="OT_MISMATCH">⚡ Lệch giờ tăng ca</option>
             <option value="MATCH">✅ Khớp chuẩn 100%</option>
@@ -2332,12 +2481,46 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                   1. BẢNG CHẤM CÔNG (LỊCH PHÂN CÔNG)
                 </th>
 
-                {/* HEADER NHÓM 2: MÁY QUẸT THẺ */}
+                {/* HEADER NHÓM 2: MÁY QUẸT THẺ HOẶC CHẤM CÔNG QR (Lựa chọn Quẹt thẻ / QR) */}
                 <th
                   colSpan={3}
-                  className="py-1.5 px-2 text-center border-r border-slate-800 bg-blue-950/40 text-blue-300 font-bold border-b border-blue-800/40"
+                  className={`py-1.5 px-2 text-center border-r border-slate-800 font-bold border-b ${
+                    punchSource === 'QR'
+                      ? 'bg-emerald-950/45 text-emerald-300 border-emerald-800/40'
+                      : 'bg-blue-950/40 text-blue-300 border-blue-800/40'
+                  }`}
                 >
-                  2. MÁY QUẸT THẺ (DỮ LIỆU ĐÃ QUY CHUẨN)
+                  <div className="inline-flex items-center justify-center gap-2 flex-wrap">
+                    <span>
+                      {punchSource === 'QR'
+                        ? '2. CHẤM CÔNG BẰNG MÃ QR'
+                        : '2. MÁY QUẸT THẺ (DỮ LIỆU ĐÃ QUY CHUẨN)'}
+                    </span>
+                    <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-950/90 border border-slate-700/80 normal-case tracking-normal">
+                      <button
+                        type="button"
+                        onClick={() => setPunchSource('MQT')}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-colors cursor-pointer ${
+                          punchSource === 'MQT'
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Quẹt thẻ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPunchSource('QR')}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-colors cursor-pointer ${
+                          punchSource === 'QR'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        QR
+                      </button>
+                    </div>
+                  </div>
                 </th>
 
                 {/* HEADER NHÓM 3: ĐỐI SOÁT & PHÂN TÍCH */}
@@ -2345,7 +2528,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                   colSpan={3}
                   className="py-1.5 px-2 text-center bg-cyan-950/40 text-cyan-300 font-bold border-b border-cyan-800/40"
                 >
-                  3. TỰ ĐỘNG SO SÁNH &amp; PHÂN TÍCH SAI LỆCH
+                  {punchSource === 'QR'
+                    ? '3. ĐỐI SOÁT CHẤM CÔNG QR VS CHẤM CÔNG THƯỜNG'
+                    : '3. TỰ ĐỘNG SO SÁNH & PHÂN TÍCH SAI LỆCH'}
                 </th>
               </tr>
 
@@ -2361,15 +2546,33 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                   Tăng Ca (BC)
                 </th>
 
-                {/* 3 Cột Máy Quẹt Thẻ */}
-                <th className="py-2 px-3 text-center border-r border-slate-800 bg-blue-950/20 text-blue-300 min-w-[140px]">
-                  Giờ Vào (MQT)
+                {/* 3 Cột Máy Quẹt Thẻ hoặc Chấm Công QR */}
+                <th
+                  className={`py-2 px-3 text-center border-r border-slate-800 min-w-[140px] ${
+                    punchSource === 'QR'
+                      ? 'bg-emerald-950/20 text-emerald-300'
+                      : 'bg-blue-950/20 text-blue-300'
+                  }`}
+                >
+                  {punchSource === 'QR' ? 'Giờ Vào (QR)' : 'Giờ Vào (MQT)'}
                 </th>
-                <th className="py-2 px-3 text-center border-r border-slate-800 bg-blue-950/20 text-blue-300 min-w-[140px]">
-                  Giờ Ra (MQT)
+                <th
+                  className={`py-2 px-3 text-center border-r border-slate-800 min-w-[140px] ${
+                    punchSource === 'QR'
+                      ? 'bg-emerald-950/20 text-emerald-300'
+                      : 'bg-blue-950/20 text-blue-300'
+                  }`}
+                >
+                  {punchSource === 'QR' ? 'Giờ Ra (QR)' : 'Giờ Ra (MQT)'}
                 </th>
-                <th className="py-2 px-3 text-center border-r border-slate-800 bg-blue-950/20 text-cyan-300 font-bold min-w-[95px]">
-                  Tăng Ca (MQT)
+                <th
+                  className={`py-2 px-3 text-center border-r border-slate-800 font-bold min-w-[95px] ${
+                    punchSource === 'QR'
+                      ? 'bg-emerald-950/25 text-emerald-200'
+                      : 'bg-blue-950/20 text-cyan-300'
+                  }`}
+                >
+                  {punchSource === 'QR' ? 'Tăng Ca (QR)' : 'Tăng Ca (MQT)'}
                 </th>
 
                 {/* Phân tích */}
@@ -2616,7 +2819,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                         {isMissingBoth && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-950 text-red-300 border border-red-700 text-[10px] font-bold">
                             <XCircle className="w-3 h-3 text-red-400 shrink-0" />
-                            <span>Chưa quẹt thẻ</span>
+                            <span>{row.discrepancyLabel}</span>
                           </span>
                         )}
                         {row.discrepancyType === 'LATE_IN' && (
@@ -2634,7 +2837,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                         {row.discrepancyType === 'LATE_AND_EARLY' && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-600 text-[10px] font-bold">
                             <Clock className="w-3 h-3 text-amber-400 shrink-0" />
-                            <span>Muộn & Về sớm</span>
+                            <span>Muộn &amp; Về sớm</span>
                           </span>
                         )}
                         {isOtMismatch && (
@@ -2651,7 +2854,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                         {row.discrepancyType === 'UNSCHEDULED_SWIPE' && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-fuchsia-950 text-fuchsia-300 border border-fuchsia-600 text-[10px] font-bold">
                             <AlertCircle className="w-3 h-3 text-fuchsia-400 shrink-0" />
-                            <span>Quẹt ngoài lịch</span>
+                            <span>{row.discrepancyLabel}</span>
                           </span>
                         )}
                       </td>
@@ -2695,13 +2898,21 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                               setEditingRow(row);
                               setEditInTime(row.rawInTime || row.mqtInTime || '');
                               setEditOutTime(row.rawOutTime || row.mqtOutTime || '');
-                              setEditNote('');
+                              setEditNote(row.rawNote || '');
                             }}
-                            className="inline-flex items-center gap-1 px-1.5 py-1 rounded bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white text-[10px] font-semibold cursor-pointer transition-colors"
-                            title="Chỉnh sửa giờ Máy quẹt thẻ ngày này"
+                            className={`inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] font-semibold cursor-pointer transition-colors ${
+                              punchSource === 'QR'
+                                ? 'bg-emerald-950/70 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-700/50'
+                                : 'bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white'
+                            }`}
+                            title={
+                              punchSource === 'QR'
+                                ? 'Chỉnh sửa giờ Chấm công QR ngày này'
+                                : 'Chỉnh sửa giờ Máy quẹt thẻ ngày này'
+                            }
                           >
                             <Edit3 className="w-3 h-3" />
-                            <span>MQT</span>
+                            <span>{punchSource === 'QR' ? 'QR' : 'MQT'}</span>
                           </button>
 
                           {(isMissingIn || isMissingOut || isMissingBoth || isLateOrEarly || isOtMismatch || row.discrepancyType === 'UNSCHEDULED_SWIPE') && (
@@ -2738,7 +2949,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                   <Edit3 className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white uppercase">Cập Nhật Giờ Quẹt Thẻ</h3>
+                  <h3 className="text-sm font-bold text-white uppercase">
+                    {punchSource === 'QR' ? 'Cập Nhật Giờ Chấm Công QR' : 'Cập Nhật Giờ Quẹt Thẻ'}
+                  </h3>
                   <p className="text-[11px] text-slate-400">
                     Ngày {editingRow.dateStr} ({editingRow.dayOfWeek}) · {editingRow.shiftLabel}
                   </p>
@@ -2818,7 +3031,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                   type="submit"
                   className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
                 >
-                  Lưu Giờ Quẹt
+                  {punchSource === 'QR' ? 'Lưu Giờ QR' : 'Lưu Giờ Quẹt'}
                 </button>
               </div>
             </form>
@@ -2845,6 +3058,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             discrepancyType: requestModalRow.discrepancyType,
             discrepancyLabel: requestModalRow.discrepancyLabel,
             discrepancyDetail: requestModalRow.discrepancyDetail,
+            sourceMode: punchSource,
           }}
           existingRequests={attendanceRequests}
           onClose={() => setRequestModalRow(null)}
@@ -3000,15 +3214,25 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                   </div>
                 </div>
 
-                <div className="p-2 rounded-lg bg-blue-950/20 border border-blue-800/30">
-                  <div className="text-[10px] font-sans text-blue-400 uppercase font-bold mb-0.5">
-                    Máy Quẹt Thẻ (Quy Chuẩn)
+                <div
+                  className={`p-2 rounded-lg border ${
+                    punchSource === 'QR'
+                      ? 'bg-emerald-950/20 border-emerald-800/30'
+                      : 'bg-blue-950/20 border-blue-800/30'
+                  }`}
+                >
+                  <div
+                    className={`text-[10px] font-sans uppercase font-bold mb-0.5 ${
+                      punchSource === 'QR' ? 'text-emerald-400' : 'text-blue-400'
+                    }`}
+                  >
+                    {punchSource === 'QR' ? 'Chấm Công QR (Quy Chuẩn)' : 'Máy Quẹt Thẻ (Quy Chuẩn)'}
                   </div>
                   <div className="text-blue-200 font-bold">
                     {editingBcRow.mqtInTime || '—'} → {editingBcRow.mqtOutTime || '—'}
                   </div>
                   <div className="text-slate-400 text-[10px]">
-                    Tăng ca MQT: {editingBcRow.mqtOtHours}h
+                    Tăng ca {punchSource === 'QR' ? 'QR' : 'MQT'}: {editingBcRow.mqtOtHours}h
                   </div>
                 </div>
               </div>
@@ -3028,7 +3252,8 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
                   <span>
-                    Lấy theo giờ Máy quẹt thẻ ({editingBcRow.mqtInTime || bcEditInTime || '--'} →{' '}
+                    Lấy theo giờ {punchSource === 'QR' ? 'Chấm công QR' : 'Máy quẹt thẻ'} (
+                    {editingBcRow.mqtInTime || bcEditInTime || '--'} →{' '}
                     {editingBcRow.mqtOutTime || bcEditOutTime || '--'})
                   </span>
                 </button>
