@@ -600,10 +600,15 @@ export function buildComparisonRowForEmployeeDay(params: {
         : 'Nghỉ theo lịch phân công.';
     } else {
       discrepancyType = 'UNSCHEDULED_SWIPE';
-      discrepancyLabel = isQrMode ? 'Quét QR ngoài lịch' : 'Quẹt ngoài lịch';
-      discrepancyDetail = isQrMode
-        ? `Có quét QR ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'} (Bảng công thường chưa có giờ)`
-        : `Có quẹt thẻ ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'}`;
+      if (isQrMode && !isSunday && !isHoliday && !isResigned && !isRegimeLeave) {
+        discrepancyLabel = 'Có QR · Chưa có BC';
+        discrepancyDetail = `Đã quét QR (${mqtInTime || '--'} - ${mqtOutTime || '--'}), bảng chấm công thường (BC) chưa nhập giờ.`;
+      } else {
+        discrepancyLabel = isQrMode ? 'Quét QR ngoài lịch' : 'Quẹt ngoài lịch';
+        discrepancyDetail = isQrMode
+          ? `Có quét QR ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'} (Bảng công thường chưa có giờ)`
+          : `Có quẹt thẻ ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'}`;
+      }
     }
   } else {
     // Bảng công có ca làm việc cần chấm công
@@ -1228,7 +1233,32 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
   const [filterDept, setFilterDept] = useState<string>('ALL');
   const [filterShift, setFilterShift] = useState<'ALL' | 'DAY' | 'NIGHT'>('ALL');
   const [filterDiscrepancy, setFilterDiscrepancy] = useState<string>('ALL');
-  const [punchSource, setPunchSource] = useState<'MQT' | 'QR'>('MQT');
+  const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
+  const qrStorageKey = getQrPunchStorageKey(selectedYear, selectedMonth);
+  const [swipeRecords, setSwipeRecords] = useState<Record<string, MachineSwipeRecord>>(() => {
+    try {
+      const saved = localStorage.getItem(swipeStorageKey);
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return {};
+  });
+  const [qrPunchRecords, setQrPunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
+    loadQrPunchMap(selectedYear, selectedMonth)
+  );
+  const hasManualPunchSourceRef = useRef(false);
+  const [punchSource, setPunchSource] = useState<'MQT' | 'QR'>(() => {
+    try {
+      const savedSwipes = localStorage.getItem(getMachineSwipeStorageKey(now.getFullYear(), now.getMonth() + 1));
+      const swipeCount = savedSwipes ? Object.keys(JSON.parse(savedSwipes) || {}).length : 0;
+      const qrCount = Object.keys(loadQrPunchMap(now.getFullYear(), now.getMonth() + 1)).length;
+      if (qrCount > 0 && swipeCount === 0) return 'QR';
+    } catch {
+      // ignore
+    }
+    return 'MQT';
+  });
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
 
@@ -1260,31 +1290,25 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     setTimeout(() => setToastMsg(null), 3500);
   };
 
-  // State: Machine Swipes by date and empId: map of `${empId.toLowerCase()}_${day}` -> MachineSwipeRecord
-  const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
-  const qrStorageKey = getQrPunchStorageKey(selectedYear, selectedMonth);
-  const [swipeRecords, setSwipeRecords] = useState<Record<string, MachineSwipeRecord>>(() => {
-    try {
-      const saved = localStorage.getItem(swipeStorageKey);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // ignore
-    }
-    return {};
-  });
-  const [qrPunchRecords, setQrPunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
-    loadQrPunchMap(selectedYear, selectedMonth)
-  );
-
   // Reload swipe & QR punch records when year/month changes
   useEffect(() => {
+    let nextSwipes: Record<string, MachineSwipeRecord> = {};
     try {
       const saved = localStorage.getItem(swipeStorageKey);
-      setSwipeRecords(saved ? JSON.parse(saved) : {});
+      nextSwipes = saved ? JSON.parse(saved) : {};
     } catch {
-      setSwipeRecords({});
+      nextSwipes = {};
     }
-    setQrPunchRecords(loadQrPunchMap(selectedYear, selectedMonth));
+    const nextQr = loadQrPunchMap(selectedYear, selectedMonth);
+    setSwipeRecords(nextSwipes);
+    setQrPunchRecords(nextQr);
+    if (!hasManualPunchSourceRef.current) {
+      if (Object.keys(nextQr).length > 0 && Object.keys(nextSwipes).length === 0) {
+        setPunchSource('QR');
+      } else if (Object.keys(nextSwipes).length > 0 && Object.keys(nextQr).length === 0) {
+        setPunchSource('MQT');
+      }
+    }
   }, [swipeStorageKey, qrStorageKey, selectedYear, selectedMonth]);
 
   // Persist machine swipe records
@@ -1324,13 +1348,19 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
   useEffect(() => {
     const handleUpdate = () => {
       setMatrixVersion((v) => v + 1);
+      let nextSwipes: Record<string, MachineSwipeRecord> = {};
       try {
         const saved = localStorage.getItem(swipeStorageKey);
-        setSwipeRecords(saved ? JSON.parse(saved) : {});
+        nextSwipes = saved ? JSON.parse(saved) : {};
       } catch {
-        // ignore
+        nextSwipes = {};
       }
-      setQrPunchRecords(loadQrPunchMap(selectedYear, selectedMonth));
+      const nextQr = loadQrPunchMap(selectedYear, selectedMonth);
+      setSwipeRecords(nextSwipes);
+      setQrPunchRecords(nextQr);
+      if (!hasManualPunchSourceRef.current && Object.keys(nextQr).length > 0 && Object.keys(nextSwipes).length === 0) {
+        setPunchSource('QR');
+      }
     };
     window.addEventListener(MATRIX_UPDATED_EVENT, handleUpdate);
     window.addEventListener('storage', handleUpdate);
@@ -2223,7 +2253,10 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
         <div className="shrink-0 flex flex-wrap items-center gap-2 text-[11px] font-mono">
           <button
             type="button"
-            onClick={() => setPunchSource('MQT')}
+            onClick={() => {
+              hasManualPunchSourceRef.current = true;
+              setPunchSource('MQT');
+            }}
             className={`px-2.5 py-1 rounded-full border font-bold cursor-pointer transition-colors ${
               punchSource === 'MQT'
                 ? 'bg-blue-500/25 text-blue-200 border-blue-500/60'
@@ -2234,7 +2267,10 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setPunchSource('QR')}
+            onClick={() => {
+              hasManualPunchSourceRef.current = true;
+              setPunchSource('QR');
+            }}
             className={`px-2.5 py-1 rounded-full border font-bold cursor-pointer transition-colors ${
               punchSource === 'QR'
                 ? 'bg-emerald-500/25 text-emerald-200 border-emerald-500/60'
@@ -2342,7 +2378,10 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
           <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs">
             <button
               type="button"
-              onClick={() => setPunchSource('MQT')}
+              onClick={() => {
+                hasManualPunchSourceRef.current = true;
+                setPunchSource('MQT');
+              }}
               className={`px-2.5 py-1 rounded-md font-bold transition-colors cursor-pointer ${
                 punchSource === 'MQT'
                   ? 'bg-blue-600 text-white shadow'
@@ -2353,7 +2392,10 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setPunchSource('QR')}
+              onClick={() => {
+                hasManualPunchSourceRef.current = true;
+                setPunchSource('QR');
+              }}
               className={`px-2.5 py-1 rounded-md font-bold inline-flex items-center gap-1 transition-colors cursor-pointer ${
                 punchSource === 'QR'
                   ? 'bg-emerald-600 text-white shadow'
@@ -2499,7 +2541,10 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                     <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-950/90 border border-slate-700/80 normal-case tracking-normal">
                       <button
                         type="button"
-                        onClick={() => setPunchSource('MQT')}
+                        onClick={() => {
+                          hasManualPunchSourceRef.current = true;
+                          setPunchSource('MQT');
+                        }}
                         className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-colors cursor-pointer ${
                           punchSource === 'MQT'
                             ? 'bg-blue-600 text-white shadow-xs'
@@ -2510,7 +2555,10 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setPunchSource('QR')}
+                        onClick={() => {
+                          hasManualPunchSourceRef.current = true;
+                          setPunchSource('QR');
+                        }}
                         className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-colors cursor-pointer ${
                           punchSource === 'QR'
                             ? 'bg-emerald-600 text-white shadow-xs'

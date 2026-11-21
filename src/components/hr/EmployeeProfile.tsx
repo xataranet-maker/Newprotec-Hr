@@ -345,6 +345,64 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     [selectedYear, selectedMonth]
   );
 
+  const normalizedEmpId = empId.trim().toLowerCase();
+  const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
+  const qrStorageKey = getQrPunchStorageKey(selectedYear, selectedMonth);
+
+  const [swipeRecords, setSwipeRecords] = useState<Record<string, MachineSwipeRecord>>(() => {
+    try {
+      const saved = localStorage.getItem(swipeStorageKey);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+
+  const [qrPunchRecords, setQrPunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
+    loadQrPunchMap(selectedYear, selectedMonth)
+  );
+
+  const hasManualSourceChoiceRef = useRef(false);
+  const [comparisonSource, setComparisonSource] = useState<'MQT' | 'QR'>(() => {
+    const initialQr = loadQrPunchMap(selectedYear, selectedMonth);
+    const hasEmpQr = Object.keys(initialQr).some((k) => k.startsWith(`${normalizedEmpId}_`));
+    let hasEmpSwipe = false;
+    try {
+      const rawSwipes = localStorage.getItem(swipeStorageKey);
+      if (rawSwipes) {
+        const parsedSwipes = JSON.parse(rawSwipes) || {};
+        hasEmpSwipe = Object.keys(parsedSwipes).some((k) => k.startsWith(`${normalizedEmpId}_`));
+      }
+    } catch {}
+    if (hasEmpQr && !hasEmpSwipe) return 'QR';
+    if (Object.keys(initialQr).length > 0 && Object.keys(swipeRecords).length === 0) return 'QR';
+    return 'MQT';
+  });
+
+  useEffect(() => {
+    let nextSwipes: Record<string, MachineSwipeRecord> = {};
+    try {
+      const saved = localStorage.getItem(swipeStorageKey);
+      if (saved) {
+        nextSwipes = JSON.parse(saved);
+      }
+    } catch {
+      nextSwipes = {};
+    }
+    const nextQr = loadQrPunchMap(selectedYear, selectedMonth);
+    setSwipeRecords(nextSwipes);
+    setQrPunchRecords(nextQr);
+
+    if (!hasManualSourceChoiceRef.current) {
+      const hasEmpQr = Object.keys(nextQr).some((k) => k.startsWith(`${normalizedEmpId}_`));
+      const hasEmpSwipe = Object.keys(nextSwipes).some((k) => k.startsWith(`${normalizedEmpId}_`));
+      if ((hasEmpQr && !hasEmpSwipe) || (Object.keys(nextQr).length > 0 && Object.keys(nextSwipes).length === 0)) {
+        setComparisonSource('QR');
+      } else if (hasEmpSwipe && !hasEmpQr) {
+        setComparisonSource('MQT');
+      }
+    }
+  }, [swipeStorageKey, qrStorageKey, matrixRefreshTick, selectedYear, selectedMonth, normalizedEmpId]);
+
   // Build day-by-day rows + 7 KPI aggregates
   const { dayRows, stats } = useMemo(() => {
     let workDaysCount = 0;
@@ -444,6 +502,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         statusTone = 'sunday';
       }
 
+      const qrRec = qrPunchRecords[`${normalizedEmpId}_${day}`];
+      const qrInTime = hideAsBeforeJoin || isResigned ? '' : (qrRec?.rawInTime || '').trim();
+      const qrOutTime = hideAsBeforeJoin || isResigned ? '' : (qrRec?.rawOutTime || '').trim();
+
       return {
         day,
         dateIso,
@@ -452,6 +514,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         shift: entry?.shift || staffInfo?.shift || 'DAY',
         inTime: hideAsBeforeJoin || isResigned ? '' : entry?.inTime || '--:--',
         outTime: hideAsBeforeJoin || isResigned ? '' : entry?.outTime || '--:--',
+        qrInTime,
+        qrOutTime,
         regularHours: reg,
         totalHrs: Math.round(totalHrs * 10) / 10,
         totalOtDayRow: Math.round(totalOtDayRow * 10) / 10,
@@ -487,14 +551,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         sumOt,
       },
     };
-  }, [daysInMonth, selectedYear, selectedMonth, empMatrixDays, holidayMap, staffInfo?.shift]);
+  }, [daysInMonth, selectedYear, selectedMonth, empMatrixDays, holidayMap, staffInfo?.shift, qrPunchRecords, normalizedEmpId]);
 
   // Filtered employee records across HR modules
   const myTimekeeping = timekeepingRecords.filter((t) => t.employeeId === empId);
   const myOvertime = overtimeRecords.filter((o) => o.employeeId === empId);
   const myMatrixOvertimeDays = useMemo(() => dayRows.filter((r) => r.totalOtDayRow > 0), [dayRows]);
   const monthKey = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
-  const normalizedEmpId = empId.trim().toLowerCase();
   const mySalarySlips = salarySlips.filter(
     (s) => s.employeeId.trim().toLowerCase() === normalizedEmpId
   );
@@ -582,36 +645,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     (r) => r.employeeId.trim().toLowerCase() === normalizedEmpId
   );
 
-  // Machine Swipes & QR Punches records for selectedYear / selectedMonth
-  const [comparisonSource, setComparisonSource] = useState<'MQT' | 'QR'>('MQT');
-  const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
-  const qrStorageKey = getQrPunchStorageKey(selectedYear, selectedMonth);
-
-  const [swipeRecords, setSwipeRecords] = useState<Record<string, MachineSwipeRecord>>(() => {
-    try {
-      const saved = localStorage.getItem(swipeStorageKey);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {};
-  });
-
-  const [qrPunchRecords, setQrPunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
-    loadQrPunchMap(selectedYear, selectedMonth)
-  );
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(swipeStorageKey);
-      if (saved) {
-        setSwipeRecords(JSON.parse(saved));
-      } else {
-        setSwipeRecords({});
-      }
-    } catch {
-      setSwipeRecords({});
-    }
-    setQrPunchRecords(loadQrPunchMap(selectedYear, selectedMonth));
-  }, [swipeStorageKey, qrStorageKey, matrixRefreshTick, selectedYear, selectedMonth]);
+  // Helpers to save machine swipes & QR punches for selectedYear / selectedMonth
 
   const saveSwipes = (next: Record<string, MachineSwipeRecord>) => {
     setSwipeRecords(next);
@@ -1300,12 +1334,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 </div>
 
                 <div className="w-full overflow-x-auto overflow-y-auto custom-scrollbar max-h-[58vh] sm:max-h-[52vh]">
-                  <table className="w-full min-w-[980px] text-left text-xs border-collapse">
+                  <table className="w-full min-w-[1100px] text-left text-xs border-collapse">
                     <thead className="bg-[#080f1d] text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800 sticky top-0 z-10 whitespace-nowrap">
                       <tr>
                         <th className="py-2.5 px-3">NGÀY</th>
-                        <th className="py-2.5 px-3 text-center">GIỜ VÀO (IN)</th>
-                        <th className="py-2.5 px-3 text-center">GIỜ RA (OUT)</th>
+                        <th className="py-2.5 px-3 text-center">GIỜ VÀO (BC)</th>
+                        <th className="py-2.5 px-3 text-center">GIỜ RA (BC)</th>
+                        <th className="py-2.5 px-3 text-center text-cyan-300">QUÉT QR (VÀO - RA)</th>
                         <th className="py-2.5 px-3 text-center text-emerald-400">GIỜ CÔNG</th>
                         <th className="py-2.5 px-3 text-center text-amber-400">TC NGÀY</th>
                         <th className="py-2.5 px-3 text-center text-purple-300">TC ĐÊM</th>
@@ -1333,11 +1368,32 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                               <span className="ml-1.5 text-[10px] text-rose-400 font-bold">CN</span>
                             ) : null}
                           </td>
-                          <td className="py-2.5 px-3 text-center text-cyan-400 font-semibold">
+                          <td className="py-2.5 px-3 text-center text-amber-300 font-semibold">
                             {row.inTime}
                           </td>
-                          <td className="py-2.5 px-3 text-center text-cyan-400 font-semibold">
+                          <td className="py-2.5 px-3 text-center text-amber-300 font-semibold">
                             {row.outTime}
+                          </td>
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            {row.qrInTime || row.qrOutTime ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  hasManualSourceChoiceRef.current = true;
+                                  setComparisonSource('QR');
+                                  setActiveTab('confirm');
+                                }}
+                                title="Xem đối chiếu Quét QR vs Chấm công thường"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-950/70 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-200 text-[10px] font-mono font-bold cursor-pointer transition-colors"
+                              >
+                                <QrCode className="w-3 h-3 text-cyan-400 shrink-0" />
+                                <span>
+                                  {row.qrInTime || '--:--'} / {row.qrOutTime || '--:--'}
+                                </span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-600">--:--</span>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 text-center text-emerald-400 font-bold">
                             {row.regularHours > 0 ? `${row.regularHours}h` : '-'}
@@ -1473,7 +1529,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-950 border border-slate-800">
                       <button
                         type="button"
-                        onClick={() => setComparisonSource('MQT')}
+                        onClick={() => {
+                          hasManualSourceChoiceRef.current = true;
+                          setComparisonSource('MQT');
+                        }}
                         className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap ${
                           comparisonSource === 'MQT'
                             ? 'bg-blue-600 text-white shadow'
@@ -1484,7 +1543,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setComparisonSource('QR')}
+                        onClick={() => {
+                          hasManualSourceChoiceRef.current = true;
+                          setComparisonSource('QR');
+                        }}
                         className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap ${
                           comparisonSource === 'QR'
                             ? 'bg-cyan-600 text-white shadow'
@@ -1552,7 +1614,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                               <span className="inline-flex items-center p-0.5 rounded bg-slate-950/80 border border-slate-700/80">
                                 <button
                                   type="button"
-                                  onClick={() => setComparisonSource('MQT')}
+                                  onClick={() => {
+                                    hasManualSourceChoiceRef.current = true;
+                                    setComparisonSource('MQT');
+                                  }}
                                   className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
                                     comparisonSource === 'MQT'
                                       ? 'bg-blue-600 text-white'
@@ -1563,7 +1628,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setComparisonSource('QR')}
+                                  onClick={() => {
+                                    hasManualSourceChoiceRef.current = true;
+                                    setComparisonSource('QR');
+                                  }}
                                   className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
                                     comparisonSource === 'QR'
                                       ? 'bg-cyan-600 text-white'
@@ -2946,10 +3014,15 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         onClose={() => setShowAttendanceQrScanner(false)}
         onSuccess={(res) => {
           setShowAttendanceQrScanner(false);
+          hasManualSourceChoiceRef.current = true;
+          setComparisonSource('QR');
           const [pYear, pMonth] = res.dateIso.split('-').map(Number);
           if (pYear && pMonth) {
             setSelectedYear(pYear);
             setSelectedMonth(pMonth);
+            setQrPunchRecords(loadQrPunchMap(pYear, pMonth));
+          } else {
+            setQrPunchRecords(loadQrPunchMap(selectedYear, selectedMonth));
           }
           setMatrixRefreshTick((t) => t + 1);
           const timeText =
@@ -2959,7 +3032,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
               ? `Giờ Ra ${res.outTime}`
               : `${res.inTime || '--:--'} - ${res.outTime || '--:--'}`;
           showToast(
-            `Đã chấm công ngày ${res.dateStr} (${timeText}) vào bảng chấm công bộ phận ${res.departmentLabel}!`
+            `Đã chấm công QR ngày ${res.dateStr} (${timeText}) vào cột Chấm công QR (bộ phận ${res.departmentLabel}) để đối chiếu với chấm công thường!`
           );
         }}
       />

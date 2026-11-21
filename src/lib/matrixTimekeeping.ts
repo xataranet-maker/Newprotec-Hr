@@ -1626,6 +1626,171 @@ export function getAllStoredMatrixSnapshots(): Record<string, string> {
   return snapshots;
 }
 
+const LEGACY_QR_NOTE_REGEX = /quét\s*qr|quét\s*mã\s*qr|chấm\s*công\s*qr|qr_att/i;
+
+export function migrateLegacyQrPunchesFromMatrices(notify = false): boolean {
+  let anyChanged = false;
+  const touchedEvents = new Map<string, { dept: string; year: number; month: number }>();
+
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('app_matrix_timekeeping_')) keys.push(k);
+    }
+
+    const qrBucketCache = new Map<
+      string,
+      { year: number; month: number; map: Record<string, any>; dirty: boolean }
+    >();
+
+    const getQrBucket = (year: number, month: number) => {
+      const bucketKey = `${year}_${month}`;
+      let entry = qrBucketCache.get(bucketKey);
+      if (!entry) {
+        let parsed: Record<string, any> = {};
+        try {
+          const rawQr = localStorage.getItem(getQrPunchStorageKey(year, month));
+          if (rawQr) {
+            const p = JSON.parse(rawQr);
+            if (p && typeof p === 'object') parsed = p;
+          }
+        } catch {
+          parsed = {};
+        }
+        entry = { year, month, map: parsed, dirty: false };
+        qrBucketCache.set(bucketKey, entry);
+      }
+      return entry;
+    };
+
+    keys.forEach((key) => {
+      const m = key.match(/^app_matrix_timekeeping_(.+)_(\d{4})_(\d{1,2})$/);
+      if (!m) return;
+      const deptUpper = m[1].toUpperCase();
+      const year = Number(m[2]);
+      const month = Number(m[3]);
+
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as Record<string, MatrixEmployeeTimekeeping>;
+        if (!parsed || typeof parsed !== 'object') return;
+
+        const holidays = readRawHolidaysJson(deptUpper, year, month);
+        let matrixChanged = false;
+
+        Object.entries(parsed).forEach(([empKey, empRec]) => {
+          if (!empRec?.days) return;
+          const empId = String(empRec.employeeId || empKey).trim();
+          const normEmpId = empId.toLowerCase();
+          if (!normEmpId) return;
+
+          let empChanged = false;
+          const nextDays: Record<number, MatrixDayTimeEntry> = { ...empRec.days };
+
+          Object.entries(empRec.days).forEach(([dayStr, dayEntry]) => {
+            if (!dayEntry) return;
+            const noteStr = String(dayEntry.note || '');
+            if (!LEGACY_QR_NOTE_REGEX.test(noteStr)) return;
+
+            const dayNum = Number(dayStr);
+            if (!dayNum || isNaN(dayNum)) return;
+
+            const inTime = String(dayEntry.inTime || '').trim();
+            const outTime = String(dayEntry.outTime || '').trim();
+
+            if (inTime || outTime) {
+              const bucket = getQrBucket(year, month);
+              const qrKey = `${normEmpId}_${dayNum}`;
+              const existingQr = bucket.map[qrKey];
+              const dateStr = `${String(dayNum).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+              bucket.map[qrKey] = {
+                id: qrKey,
+                employeeId: empId,
+                fullName: existingQr?.fullName || empRec.fullName || empId,
+                department: existingQr?.department || empRec.department || deptUpper,
+                date: existingQr?.date || dateStr,
+                rawInTime: existingQr?.rawInTime || inTime,
+                rawOutTime: existingQr?.rawOutTime || outTime,
+                note: existingQr?.note || noteStr,
+              };
+              bucket.dirty = true;
+            }
+
+            const isSun = new Date(year, month - 1, dayNum).getDay() === 0;
+            const isHol = Boolean(holidays[dayNum] || dayEntry.isHoliday);
+            if (isHol || isSun) {
+              nextDays[dayNum] = {
+                day: dayNum,
+                shift: dayEntry.shift || empRec.shift || 'DAY',
+                inTime: '',
+                outTime: '',
+                regularHours: 0,
+                otDayHours: 0,
+                otNightHours: 0,
+                otSundayHours: 0,
+                otSundayNightHours: 0,
+                otHolidayHours: 0,
+                otHolidayNightHours: 0,
+                isHoliday: isHol,
+                status: (isHol ? 'Nghỉ lễ' : 'Nghỉ chủ nhật') as AttendanceStatus,
+                isAutoDefault: true,
+              };
+            } else {
+              delete nextDays[dayNum];
+            }
+            empChanged = true;
+          });
+
+          if (empChanged) {
+            matrixChanged = true;
+            const totals = recalculateStaffTotals(nextDays);
+            parsed[empKey] = {
+              ...empRec,
+              days: nextDays,
+              ...totals,
+            };
+          }
+        });
+
+        if (matrixChanged) {
+          anyChanged = true;
+          localStorage.setItem(key, JSON.stringify(parsed));
+          localStorage.setItem(getMatrixMetaStorageKey(deptUpper, year, month), String(Date.now()));
+          touchedEvents.set(`${deptUpper}_${year}_${month}`, { dept: deptUpper, year, month });
+        }
+      } catch (err) {
+        console.error('Error migrating legacy QR entries in matrix:', key, err);
+      }
+    });
+
+    qrBucketCache.forEach((bucket) => {
+      if (bucket.dirty) {
+        anyChanged = true;
+        localStorage.setItem(
+          getQrPunchStorageKey(bucket.year, bucket.month),
+          JSON.stringify(bucket.map)
+        );
+        const evKey = `MULTI_${bucket.year}_${bucket.month}`;
+        if (!touchedEvents.has(evKey)) {
+          touchedEvents.set(evKey, { dept: 'MULTI', year: bucket.year, month: bucket.month });
+        }
+      }
+    });
+
+    if (notify && anyChanged && typeof window !== 'undefined') {
+      touchedEvents.forEach(({ dept, year, month }) => {
+        dispatchMatrixUpdatedEvent(dept, year, month);
+      });
+    }
+  } catch (e) {
+    console.error('Legacy QR punch migration error', e);
+  }
+
+  return anyChanged;
+}
+
 export function restoreStoredMatrixSnapshots(snapshots: Record<string, string> | undefined) {
   if (!snapshots || typeof snapshots !== 'object') return;
   try {
@@ -1641,6 +1806,7 @@ export function restoreStoredMatrixSnapshots(snapshots: Record<string, string> |
         localStorage.setItem(key, val);
       }
     });
+    migrateLegacyQrPunchesFromMatrices(false);
     if (typeof window !== 'undefined') {
       const now = new Date();
       dispatchMatrixUpdatedEvent('multi', now.getFullYear(), now.getMonth() + 1);

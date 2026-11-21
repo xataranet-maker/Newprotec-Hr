@@ -25,6 +25,7 @@ import {
   MATRIX_UPDATED_EVENT,
   deleteEmployeeFromAllMatrixStorage,
   getAllStoredMatrixSnapshots,
+  migrateLegacyQrPunchesFromMatrices,
   restoreStoredMatrixSnapshots,
   syncLeaveRegistrationToMatrices,
   removeLeaveRegistrationFromMatrices,
@@ -200,6 +201,10 @@ export default function App() {
   const [matrixVersion, setMatrixVersion] = useState(0);
 
   useEffect(() => {
+    const migrated = migrateLegacyQrPunchesFromMatrices(true);
+    if (migrated) {
+      setMatrixVersion((v) => v + 1);
+    }
     const onMatrixUpdated = () => setMatrixVersion((v) => v + 1);
     window.addEventListener(MATRIX_UPDATED_EVENT, onMatrixUpdated);
     return () => window.removeEventListener(MATRIX_UPDATED_EVENT, onMatrixUpdated);

@@ -111,7 +111,6 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterShift, setFilterShift] = useState<'ALL' | 'DAY' | 'NIGHT'>('ALL');
   const [viewMode, setViewMode] = useState<'MATRIX' | 'COMPARE'>('MATRIX');
-  const [compareSource, setCompareSource] = useState<'MQT' | 'QR'>('MQT');
   const [compareDayFilter, setCompareDayFilter] = useState<string>('ALL');
   const [compareStatusFilter, setCompareStatusFilter] = useState<'ALL' | 'ERRORS_ONLY' | 'MATCH'>('ALL');
   const [saveToast, setSaveToast] = useState<string | null>(null);
@@ -133,6 +132,10 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
   });
   const [qrPunchRecords, setQrPunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
     loadQrPunchMap(selectedYear, selectedMonth)
+  );
+  const hasManualCompareSourceRef = useRef(false);
+  const [compareSource, setCompareSource] = useState<'MQT' | 'QR'>(() =>
+    Object.keys(qrPunchRecords).length > 0 && Object.keys(swipeRecords).length === 0 ? 'QR' : 'MQT'
   );
 
   // Holiday dates map: day (1..31) -> boolean
@@ -243,25 +246,45 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
   // Reload swipe & QR punch maps on month/year change
   useEffect(() => {
+    let nextSwipe: Record<string, MachineSwipeRecord> = {};
     try {
       const saved = localStorage.getItem(swipeStorageKey);
-      setSwipeRecords(saved ? JSON.parse(saved) : {});
+      nextSwipe = saved ? JSON.parse(saved) : {};
     } catch {
-      setSwipeRecords({});
+      nextSwipe = {};
     }
-    setQrPunchRecords(loadQrPunchMap(selectedYear, selectedMonth));
+    const nextQr = loadQrPunchMap(selectedYear, selectedMonth);
+    setSwipeRecords(nextSwipe);
+    setQrPunchRecords(nextQr);
+    if (!hasManualCompareSourceRef.current) {
+      if (Object.keys(nextQr).length > 0 && Object.keys(nextSwipe).length === 0) {
+        setCompareSource('QR');
+      } else if (Object.keys(nextSwipe).length > 0 && Object.keys(nextQr).length === 0) {
+        setCompareSource('MQT');
+      }
+    }
   }, [swipeStorageKey, qrStorageKey, selectedYear, selectedMonth]);
 
   // Reload if updated externally (e.g. edited from HRTimekeeping, Leave registration, QR scan, or sibling matrix)
   useEffect(() => {
     const refreshPunches = () => {
+      let nextSwipe: Record<string, MachineSwipeRecord> = {};
       try {
         const saved = localStorage.getItem(swipeStorageKey);
-        setSwipeRecords(saved ? JSON.parse(saved) : {});
+        nextSwipe = saved ? JSON.parse(saved) : {};
+        setSwipeRecords(nextSwipe);
       } catch {
         // ignore
       }
-      setQrPunchRecords(loadQrPunchMap(selectedYear, selectedMonth));
+      const nextQr = loadQrPunchMap(selectedYear, selectedMonth);
+      setQrPunchRecords(nextQr);
+      if (!hasManualCompareSourceRef.current) {
+        if (Object.keys(nextQr).length > 0 && Object.keys(nextSwipe).length === 0) {
+          setCompareSource('QR');
+        } else if (Object.keys(nextSwipe).length > 0 && Object.keys(nextQr).length === 0) {
+          setCompareSource('MQT');
+        }
+      }
     };
 
     const onExternalMatrixUpdate = (ev: Event) => {
@@ -1266,6 +1289,20 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     return { workDays, matchCount, missingCount, mismatchCount };
   }, [deptComparisonRows]);
 
+  const deptSourceCounts = useMemo(() => {
+    let mqtCount = 0;
+    let qrCount = 0;
+    displayedStaff.forEach((staff) => {
+      const prefix = `${staff.employeeId.trim().toLowerCase()}_`;
+      monthDaysMeta.forEach((m) => {
+        const key = `${prefix}${m.day}`;
+        if (swipeRecords[key]) mqtCount++;
+        if (qrPunchRecords[key]) qrCount++;
+      });
+    });
+    return { mqtCount, qrCount };
+  }, [displayedStaff, monthDaysMeta, swipeRecords, qrPunchRecords]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const swipeFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -2007,6 +2044,38 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             </div>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-950 border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    hasManualCompareSourceRef.current = true;
+                    setCompareSource('MQT');
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+                    compareSource === 'MQT'
+                      ? 'bg-blue-600 text-white shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Quẹt thẻ ({deptSourceCounts.mqtCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    hasManualCompareSourceRef.current = true;
+                    setCompareSource('QR');
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer inline-flex items-center gap-1 ${
+                    compareSource === 'QR'
+                      ? 'bg-cyan-600 text-white shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                  QR ({deptSourceCounts.qrCount})
+                </button>
+              </div>
+
               <select
                 value={compareDayFilter}
                 onChange={(e) => setCompareDayFilter(e.target.value)}
@@ -2092,7 +2161,10 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         <span className="inline-flex items-center p-0.5 rounded bg-slate-950/90 border border-slate-700/80">
                           <button
                             type="button"
-                            onClick={() => setCompareSource('MQT')}
+                            onClick={() => {
+                              hasManualCompareSourceRef.current = true;
+                              setCompareSource('MQT');
+                            }}
                             className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
                               compareSource === 'MQT'
                                 ? 'bg-blue-600 text-white'
@@ -2103,7 +2175,10 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           </button>
                           <button
                             type="button"
-                            onClick={() => setCompareSource('QR')}
+                            onClick={() => {
+                              hasManualCompareSourceRef.current = true;
+                              setCompareSource('QR');
+                            }}
                             className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
                               compareSource === 'QR'
                                 ? 'bg-cyan-600 text-white'
