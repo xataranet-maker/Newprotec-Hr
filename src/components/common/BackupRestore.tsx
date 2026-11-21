@@ -16,6 +16,10 @@ import {
   restoreStoredMatrixSnapshots,
   syncLeaveRegistrationToMatrices,
 } from '../../lib/matrixTimekeeping';
+import {
+  OVT_FORMULA_STORAGE_KEY,
+  loadOvtFormulaFields,
+} from '../../lib/salaryConfig';
 import { normalizeLegacyLeaveType } from '../hr/LeaveFormNPTFM007';
 import {
   HardDriveDownload,
@@ -29,6 +33,19 @@ import {
   Users,
   CalendarCheck,
   Plane,
+  FileText,
+  Clock,
+  CalendarCheck2,
+  Timer,
+  Banknote,
+  Package,
+  ScrollText,
+  GraduationCap,
+  Megaphone,
+  Layers,
+  CheckSquare,
+  Square,
+  Download,
 } from 'lucide-react';
 
 export const STAFF_BACKUP_HEADERS = [
@@ -48,6 +65,10 @@ export const STAFF_BACKUP_HEADERS = [
   'isLocked',
   'lockType',
   'lockedDay',
+  'annualLeaveQuota',
+  'qrAccessEnabled',
+  'qrAccessToken',
+  'note',
 ] as const;
 
 export const ATTENDANCE_BACKUP_HEADERS = [
@@ -97,6 +118,141 @@ interface BackupRestoreProps {
   customData?: Record<string, { data: any[]; setter: (d: any[]) => void }>;
 }
 
+type HrBackupCategoryId =
+  | 'STAFF'
+  | 'ATTENDANCE'
+  | 'TIMEKEEPING'
+  | 'MATRIX'
+  | 'ATT_CONFIRM'
+  | 'OVERTIME'
+  | 'LEAVES'
+  | 'CONTRACTS'
+  | 'PAYROLL_SALARY'
+  | 'ASSETS'
+  | 'DOCS'
+  | 'TRAINING'
+  | 'ANNOUNCEMENTS';
+
+const ALL_CATEGORY_IDS: HrBackupCategoryId[] = [
+  'STAFF',
+  'ATTENDANCE',
+  'TIMEKEEPING',
+  'MATRIX',
+  'ATT_CONFIRM',
+  'OVERTIME',
+  'LEAVES',
+  'CONTRACTS',
+  'PAYROLL_SALARY',
+  'ASSETS',
+  'DOCS',
+  'TRAINING',
+  'ANNOUNCEMENTS',
+];
+
+const JSON_CELL_PREFIX = '__JSON__:';
+const EXCEL_CELL_CHUNK_LIMIT = 30000;
+
+function encodeExcelCellValue(val: any): any {
+  if (val === undefined || val === null) return '';
+  if (typeof val === 'object') {
+    const serialized = `${JSON_CELL_PREFIX}${JSON.stringify(val)}`;
+    return serialized.length <= 32700 ? serialized : serialized.slice(0, 32700);
+  }
+  return val;
+}
+
+function decodeExcelCellValue(val: any, fieldKey?: string): any {
+  if (typeof val !== 'string') return val;
+  if (val.startsWith(JSON_CELL_PREFIX)) {
+    try {
+      return JSON.parse(val.slice(JSON_CELL_PREFIX.length));
+    } catch {
+      return val;
+    }
+  }
+  // Fallback for JSON array/object columns without prefix
+  const jsonLikelyKeys = new Set([
+    'days',
+    'sharedwith',
+    'feedback',
+    'recipients',
+    'attendancesummary',
+    'salaryconfig',
+  ]);
+  const trimmed = val.trim();
+  if (
+    fieldKey &&
+    jsonLikelyKeys.has(fieldKey.toLowerCase()) &&
+    ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']')))
+  ) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return val;
+    }
+  }
+  return val;
+}
+
+function serializeRowsForExcel(rows: Record<string, any>[]): Record<string, any>[] {
+  return rows.map((row) => {
+    const out: Record<string, any> = {};
+    Object.entries(row).forEach(([k, v]) => {
+      out[k] = encodeExcelCellValue(v);
+    });
+    return out;
+  });
+}
+
+function deserializeRowsFromExcel(rows: Record<string, any>[]): Record<string, any>[] {
+  return rows.map((row) => {
+    const out: Record<string, any> = {};
+    Object.entries(row).forEach(([k, v]) => {
+      out[k] = decodeExcelCellValue(v, k);
+    });
+    return out;
+  });
+}
+
+function buildMatrixSnapshotExcelRows(
+  snapshots: Record<string, string>
+): Array<{ key: string; partIndex: number; totalParts: number; value: string }> {
+  const rows: Array<{ key: string; partIndex: number; totalParts: number; value: string }> = [];
+  Object.entries(snapshots).forEach(([key, val]) => {
+    if (typeof val !== 'string') return;
+    const totalParts = Math.max(1, Math.ceil(val.length / EXCEL_CELL_CHUNK_LIMIT));
+    for (let i = 0; i < totalParts; i += 1) {
+      rows.push({
+        key,
+        partIndex: i,
+        totalParts,
+        value: val.slice(i * EXCEL_CELL_CHUNK_LIMIT, (i + 1) * EXCEL_CELL_CHUNK_LIMIT),
+      });
+    }
+  });
+  return rows;
+}
+
+function parseMatrixSnapshotExcelRows(rows: Record<string, any>[]): Record<string, string> {
+  const buckets = new Map<string, Array<{ partIndex: number; value: string }>>();
+  rows.forEach((raw) => {
+    const key = String(raw.key || '').trim();
+    const val = raw.value !== undefined && raw.value !== null ? String(raw.value) : '';
+    const partIndex = Number(raw.partIndex) || 0;
+    if (!key) return;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push({ partIndex, value: val });
+  });
+
+  const out: Record<string, string> = {};
+  buckets.forEach((parts, key) => {
+    parts.sort((a, b) => a.partIndex - b.partIndex);
+    out[key] = parts.map((p) => p.value).join('');
+  });
+  return out;
+}
+
 function normalizeRowKeys(row: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = {};
   Object.entries(row).forEach(([k, v]) => {
@@ -113,7 +269,7 @@ function pickField(normRow: Record<string, any>, ...keys: string[]): any {
   return '';
 }
 
-function parseBooleanLock(val: any): boolean | undefined {
+function parseBooleanOptional(val: any): boolean | undefined {
   if (val === '' || val === undefined || val === null) return undefined;
   if (typeof val === 'boolean') return val;
   const s = String(val).trim().toUpperCase();
@@ -190,7 +346,7 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
     const dob = parsedDob ? parsedDob.iso : rawDob;
 
     const attendanceRaw = String(pickField(norm, 'attendance', 'trạng thái') || 'UNMARKED').trim();
-    const isLocked = parseBooleanLock(norm['islocked']);
+    const isLocked = parseBooleanOptional(norm['islocked']);
     const rawLockType = String(pickField(norm, 'locktype') || '').trim().toUpperCase();
     const lockType =
       rawLockType === 'REGIME_LEAVE' || rawLockType === 'RESIGNED'
@@ -199,7 +355,17 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
         ? 'REGIME_LEAVE'
         : undefined;
     const rawLockedDay = Number(pickField(norm, 'lockedday'));
-    const lockedDay = Number.isFinite(rawLockedDay) && rawLockedDay >= 1 && rawLockedDay <= 31 ? Math.trunc(rawLockedDay) : undefined;
+    const lockedDay =
+      Number.isFinite(rawLockedDay) && rawLockedDay >= 1 && rawLockedDay <= 31
+        ? Math.trunc(rawLockedDay)
+        : undefined;
+
+    const rawQuota = Number(pickField(norm, 'annualleavequota'));
+    const annualLeaveQuota =
+      Number.isFinite(rawQuota) && rawQuota >= 0 ? rawQuota : undefined;
+    const qrAccessEnabled = parseBooleanOptional(norm['qraccessenabled']);
+    const qrAccessToken = String(pickField(norm, 'qraccesstoken') || '').trim() || undefined;
+    const note = String(pickField(norm, 'note', 'ghi chú') || '').trim() || undefined;
 
     const staffItem: StaffRecord = {
       id: parseNumericId(norm['id'], baseTs + idx, usedIds),
@@ -218,6 +384,10 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
       ...(isLocked !== undefined ? { isLocked } : {}),
       ...(lockType ? { lockType } : {}),
       ...(lockedDay !== undefined ? { lockedDay } : {}),
+      ...(annualLeaveQuota !== undefined ? { annualLeaveQuota } : {}),
+      ...(qrAccessEnabled !== undefined ? { qrAccessEnabled } : {}),
+      ...(qrAccessToken ? { qrAccessToken } : {}),
+      ...(note ? { note } : {}),
     };
 
     if ((staffItem.department || '').toUpperCase() === 'HR') {
@@ -251,52 +421,68 @@ function buildStaffExportRows(allStaff: StaffRecord[]): Record<string, any>[] {
       isLocked: s.isLocked === undefined ? '' : s.isLocked,
       lockType: s.lockType || '',
       lockedDay: s.lockedDay === undefined ? '' : s.lockedDay,
+      annualLeaveQuota: s.annualLeaveQuota === undefined ? '' : s.annualLeaveQuota,
+      qrAccessEnabled: s.qrAccessEnabled === undefined ? '' : s.qrAccessEnabled,
+      qrAccessToken: s.qrAccessToken || '',
+      note: s.note || '',
     };
   });
 }
 
 function isStaffSheetHeaders(normHeaders: Set<string>, sheetNameUpper: string): boolean {
-  if (normHeaders.has('employeeid') && normHeaders.has('fullname')) return true;
-  return (
+  if (
     sheetNameUpper === 'NHAN_VIEN' ||
     sheetNameUpper === 'NHANVIEN' ||
     sheetNameUpper === 'STAFF' ||
     sheetNameUpper === 'MULTI_STAFF' ||
     sheetNameUpper === 'HR_STAFF'
+  ) {
+    return true;
+  }
+  return (
+    normHeaders.has('employeeid') &&
+    normHeaders.has('fullname') &&
+    normHeaders.has('datejoined') &&
+    !normHeaders.has('fromdate')
   );
 }
 
 function isAttendanceSheetHeaders(normHeaders: Set<string>, sheetNameUpper: string): boolean {
   if (
+    sheetNameUpper === 'CHAM_CONG' ||
+    sheetNameUpper === 'CHAMCONG' ||
+    sheetNameUpper === 'ATTENDANCE'
+  ) {
+    return true;
+  }
+  return (
     normHeaders.has('employeeid') &&
     normHeaders.has('date') &&
     (normHeaders.has('status') ||
       normHeaders.has('overtime') ||
       normHeaders.has('sundaydayot') ||
       normHeaders.has('manualin') ||
-      normHeaders.has('latein'))
-  ) {
-    return true;
-  }
-  return sheetNameUpper === 'CHAM_CONG' || sheetNameUpper === 'CHAMCONG' || sheetNameUpper === 'ATTENDANCE';
+      normHeaders.has('latein')) &&
+    !normHeaders.has('attendancestatus')
+  );
 }
 
 function isLeaveSheetHeaders(normHeaders: Set<string>, sheetNameUpper: string): boolean {
   if (
-    normHeaders.has('employeeid') &&
-    (normHeaders.has('fromdate') ||
-      normHeaders.has('todate') ||
-      normHeaders.has('leavetype') ||
-      normHeaders.has('totaldays'))
-  ) {
-    return true;
-  }
-  return (
     sheetNameUpper === 'NGHI_PHEP' ||
     sheetNameUpper === 'NGHIPHEP' ||
     sheetNameUpper === 'HR_LEAVES' ||
     sheetNameUpper === 'LEAVES' ||
     sheetNameUpper === 'DANH_SACH_NGHI_PHEP'
+  ) {
+    return true;
+  }
+  return (
+    normHeaders.has('employeeid') &&
+    (normHeaders.has('fromdate') ||
+      normHeaders.has('todate') ||
+      normHeaders.has('leavetype') ||
+      normHeaders.has('totaldays'))
   );
 }
 
@@ -485,6 +671,9 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
 }) => {
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState<Set<HrBackupCategoryId>>(
+    () => new Set(ALL_CATEGORY_IDS)
+  );
 
   const combinedStaff = useMemo(() => [...staffRecords, ...hrStaff], [staffRecords, hrStaff]);
 
@@ -498,15 +687,169 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
     [combinedStaff, attendanceHistory]
   );
 
-  const extraCustomEntries = useMemo(() => {
-    if (!customData) return [];
-    const skipLegacyStaff = Boolean(onRestoreStaff);
-    return Object.entries(customData).filter(([key]) => {
-      if (skipLegacyStaff && (key === 'MULTI_STAFF' || key === 'HR_STAFF')) return false;
-      if (key === 'HR_LEAVES') return false;
-      return true;
+  const matrixSnapshots = useMemo(() => getAllStoredMatrixSnapshots(), [attendanceHistory, resolvedLeaveRecords, combinedStaff]);
+  const matrixSnapshotCount = useMemo(() => Object.keys(matrixSnapshots).length, [matrixSnapshots]);
+
+  const countOf = (key: string) => customData?.[key]?.data?.length || 0;
+
+  // Map every HC & NS category to tabs, datasets & display metadata
+  const hrCategories = useMemo(
+    () => [
+      {
+        id: 'STAFF' as HrBackupCategoryId,
+        tabLabel: 'DS Nhân Viên & Thêm Mới',
+        sheetKeys: ['NHAN_VIEN'],
+        countText: `${combinedStaff.length} nhân viên`,
+        description: 'Hồ sơ nhân sự, khóa nghỉ chế độ/thôi việc, phép năm & QR cá nhân',
+        icon: Users,
+        accent: 'text-cyan-300 border-cyan-800/50 bg-cyan-950/20',
+      },
+      {
+        id: 'ATTENDANCE' as HrBackupCategoryId,
+        tabLabel: 'Nhật Ký Đ.Danh & Bảng Công',
+        sheetKeys: ['CHAM_CONG'],
+        countText: `${flatAttendancePreviewCount} dòng công`,
+        description: 'Lịch sử chấm công hằng ngày, tăng ca & nhật ký điểm danh',
+        icon: CalendarCheck,
+        accent: 'text-emerald-300 border-emerald-800/50 bg-emerald-950/20',
+      },
+      {
+        id: 'TIMEKEEPING' as HrBackupCategoryId,
+        tabLabel: 'Dữ Liệu Công & Đơn Bất Thường',
+        sheetKeys: ['HR_TIMEKEEPING', 'HR_ATT_REQ'],
+        countText: `${countOf('HR_TIMEKEEPING')} máy CC · ${countOf('HR_ATT_REQ')} đơn`,
+        description: 'Dữ liệu máy chấm công & đơn xác nhận bất thường NPT-FM-008',
+        icon: Clock,
+        accent: 'text-blue-300 border-blue-800/50 bg-blue-950/20',
+      },
+      {
+        id: 'MATRIX' as HrBackupCategoryId,
+        tabLabel: 'Bảng Công Ma Trận & Ngày Lễ',
+        sheetKeys: ['MATRIX_SNAPSHOTS'],
+        countText: `${matrixSnapshotCount} bảng dữ liệu`,
+        description: 'Toàn bộ ma trận công chi tiết các tháng, ngày lễ & quẹt thẻ gốc',
+        icon: Layers,
+        accent: 'text-amber-300 border-amber-800/50 bg-amber-950/20',
+      },
+      {
+        id: 'ATT_CONFIRM' as HrBackupCategoryId,
+        tabLabel: 'Xác Nhận Công',
+        sheetKeys: ['HR_ATT_CONFIRM'],
+        countText: `${countOf('HR_ATT_CONFIRM')} phiếu`,
+        description: 'Phiếu xác nhận giờ công & tăng ca hàng tháng của nhân viên',
+        icon: CalendarCheck2,
+        accent: 'text-cyan-300 border-cyan-800/50 bg-cyan-950/20',
+      },
+      {
+        id: 'OVERTIME' as HrBackupCategoryId,
+        tabLabel: 'Đăng Ký Tăng Ca',
+        sheetKeys: ['HR_OVERTIME'],
+        countText: `${countOf('HR_OVERTIME')} bản ghi`,
+        description: 'Danh sách đăng ký làm thêm giờ theo ca & bộ phận',
+        icon: Timer,
+        accent: 'text-orange-300 border-orange-800/50 bg-orange-950/20',
+      },
+      {
+        id: 'LEAVES' as HrBackupCategoryId,
+        tabLabel: 'Đăng Ký Phép & Nghỉ Phép',
+        sheetKeys: ['NGHI_PHEP'],
+        countText: `${resolvedLeaveRecords.length} đơn phép`,
+        description: 'Đơn đăng ký nghỉ phép NPT-FM-007 & danh sách nghỉ phép',
+        icon: Plane,
+        accent: 'text-amber-300 border-amber-800/50 bg-amber-950/20',
+      },
+      {
+        id: 'CONTRACTS' as HrBackupCategoryId,
+        tabLabel: 'Hợp Đồng Lao Động',
+        sheetKeys: ['HR_CONTRACTS'],
+        countText: `${countOf('HR_CONTRACTS')} hợp đồng`,
+        description: 'Danh sách hợp đồng lao động & tệp đính kèm nhân sự',
+        icon: FileText,
+        accent: 'text-indigo-300 border-indigo-800/50 bg-indigo-950/20',
+      },
+      {
+        id: 'PAYROLL_SALARY' as HrBackupCategoryId,
+        tabLabel: 'Bảng Công, Bảng Lương & Phiếu Lương',
+        sheetKeys: ['HR_PAYROLLS', 'HR_SALARY_CONFIGS', 'HR_SLIPS', 'OVT_FORMULA'],
+        countText: `${countOf('HR_SALARY_CONFIGS')} cấu hình · ${countOf('HR_SLIPS')} phiếu`,
+        description: 'Cấu hình lương/phụ cấp, công thức OVT & BH, phiếu lương đã phát hành',
+        icon: Banknote,
+        accent: 'text-emerald-300 border-emerald-800/50 bg-emerald-950/20',
+      },
+      {
+        id: 'ASSETS' as HrBackupCategoryId,
+        tabLabel: 'Tài Sản Hành Chính',
+        sheetKeys: ['HR_ASSETS'],
+        countText: `${countOf('HR_ASSETS')} tài sản`,
+        description: 'Danh mục tài sản, thiết bị & tình trạng bàn giao sử dụng',
+        icon: Package,
+        accent: 'text-amber-300 border-amber-800/50 bg-amber-950/20',
+      },
+      {
+        id: 'DOCS' as HrBackupCategoryId,
+        tabLabel: 'Công Văn & Tài Liệu',
+        sheetKeys: ['HR_DOCS'],
+        countText: `${countOf('HR_DOCS')} công văn`,
+        description: 'Công văn, quyết định & văn bản hành chính nội bộ',
+        icon: ScrollText,
+        accent: 'text-teal-300 border-teal-800/50 bg-teal-950/20',
+      },
+      {
+        id: 'TRAINING' as HrBackupCategoryId,
+        tabLabel: 'Đào Tạo Nhân Sự',
+        sheetKeys: ['HR_TRAINING'],
+        countText: `${countOf('HR_TRAINING')} khóa`,
+        description: 'Hồ sơ và tài liệu đào tạo nội bộ các bộ phận',
+        icon: GraduationCap,
+        accent: 'text-blue-300 border-blue-800/50 bg-blue-950/20',
+      },
+      {
+        id: 'ANNOUNCEMENTS' as HrBackupCategoryId,
+        tabLabel: 'Thông Báo HC & NS',
+        sheetKeys: ['HR_ANN_GRP'],
+        countText: `${countOf('HR_ANN_GRP')} thông báo`,
+        description: 'Thông báo chung & thông báo cá nhân do HC & NS phát hành',
+        icon: Megaphone,
+        accent: 'text-rose-300 border-rose-800/50 bg-rose-950/20',
+      },
+    ],
+    [combinedStaff.length, flatAttendancePreviewCount, matrixSnapshotCount, resolvedLeaveRecords.length, customData]
+  );
+
+  const toggleCategory = (id: HrBackupCategoryId) => {
+    setSelectedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-  }, [customData, onRestoreStaff]);
+  };
+
+  const selectAllCategories = () => setSelectedCategories(new Set(ALL_CATEGORY_IDS));
+  const clearAllCategories = () => setSelectedCategories(new Set());
+
+  const getCustomEntriesForSelected = (cats: Set<HrBackupCategoryId>) => {
+    if (!customData) return [];
+    const allowedKeys = new Set<string>();
+    if (cats.has('TIMEKEEPING')) {
+      allowedKeys.add('HR_TIMEKEEPING');
+      allowedKeys.add('HR_ATT_REQ');
+    }
+    if (cats.has('ATT_CONFIRM')) allowedKeys.add('HR_ATT_CONFIRM');
+    if (cats.has('OVERTIME')) allowedKeys.add('HR_OVERTIME');
+    if (cats.has('CONTRACTS')) allowedKeys.add('HR_CONTRACTS');
+    if (cats.has('PAYROLL_SALARY')) {
+      allowedKeys.add('HR_PAYROLLS');
+      allowedKeys.add('HR_SALARY_CONFIGS');
+      allowedKeys.add('HR_SLIPS');
+    }
+    if (cats.has('ASSETS')) allowedKeys.add('HR_ASSETS');
+    if (cats.has('DOCS')) allowedKeys.add('HR_DOCS');
+    if (cats.has('TRAINING')) allowedKeys.add('HR_TRAINING');
+    if (cats.has('ANNOUNCEMENTS')) allowedKeys.add('HR_ANN_GRP');
+
+    return Object.entries(customData).filter(([key]) => allowedKeys.has(key));
+  };
 
   const applyRestoredLeaves = (
     restoredLeaves: LeaveRegistrationRecord[],
@@ -522,98 +865,180 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
     });
   };
 
-  const handleExportExcel = () => {
+  const exportCategoriesToExcel = (cats: Set<HrBackupCategoryId>, customFilePrefix?: string) => {
+    if (cats.size === 0) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Vui lòng chọn ít nhất 1 danh mục tab HC & NS để sao lưu.',
+      });
+      return;
+    }
+
     try {
       const wb = XLSX.utils.book_new();
-      let sheetCount = 0;
+      const exportedSheetsSummary: string[] = [];
 
-      // Sheet 1: NHAN_VIEN
-      const staffExportRows = buildStaffExportRows(combinedStaff);
-      const wsStaff = XLSX.utils.json_to_sheet(staffExportRows, {
-        header: [...STAFF_BACKUP_HEADERS],
-      });
-      XLSX.utils.book_append_sheet(wb, wsStaff, 'NHAN_VIEN');
-      sheetCount++;
+      // 1. NHAN_VIEN
+      if (cats.has('STAFF')) {
+        const staffExportRows = buildStaffExportRows(combinedStaff);
+        const wsStaff = XLSX.utils.json_to_sheet(staffExportRows, {
+          header: [...STAFF_BACKUP_HEADERS],
+        });
+        XLSX.utils.book_append_sheet(wb, wsStaff, 'NHAN_VIEN');
+        exportedSheetsSummary.push(`NHAN_VIEN (${staffExportRows.length})`);
+      }
 
-      // Sheet 2: CHAM_CONG
-      const attendanceExportRows = exportFlatAttendanceBackupRows(combinedStaff, attendanceHistory);
-      const wsAttendance = XLSX.utils.json_to_sheet(attendanceExportRows, {
-        header: [...ATTENDANCE_BACKUP_HEADERS],
-      });
-      XLSX.utils.book_append_sheet(wb, wsAttendance, 'CHAM_CONG');
-      sheetCount++;
+      // 2. CHAM_CONG
+      if (cats.has('ATTENDANCE')) {
+        const attendanceExportRows = exportFlatAttendanceBackupRows(combinedStaff, attendanceHistory);
+        const wsAttendance = XLSX.utils.json_to_sheet(attendanceExportRows, {
+          header: [...ATTENDANCE_BACKUP_HEADERS],
+        });
+        XLSX.utils.book_append_sheet(wb, wsAttendance, 'CHAM_CONG');
+        exportedSheetsSummary.push(`CHAM_CONG (${attendanceExportRows.length})`);
+      }
 
-      // Sheet 3: NGHI_PHEP (Danh sách nghỉ phép chuẩn theo mẫu ảnh)
-      const leaveExportRows = buildLeaveExportRows(resolvedLeaveRecords);
-      const wsLeaves = XLSX.utils.json_to_sheet(leaveExportRows, {
-        header: [...LEAVE_BACKUP_HEADERS],
-      });
-      XLSX.utils.book_append_sheet(wb, wsLeaves, 'NGHI_PHEP');
-      sheetCount++;
+      // 3. NGHI_PHEP
+      if (cats.has('LEAVES')) {
+        const leaveExportRows = buildLeaveExportRows(resolvedLeaveRecords);
+        const wsLeaves = XLSX.utils.json_to_sheet(leaveExportRows, {
+          header: [...LEAVE_BACKUP_HEADERS],
+        });
+        XLSX.utils.book_append_sheet(wb, wsLeaves, 'NGHI_PHEP');
+        exportedSheetsSummary.push(`NGHI_PHEP (${leaveExportRows.length})`);
+      }
 
-      // Các sheet hành chính - nhân sự bổ sung
-      extraCustomEntries.forEach(([sheetName, item]) => {
-        if (item.data && item.data.length > 0) {
-          const ws = XLSX.utils.json_to_sheet(item.data);
+      // 4. Các sheet dữ liệu của các tab HC & NS
+      const selectedCustomEntries = getCustomEntriesForSelected(cats);
+      selectedCustomEntries.forEach(([sheetName, item]) => {
+        const rows = Array.isArray(item.data) ? item.data : [];
+        if (rows.length > 0) {
+          const safeRows = serializeRowsForExcel(rows);
+          const ws = XLSX.utils.json_to_sheet(safeRows);
           XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
-          sheetCount++;
+          exportedSheetsSummary.push(`${sheetName} (${rows.length})`);
         }
       });
 
-      const fileName = `BACKUP_${moduleName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      // 5. MATRIX_SNAPSHOTS (Ma trận công, ngày lễ, dữ liệu quẹt thẻ gốc)
+      if (cats.has('MATRIX')) {
+        const liveSnapshots = getAllStoredMatrixSnapshots();
+        const matrixRows = buildMatrixSnapshotExcelRows(liveSnapshots);
+        if (matrixRows.length > 0) {
+          const wsMatrix = XLSX.utils.json_to_sheet(matrixRows, {
+            header: ['key', 'partIndex', 'totalParts', 'value'],
+          });
+          XLSX.utils.book_append_sheet(wb, wsMatrix, 'MATRIX_SNAPSHOTS');
+          exportedSheetsSummary.push(
+            `MATRIX_SNAPSHOTS (${Object.keys(liveSnapshots).length} bảng)`
+          );
+        }
+      }
+
+      // 6. OVT_FORMULA (Công thức tính OVT & BH)
+      if (cats.has('PAYROLL_SALARY')) {
+        const formulaFields = loadOvtFormulaFields();
+        const wsFormula = XLSX.utils.json_to_sheet(
+          formulaFields.map((fieldKey, idx) => ({ order: idx + 1, fieldKey }))
+        );
+        XLSX.utils.book_append_sheet(wb, wsFormula, 'OVT_FORMULA');
+        exportedSheetsSummary.push(`OVT_FORMULA (${formulaFields.length} mục)`);
+      }
+
+      // 7. BACKUP_MANIFEST (Tổng hợp toàn bộ danh mục HC & NS được sao lưu)
+      const manifestRows = hrCategories
+        .filter((c) => cats.has(c.id))
+        .map((c) => ({
+          Tab_HC_NS: c.tabLabel,
+          Ma_Sheet: c.sheetKeys.join(', '),
+          So_Luong_Du_Lieu: c.countText,
+          Thoi_Gian_Sao_Luu: new Date().toLocaleString('vi-VN'),
+        }));
+      const wsManifest = XLSX.utils.json_to_sheet(manifestRows);
+      XLSX.utils.book_append_sheet(wb, wsManifest, 'TONG_HOP_SAO_LUU');
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      const fileName = customFilePrefix
+        ? `${customFilePrefix}_${todayStr}.xlsx`
+        : cats.size === ALL_CATEGORY_IDS.length
+        ? `BACKUP_TOAN_BO_HCNS_${todayStr}.xlsx`
+        : `BACKUP_HCNS_TUY_CHON_${todayStr}.xlsx`;
+
       XLSX.writeFile(wb, fileName);
       setStatusMessage({
         type: 'success',
-        text: `Đã xuất file sao lưu Excel thành công: ${fileName} (${sheetCount} sheet — NHAN_VIEN [${staffExportRows.length}], CHAM_CONG [${attendanceExportRows.length}], NGHI_PHEP [${leaveExportRows.length}]).`,
+        text: `Đã xuất file sao lưu Excel thành công: ${fileName} (${exportedSheetsSummary.length} sheet dữ liệu: ${exportedSheetsSummary.join(', ')}).`,
       });
     } catch (err: any) {
       setStatusMessage({ type: 'error', text: `Lỗi xuất file Excel: ${err.message}` });
     }
   };
 
-  const handleExportLeaveOnlyExcel = () => {
-    try {
-      const wb = XLSX.utils.book_new();
-      const leaveExportRows = buildLeaveExportRows(resolvedLeaveRecords);
-      const wsLeaves = XLSX.utils.json_to_sheet(leaveExportRows, {
-        header: [...LEAVE_BACKUP_HEADERS],
-      });
-      XLSX.utils.book_append_sheet(wb, wsLeaves, 'NGHI_PHEP');
+  const handleExportExcel = () => {
+    exportCategoriesToExcel(selectedCategories);
+  };
 
-      const fileName = `DANH_SACH_NGHI_PHEP_${new Date().toISOString().split('T')[0]}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      setStatusMessage({
-        type: 'success',
-        text: `Đã xuất file sao lưu Danh sách Nghỉ Phép thành công: ${fileName} (${leaveExportRows.length} đơn nghỉ phép).`,
-      });
-    } catch (err: any) {
-      setStatusMessage({ type: 'error', text: `Lỗi xuất Danh sách Nghỉ Phép: ${err.message}` });
-    }
+  const handleExportAllExcel = () => {
+    const all = new Set<HrBackupCategoryId>(ALL_CATEGORY_IDS);
+    setSelectedCategories(all);
+    exportCategoriesToExcel(all, 'BACKUP_TOAN_BO_HCNS');
+  };
+
+  const handleExportLeaveOnlyExcel = () => {
+    exportCategoriesToExcel(new Set<HrBackupCategoryId>(['LEAVES']), 'DANH_SACH_NGHI_PHEP');
   };
 
   const handleExportJson = () => {
-    try {
-      const staffExportRows = buildStaffExportRows(combinedStaff);
-      const attendanceExportRows = exportFlatAttendanceBackupRows(combinedStaff, attendanceHistory);
-      const leaveExportRows = buildLeaveExportRows(resolvedLeaveRecords);
+    if (selectedCategories.size === 0) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Vui lòng chọn ít nhất 1 danh mục tab HC & NS để xuất JSON.',
+      });
+      return;
+    }
 
-      const backupObj = {
+    try {
+      const cats = selectedCategories;
+      const staffExportRows = cats.has('STAFF') ? buildStaffExportRows(combinedStaff) : undefined;
+      const attendanceExportRows = cats.has('ATTENDANCE')
+        ? exportFlatAttendanceBackupRows(combinedStaff, attendanceHistory)
+        : undefined;
+      const leaveExportRows = cats.has('LEAVES')
+        ? buildLeaveExportRows(resolvedLeaveRecords)
+        : undefined;
+      const selectedCustomEntries = getCustomEntriesForSelected(cats);
+
+      const backupObj: Record<string, any> = {
         moduleName,
-        version: 3,
+        version: 4,
         exportDate: new Date().toISOString(),
-        NHAN_VIEN: staffExportRows,
-        CHAM_CONG: attendanceExportRows,
-        NGHI_PHEP: leaveExportRows,
-        matrixSnapshots: getAllStoredMatrixSnapshots(),
-        custom: Object.fromEntries(extraCustomEntries.map(([k, v]) => [k, v.data])),
+        includedCategories: Array.from(cats),
+        ...(staffExportRows !== undefined ? { NHAN_VIEN: staffExportRows } : {}),
+        ...(attendanceExportRows !== undefined ? { CHAM_CONG: attendanceExportRows } : {}),
+        ...(leaveExportRows !== undefined ? { NGHI_PHEP: leaveExportRows } : {}),
+        ...(cats.has('MATRIX') ? { matrixSnapshots: getAllStoredMatrixSnapshots() } : {}),
+        ...(cats.has('PAYROLL_SALARY') ? { ovtFormulaFields: loadOvtFormulaFields() } : {}),
+        custom: {
+          ...Object.fromEntries(selectedCustomEntries.map(([k, v]) => [k, v.data])),
+          ...(cats.has('STAFF')
+            ? {
+                MULTI_STAFF: staffRecords,
+                HR_STAFF: hrStaff,
+              }
+            : {}),
+        },
       };
 
-      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupObj, null, 2));
+      const dataStr =
+        'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupObj, null, 2));
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute('href', dataStr);
+      const todayStr = new Date().toISOString().split('T')[0];
       downloadAnchor.setAttribute(
         'download',
-        `BACKUP_${moduleName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`
+        cats.size === ALL_CATEGORY_IDS.length
+          ? `BACKUP_TOAN_BO_HCNS_${todayStr}.json`
+          : `BACKUP_HCNS_TUY_CHON_${todayStr}.json`
       );
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
@@ -621,7 +1046,11 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
 
       setStatusMessage({
         type: 'success',
-        text: `Đã xuất file sao lưu JSON thành công (${staffExportRows.length} nhân viên, ${attendanceExportRows.length} dòng chấm công, ${leaveExportRows.length} đơn nghỉ phép).`,
+        text: `Đã xuất file sao lưu JSON đầy đủ (${cats.size}/${ALL_CATEGORY_IDS.length} nhóm dữ liệu HC & NS: ${
+          staffExportRows ? `${staffExportRows.length} nhân viên, ` : ''
+        }${attendanceExportRows ? `${attendanceExportRows.length} dòng chấm công, ` : ''}${
+          leaveExportRows ? `${leaveExportRows.length} đơn nghỉ phép, ` : ''
+        }${selectedCustomEntries.length} danh mục chi tiết).`,
       });
     } catch (err: any) {
       setStatusMessage({ type: 'error', text: `Lỗi xuất JSON: ${err.message}` });
@@ -646,7 +1075,7 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
 
           let latestCombinedStaff = combinedStaff;
 
-          // 1. Khôi phục nhân viên (ưu tiên chuẩn NHAN_VIEN, hỗ trợ fallback legacy MULTI_STAFF / HR_STAFF)
+          // 1. Khôi phục nhân viên
           if (Array.isArray(parsed.NHAN_VIEN) && onRestoreStaff) {
             const { multiStaff, hrStaff: restoredHr } = normalizeStaffRowsForRestore(parsed.NHAN_VIEN);
             onRestoreStaff(multiStaff, restoredHr);
@@ -664,12 +1093,24 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
             }
           }
 
-          // 2. Khôi phục snapshot ma trận gốc nếu có
-          if (parsed.matrixSnapshots) {
+          // 2. Khôi phục snapshot ma trận & máy chấm công
+          if (parsed.matrixSnapshots && typeof parsed.matrixSnapshots === 'object') {
             restoreStoredMatrixSnapshots(parsed.matrixSnapshots);
+            restoredParts.push(
+              `MATRIX_SNAPSHOTS (${Object.keys(parsed.matrixSnapshots).length})`
+            );
           }
 
-          // 3. Khôi phục dữ liệu chấm công phẳng (CHAM_CONG) & đồng bộ lên Bảng công ma trận
+          // 3. Khôi phục công thức OVT & BH
+          if (Array.isArray(parsed.ovtFormulaFields) && parsed.ovtFormulaFields.length > 0) {
+            localStorage.setItem(
+              OVT_FORMULA_STORAGE_KEY,
+              JSON.stringify(parsed.ovtFormulaFields)
+            );
+            restoredParts.push(`OVT_FORMULA (${parsed.ovtFormulaFields.length})`);
+          }
+
+          // 4. Khôi phục dữ liệu chấm công phẳng (CHAM_CONG) & đồng bộ lên Bảng công ma trận
           if (Array.isArray(parsed.CHAM_CONG)) {
             const attResult = restoreFlatAttendanceBackupRows(parsed.CHAM_CONG, latestCombinedStaff);
             if (onRestoreAttendance) {
@@ -678,7 +1119,7 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
             restoredParts.push(`CHAM_CONG (${attResult.restoredCount})`);
           }
 
-          // 4. Khôi phục danh sách nghỉ phép (NGHI_PHEP hoặc legacy custom.HR_LEAVES)
+          // 5. Khôi phục danh sách nghỉ phép (NGHI_PHEP)
           const jsonLeavesRaw = Array.isArray(parsed.NGHI_PHEP)
             ? parsed.NGHI_PHEP
             : Array.isArray(parsed.custom?.HR_LEAVES)
@@ -690,21 +1131,21 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
             restoredParts.push(`NGHI_PHEP (${normalizedLeaves.length})`);
           }
 
-          // 5. Khôi phục các danh mục HC&NS khác
+          // 6. Khôi phục toàn bộ các danh mục HC&NS khác
           if (parsed.custom && customData) {
             Object.entries(parsed.custom).forEach(([key, val]) => {
               if (onRestoreStaff && (key === 'MULTI_STAFF' || key === 'HR_STAFF')) return;
               if (key === 'HR_LEAVES') return;
               if (customData[key] && Array.isArray(val)) {
                 customData[key].setter(val);
-                restoredParts.push(key);
+                restoredParts.push(`${key} (${val.length})`);
               }
             });
           }
 
           setStatusMessage({
             type: 'success',
-            text: `Khôi phục thành công từ file JSON: ${restoredParts.join(', ') || '0 danh mục'}.`,
+            text: `Khôi phục thành công từ file JSON: ${restoredParts.join(' | ') || '0 danh mục'}.`,
           });
         } catch (err: any) {
           setStatusMessage({ type: 'error', text: `Lỗi đọc file JSON: ${err.message}` });
@@ -723,9 +1164,14 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
           const staffRawBuckets: Record<string, any>[] = [];
           const attendanceRawBuckets: Record<string, any>[] = [];
           const leaveRawBuckets: Record<string, any>[] = [];
+          const matrixRawBuckets: Record<string, any>[] = [];
+          const formulaRawBuckets: Record<string, any>[] = [];
           const otherSheets: { normSheet: string; rows: Record<string, any>[] }[] = [];
 
           workbook.SheetNames.forEach((sheetName) => {
+            const normSheet = sheetName.toUpperCase().trim();
+            if (normSheet === 'TONG_HOP_SAO_LUU' || normSheet === 'BACKUP_MANIFEST') return;
+
             const worksheet = workbook.Sheets[sheetName];
             const jsonData = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, {
               defval: '',
@@ -737,23 +1183,26 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
             jsonData.slice(0, 5).forEach((row) => {
               Object.keys(row).forEach((k) => normHeaders.add(k.trim().toLowerCase()));
             });
-            const normSheet = sheetName.toUpperCase().trim();
 
-            if (isLeaveSheetHeaders(normHeaders, normSheet)) {
+            if (normSheet === 'MATRIX_SNAPSHOTS') {
+              matrixRawBuckets.push(...jsonData);
+            } else if (normSheet === 'OVT_FORMULA') {
+              formulaRawBuckets.push(...jsonData);
+            } else if (isLeaveSheetHeaders(normHeaders, normSheet)) {
               leaveRawBuckets.push(...jsonData);
             } else if (isAttendanceSheetHeaders(normHeaders, normSheet)) {
               attendanceRawBuckets.push(...jsonData);
             } else if (isStaffSheetHeaders(normHeaders, normSheet)) {
               staffRawBuckets.push(...jsonData);
             } else {
-              otherSheets.push({ normSheet, rows: jsonData });
+              otherSheets.push({ normSheet, rows: deserializeRowsFromExcel(jsonData) });
             }
           });
 
           const restoredSummary: string[] = [];
           let latestCombinedStaff = combinedStaff;
 
-          // Bước 1: Khôi phục Sheet nhân viên trước để lấy danh sách staff mới nhất
+          // Bước 1: Khôi phục nhân viên
           if (staffRawBuckets.length > 0 && onRestoreStaff) {
             const { multiStaff, hrStaff: restoredHr } = normalizeStaffRowsForRestore(staffRawBuckets);
             onRestoreStaff(multiStaff, restoredHr);
@@ -767,7 +1216,29 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
             restoredSummary.push(`NHAN_VIEN (${latestCombinedStaff.length} NV)`);
           }
 
-          // Bước 2: Khôi phục Sheet chấm công & đồng bộ trực tiếp vào Matrix + AttendanceHistory
+          // Bước 2: Khôi phục MATRIX_SNAPSHOTS trước (nếu có)
+          if (matrixRawBuckets.length > 0) {
+            const restoredSnapshots = parseMatrixSnapshotExcelRows(matrixRawBuckets);
+            if (Object.keys(restoredSnapshots).length > 0) {
+              restoreStoredMatrixSnapshots(restoredSnapshots);
+              restoredSummary.push(
+                `MATRIX_SNAPSHOTS (${Object.keys(restoredSnapshots).length} bảng)`
+              );
+            }
+          }
+
+          // Bước 3: Khôi phục OVT_FORMULA
+          if (formulaRawBuckets.length > 0) {
+            const fields = formulaRawBuckets
+              .map((r) => String(r.fieldKey || '').trim())
+              .filter(Boolean);
+            if (fields.length > 0) {
+              localStorage.setItem(OVT_FORMULA_STORAGE_KEY, JSON.stringify(fields));
+              restoredSummary.push(`OVT_FORMULA (${fields.length} mục)`);
+            }
+          }
+
+          // Bước 4: Khôi phục CHAM_CONG
           if (attendanceRawBuckets.length > 0) {
             const attResult = restoreFlatAttendanceBackupRows(attendanceRawBuckets, latestCombinedStaff);
             if (onRestoreAttendance) {
@@ -778,14 +1249,14 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
             restoredSummary.push(`CHAM_CONG (${attResult.restoredCount} dòng${monthLabel})`);
           }
 
-          // Bước 3: Khôi phục Sheet Danh sách nghỉ phép (NGHI_PHEP) & đồng bộ lên bảng công ma trận
+          // Bước 5: Khôi phục NGHI_PHEP
           if (leaveRawBuckets.length > 0) {
             const normalizedLeaves = normalizeLeaveRowsForRestore(leaveRawBuckets, latestCombinedStaff);
             applyRestoredLeaves(normalizedLeaves, latestCombinedStaff);
             restoredSummary.push(`NGHI_PHEP (${normalizedLeaves.length} đơn)`);
           }
 
-          // Bước 4: Khôi phục các sheet HC&NS bổ sung khác
+          // Bước 6: Khôi phục toàn bộ các sheet HC&NS bổ sung
           otherSheets.forEach(({ normSheet, rows }) => {
             if (customData && customData[normSheet]) {
               customData[normSheet].setter(rows);
@@ -796,12 +1267,12 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
           if (restoredSummary.length === 0) {
             setStatusMessage({
               type: 'error',
-              text: 'Không tìm thấy sheet dữ liệu hợp lệ (cần sheet NHAN_VIEN / CHAM_CONG / NGHI_PHEP hoặc cột chuẩn tương ứng).',
+              text: 'Không tìm thấy sheet dữ liệu hợp lệ của phòng HC & NS trong file.',
             });
           } else {
             setStatusMessage({
               type: 'success',
-              text: `Khôi phục thành công từ Excel: ${restoredSummary.join(' | ')}. Dữ liệu bảng công, nghỉ phép, hồ sơ và phiếu lương đã được đồng bộ.`,
+              text: `Khôi phục thành công từ Excel: ${restoredSummary.join(' | ')}. Toàn bộ dữ liệu các tab HC & NS đã được đồng bộ.`,
             });
           }
         } catch (err: any) {
@@ -816,14 +1287,14 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
       <div className="pb-4 border-b border-slate-800 px-7 sm:px-0 text-center sm:text-left">
         <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center justify-center sm:justify-start gap-2">
           <HardDriveDownload className="w-5 h-5 text-teal-400 shrink-0" />
-          <span>Sao Lưu &amp; Khôi Phục Dữ Liệu ({moduleName})</span>
+          <span>Sao Lưu &amp; Khôi Phục Toàn Bộ Dữ Liệu ({moduleName})</span>
         </h2>
         <p className="text-xs text-slate-400 mt-1">
-          Xuất và nạp lại dữ liệu chuẩn 3 sheet: Sheet 1 (Dữ liệu nhân viên), Sheet 2 (Dữ liệu chấm công) &amp; Sheet 3 (Danh sách nghỉ phép), kèm các bảng hợp đồng, phiếu lương và hành chính qua Excel (.xlsx) hoặc JSON.
+          Cho phép sao lưu toàn bộ dữ liệu tất cả các tab của Phòng HC &amp; NS (Nhân viên, Dữ liệu công, Bảng công ma trận, Xác nhận công, Tăng ca, Nghỉ phép, Hợp đồng, Bảng lương/Phiếu lương, Tài sản, Công văn, Đào tạo, Thông báo) qua Excel (.xlsx) hoặc JSON.
         </p>
       </div>
 
@@ -844,54 +1315,95 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
         </div>
       )}
 
-      {/* Cấu trúc 3 sheet chuẩn */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-bold text-cyan-300">
-              <Users className="w-4 h-4 shrink-0" />
-              <span>Sheet 1: NHAN_VIEN</span>
-            </div>
-            <span className="text-[11px] font-mono text-slate-300 bg-slate-800 px-2 py-0.5 rounded">
-              {combinedStaff.length} nhân viên
-            </span>
+      {/* Danh sách toàn bộ các tab của phòng HC & NS */}
+      <div className="bg-slate-900/75 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800/80">
+          <div>
+            <h3 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+              <Layers className="w-4 h-4 text-cyan-400" />
+              <span>Danh Mục Dữ Liệu Các Tab Phòng HC &amp; NS ({selectedCategories.size}/{hrCategories.length} đã chọn)</span>
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Mặc định chọn tất cả để sao lưu trọn vẹn toàn bộ phòng HC &amp; NS, hoặc tích chọn riêng từng tab cần xuất.
+            </p>
           </div>
-          <div className="text-[11px] text-slate-400 font-mono leading-relaxed break-all bg-slate-950/70 p-2.5 rounded-lg border border-slate-800/80">
-            {STAFF_BACKUP_HEADERS.join(' | ')}
-          </div>
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-bold text-emerald-300">
-              <CalendarCheck className="w-4 h-4 shrink-0" />
-              <span>Sheet 2: CHAM_CONG</span>
-            </div>
-            <span className="text-[11px] font-mono text-slate-300 bg-slate-800 px-2 py-0.5 rounded">
-              {flatAttendancePreviewCount} dòng công
-            </span>
-          </div>
-          <div className="text-[11px] text-slate-400 font-mono leading-relaxed break-all bg-slate-950/70 p-2.5 rounded-lg border border-slate-800/80">
-            {ATTENDANCE_BACKUP_HEADERS.join(' | ')}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={selectAllCategories}
+              className="px-2.5 py-1 rounded-lg bg-emerald-950/70 hover:bg-emerald-900/70 border border-emerald-700/60 text-emerald-300 text-[11px] font-semibold cursor-pointer transition-colors"
+            >
+              Chọn tất cả
+            </button>
+            <button
+              type="button"
+              onClick={clearAllCategories}
+              className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-300 text-[11px] font-semibold cursor-pointer transition-colors"
+            >
+              Bỏ chọn
+            </button>
           </div>
         </div>
 
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-bold text-amber-300">
-              <Plane className="w-4 h-4 shrink-0" />
-              <span>Sheet 3: NGHI_PHEP</span>
-            </div>
-            <span className="text-[11px] font-mono text-slate-300 bg-slate-800 px-2 py-0.5 rounded">
-              {resolvedLeaveRecords.length} đơn phép
-            </span>
-          </div>
-          <div className="text-[11px] text-slate-400 font-mono leading-relaxed break-all bg-slate-950/70 p-2.5 rounded-lg border border-slate-800/80">
-            {LEAVE_BACKUP_HEADERS.join(' | ')}
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {hrCategories.map((cat) => {
+            const Icon = cat.icon;
+            const isSelected = selectedCategories.has(cat.id);
+            return (
+              <div
+                key={cat.id}
+                onClick={() => toggleCategory(cat.id)}
+                className={`rounded-xl border p-3 transition-all cursor-pointer select-none flex flex-col justify-between gap-2 ${
+                  isSelected
+                    ? `${cat.accent} ring-1 ring-emerald-500/40`
+                    : 'bg-slate-950/60 border-slate-800/80 text-slate-400 opacity-65 hover:opacity-90'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isSelected ? (
+                      <CheckSquare className="w-4 h-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <Square className="w-4 h-4 text-slate-600 shrink-0" />
+                    )}
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="text-xs font-bold text-white truncate">
+                      {cat.tabLabel}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      exportCategoriesToExcel(
+                        new Set<HrBackupCategoryId>([cat.id]),
+                        `BACKUP_${cat.id}`
+                      );
+                    }}
+                    title={`Xuất riêng file Excel cho mục ${cat.tabLabel}`}
+                    className="p-1 rounded bg-slate-950/80 hover:bg-slate-800 border border-slate-700/70 text-slate-300 hover:text-white shrink-0 cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-slate-400 leading-snug line-clamp-2">
+                  {cat.description}
+                </p>
+
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/50 text-[10px] font-mono">
+                  <span className="text-slate-400 truncate">{cat.sheetKeys.join(' + ')}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-950/80 text-slate-200 font-semibold shrink-0">
+                    {cat.countText}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
+      {/* Xuất & Khôi phục */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 space-y-4">
           <div className="flex items-center gap-2 font-bold text-sm text-white">
@@ -899,41 +1411,62 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
             <span>1. Xuất Dữ Liệu Sao Lưu (Backup)</span>
           </div>
           <p className="text-xs text-slate-400">
-            Xuất file Excel gồm Sheet 1 (NHAN_VIEN), Sheet 2 (CHAM_CONG), Sheet 3 (NGHI_PHEP) đúng thứ tự cột chuẩn hoặc xuất riêng Danh sách nghỉ phép.
+            Xuất toàn bộ các tab Phòng HC &amp; NS hoặc theo danh mục đã chọn ra file Excel (.xlsx) đa sheet và JSON (.json).
           </p>
 
           <div className="space-y-2.5 pt-2">
             <button
+              type="button"
+              onClick={handleExportAllExcel}
+              className="w-full flex items-center justify-between p-3 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/70 border border-emerald-600/60 text-emerald-200 text-xs font-bold transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2.5">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <span>Sao Lưu Toàn Bộ Dữ Liệu HC &amp; NS (.xlsx)</span>
+              </div>
+              <span className="text-[10px] text-emerald-300/80 font-mono">Tất cả 13 nhóm tab</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleExportExcel}
               className="w-full flex items-center justify-between p-3 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2.5">
-                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                <span>Xuất File Excel Chuẩn (.xlsx)</span>
+                <FileSpreadsheet className="w-4 h-4 text-cyan-400" />
+                <span>Xuất Excel Theo Danh Mục Đã Chọn (.xlsx)</span>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">NHAN_VIEN + CHAM_CONG + NGHI_PHEP</span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {selectedCategories.size}/{hrCategories.length} mục đã chọn
+              </span>
             </button>
 
             <button
+              type="button"
               onClick={handleExportLeaveOnlyExcel}
               className="w-full flex items-center justify-between p-3 rounded-lg bg-slate-950 hover:bg-slate-800 border border-amber-800/40 text-amber-200 text-xs font-semibold transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2.5">
                 <Plane className="w-4 h-4 text-amber-400" />
-                <span>Xuất Danh Sách Nghỉ Phép (.xlsx)</span>
+                <span>Xuất Riêng Danh Sách Nghỉ Phép (.xlsx)</span>
               </div>
-              <span className="text-[10px] text-amber-400/70 font-mono">Sheet NGHI_PHEP ({resolvedLeaveRecords.length} dòng)</span>
+              <span className="text-[10px] text-amber-400/70 font-mono">
+                Sheet NGHI_PHEP ({resolvedLeaveRecords.length} dòng)
+              </span>
             </button>
 
             <button
+              type="button"
               onClick={handleExportJson}
               className="w-full flex items-center justify-between p-3 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2.5">
                 <FileJson className="w-4 h-4 text-amber-400" />
-                <span>Xuất File Backup JSON (.json)</span>
+                <span>Xuất File Backup Đầy Đủ JSON (.json)</span>
               </div>
-              <span className="text-[10px] text-slate-500 font-mono">Bản sao lưu đầy đủ</span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                Giữ nguyên 100% cấu trúc
+              </span>
             </button>
           </div>
         </div>
@@ -944,7 +1477,7 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
             <span>2. Khôi Phục Dữ Liệu Từ File (Restore)</span>
           </div>
           <p className="text-xs text-slate-400">
-            Tự động nhận diện các sheet Nhân viên, Chấm công &amp; Danh sách Nghỉ phép từ file Excel (.xlsx/.xls) bất kể tên sheet (Sheet1/Sheet2/NGHI_PHEP) hoặc file JSON.
+            Tự động nhận diện và khôi phục dữ liệu cho toàn bộ các tab HC &amp; NS từ file Excel (.xlsx/.xls) hoặc file Backup JSON (.json).
           </p>
 
           <label className="border-2 border-dashed border-slate-700 hover:border-cyan-500/60 rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors bg-slate-950/40">
@@ -954,7 +1487,9 @@ export const BackupRestore: React.FC<BackupRestoreProps> = ({
             </div>
             <div className="text-[11px] text-slate-500 flex items-center gap-1 text-center">
               <Table2 className="w-3.5 h-3.5 shrink-0" />
-              <span>Tự động đồng bộ vào Bảng chấm công, Danh sách nghỉ phép &amp; Hồ sơ</span>
+              <span>
+                Tự động đồng bộ: Nhân sự, Bảng công ma trận, Xác nhận công, Tăng ca, Nghỉ phép, Hợp đồng, Bảng/Phiếu lương &amp; Hành chính
+              </span>
             </div>
             <input
               type="file"

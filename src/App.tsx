@@ -1085,6 +1085,9 @@ export default function App() {
             leaveRecords={leaveRecords}
             onRestoreLeaves={setLeaveRecords}
             customData={{
+              HR_TIMEKEEPING: { data: timekeepingRecords, setter: setTimekeepingRecords },
+              HR_ATT_CONFIRM: { data: attendanceConfirmations, setter: setAttendanceConfirmations },
+              HR_OVERTIME: { data: overtimeRecords, setter: setOvertimeRecords },
               HR_CONTRACTS: { data: contracts, setter: setContracts },
               HR_PAYROLLS: { data: payrollRecords, setter: setPayrollRecords },
               HR_SLIPS: { data: salarySlipRecords, setter: setSalarySlipRecords },

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   UserAccount,
   StaffRecord,
@@ -90,6 +90,7 @@ import {
   isStaffQrEnabled,
 } from '../../lib/staffQr';
 import { EmployeeQRCodeSvg, EmployeeQRModal } from '../common/EmployeeQRModal';
+import { EmployeeMobileBottomNav } from './EmployeeMobileBottomNav';
 
 export interface EmployeeProfileProps {
   currentUser: UserAccount;
@@ -236,6 +237,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const qrEnabled = isStaffQrEnabled(resolvedStaff);
   const qrPreviewUrl = useMemo(() => buildStaffQrUrl(resolvedStaff), [resolvedStaff]);
   const allowManageQr = Boolean(canManageQr ?? (isModal && !isQrDirectAccess));
+  const showEmployeeMobileMenu = !isModal && (currentUser.role === 'staff' || isQrDirectAccess);
+  const rightPanelRef = useRef<HTMLDivElement | null>(null);
 
   const handleToggleMyQrAccess = (st: StaffRecord, enabled: boolean) => {
     onUpdateStaffInfo({
@@ -1054,10 +1057,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       </aside>
 
       {/* RIGHT MAIN PANEL */}
-      <div className="flex-none lg:flex-1 flex flex-col min-w-0 lg:min-h-0 bg-[#050a14]">
+      <div ref={rightPanelRef} className="flex-none lg:flex-1 flex flex-col min-w-0 lg:min-h-0 bg-[#050a14]">
         {/* Top Tab Navigation + Month Switcher */}
         <div className={`px-3 sm:px-5 pt-3 pb-2 lg:pb-0 border-b border-slate-800/90 flex flex-wrap items-center justify-center sm:justify-between gap-2 sm:gap-3 ${isModal ? 'pr-12 sm:pr-14' : ''}`}>
-          <div className="w-full sm:w-auto max-w-full min-w-0 flex items-center overflow-x-auto custom-scrollbar pb-1 lg:pb-0">
+          <div className={`${showEmployeeMobileMenu ? 'hidden md:flex' : 'flex'} w-full sm:w-auto max-w-full min-w-0 items-center overflow-x-auto custom-scrollbar pb-1 lg:pb-0`}>
             <div className="flex items-center gap-1 sm:gap-2 mx-auto sm:mx-0">
               {PROFILE_TABS.map((tab) => {
                 const isActive = activeTab === tab.id;
@@ -2711,5 +2714,25 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     );
   }
 
-  return <div className="p-2 sm:p-6 max-w-[1360px] w-full min-w-0 mx-auto min-h-[calc(100dvh-7rem)] flex">{profileBody}</div>;
+  return (
+    <div
+      className={`p-2 sm:p-6 max-w-[1360px] w-full min-w-0 mx-auto min-h-[calc(100dvh-7rem)] flex ${
+        showEmployeeMobileMenu ? 'pb-28 md:pb-6' : ''
+      }`}
+    >
+      {profileBody}
+      {showEmployeeMobileMenu && (
+        <EmployeeMobileBottomNav
+          activeTab={activeTab}
+          onSelectTab={(tab) => {
+            setActiveTab(tab);
+            window.setTimeout(() => {
+              rightPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 50);
+          }}
+          onOpenQr={() => setShowQrModal(true)}
+        />
+      )}
+    </div>
+  );
 };
