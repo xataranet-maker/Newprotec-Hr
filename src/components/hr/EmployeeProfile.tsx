@@ -379,8 +379,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         staffInfo?.dateJoined
       );
       const hideAsBeforeJoin = isBeforeJoin && !hasMatrixRealData(entry);
+      const isRegimeLeave = (entry?.status as string) === 'Nghỉ chế độ';
       const isResigned =
-        entry?.status === 'Đã nghỉ việc' || (entry?.status as string) === 'Đã thôi việc';
+        !isRegimeLeave &&
+        (entry?.status === 'Đã nghỉ việc' || (entry?.status as string) === 'Đã thôi việc');
 
       let statusLabel = 'Chưa chấm công';
       let statusTone: 'ot' | 'full' | 'late' | 'early' | 'leave' | 'sunday' | 'holiday' | 'empty' = 'empty';
@@ -388,6 +390,9 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       if (hideAsBeforeJoin) {
         statusLabel = '';
         statusTone = 'empty';
+      } else if (isRegimeLeave) {
+        statusLabel = isSunday ? '' : 'Nghỉ chế độ';
+        statusTone = isSunday ? 'empty' : 'leave';
       } else if (isResigned) {
         statusLabel = isSunday ? '' : 'Đã thôi việc';
         statusTone = 'empty';

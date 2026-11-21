@@ -287,8 +287,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       });
 
       const leaveFromRecords = empLeaves.reduce((sum, r) => sum + (Number(r.days) || 1), 0);
-      const isResigned =
-        staff.attendance === 'Đã nghỉ việc' || Boolean(staff.isLocked);
+      const isLockedOrOff =
+        staff.attendance === 'Đã nghỉ việc' ||
+        (staff.attendance as string) === 'Đã thôi việc' ||
+        (staff.attendance as string) === 'Nghỉ chế độ' ||
+        Boolean(staff.isLocked);
 
       map.set(staff.employeeId, {
         staff,
@@ -299,9 +302,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
         missingDetails,
         workedDays: staffWorked,
         isWorking:
-          !isResigned &&
+          !isLockedOrOff &&
           (staffWorked > 0 || staff.attendance === 'Đúng giờ' || staff.attendance === 'PRESENT'),
-        isResigned,
+        isResigned: isLockedOrOff,
       });
     });
 

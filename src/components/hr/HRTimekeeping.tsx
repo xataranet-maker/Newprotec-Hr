@@ -532,6 +532,7 @@ export function buildComparisonRowForEmployeeDay(params: {
     : 0;
   const bcStatus = bcEntry?.status || '';
   const isResigned = (bcStatus as string) === 'Đã thôi việc' || (bcStatus as string) === 'Đã nghỉ việc';
+  const isRegimeLeave = (bcStatus as string) === 'Nghỉ chế độ';
   const hasBcSundayHours =
     (bcEntry?.otSundayHours || 0) > 0 || (bcEntry?.otSundayNightHours || 0) > 0;
   const isSundayOff =
@@ -541,6 +542,7 @@ export function buildComparisonRowForEmployeeDay(params: {
       bcStatus === 'Nghỉ chủ nhật');
   const hasBcWork = Boolean(
     !isResigned &&
+      !isRegimeLeave &&
       !isSundayOff &&
       (bcInTime || bcOutTime || (bcEntry?.regularHours || 0) > 0 || bcOtHours > 0)
   );
@@ -565,14 +567,16 @@ export function buildComparisonRowForEmployeeDay(params: {
   let otDifference = 0;
 
   if (!hasBcWork) {
-    // Ngày không có lịch làm việc theo bảng công (Nghỉ CN, Nghỉ lễ, Thôi việc)
+    // Ngày không có lịch làm việc theo bảng công (Nghỉ CN, Nghỉ lễ, Nghỉ chế độ, Thôi việc)
     if (!hasMqtSwipe) {
       discrepancyType = 'OFF_DAY_MATCH';
-      discrepancyLabel = isSunday ? 'Nghỉ CN' : isHoliday ? 'Nghỉ Lễ' : 'Nghỉ Theo Lịch';
+      discrepancyLabel = isSunday ? 'Nghỉ CN' : isHoliday ? 'Nghỉ Lễ' : isRegimeLeave ? 'Nghỉ Chế Độ' : 'Nghỉ Theo Lịch';
       discrepancyDetail = isSunday
         ? 'Nghỉ Chủ Nhật theo quy định.'
         : isHoliday
         ? 'Nghỉ Lễ theo lịch nhà máy.'
+        : isRegimeLeave
+        ? 'Nhân viên đang nghỉ chế độ.'
         : isResigned
         ? 'Nhân viên đã thôi việc.'
         : 'Nghỉ theo lịch phân công.';
@@ -1512,7 +1516,10 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
         const dayOfWeekNum = dateObj.getDay();
         const isSunday = dayOfWeekNum === 0;
         const entry = daysMap[day];
-        const isResigned = (entry?.status as string) === 'Đã thôi việc' || (entry?.status as string) === 'Đã nghỉ việc';
+        const isResigned =
+          (entry?.status as string) === 'Đã thôi việc' ||
+          (entry?.status as string) === 'Đã nghỉ việc' ||
+          (entry?.status as string) === 'Nghỉ chế độ';
 
         if (isSunday || isResigned) continue;
 

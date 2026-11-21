@@ -4,7 +4,9 @@ export type Language = 'vi' | 'ko' | 'en';
 
 export type DeptTheme = 'DEFAULT' | 'TECH_ELECTRONIC' | 'SPACE_FUTURE';
 
-export type AttendanceStatus = 'PRESENT' | 'SICK' | 'LEAVE' | 'FAMILY' | 'UNMARKED' | 'Đúng giờ' | 'Đi muộn' | 'Về sớm' | 'Vắng mặt' | 'Thiếu giờ vào' | 'Thiếu giờ ra' | 'Đủ công' | 'PENDING_REVIEW' | 'CHECKING' | 'Nghỉ ốm' | 'Nghỉ phép' | 'Nghỉ cưới' | 'Nghỉ tang' | 'Nghỉ chủ nhật' | 'Nghỉ lễ' | 'Nghỉ KL' | 'Đã nghỉ việc';
+export type AttendanceStatus = 'PRESENT' | 'SICK' | 'LEAVE' | 'FAMILY' | 'UNMARKED' | 'Đúng giờ' | 'Đi muộn' | 'Về sớm' | 'Vắng mặt' | 'Thiếu giờ vào' | 'Thiếu giờ ra' | 'Đủ công' | 'PENDING_REVIEW' | 'CHECKING' | 'Nghỉ ốm' | 'Nghỉ phép' | 'Nghỉ cưới' | 'Nghỉ tang' | 'Nghỉ chủ nhật' | 'Nghỉ lễ' | 'Nghỉ KL' | 'Nghỉ chế độ' | 'Đã nghỉ việc';
+
+export type StaffLockType = 'RESIGNED' | 'REGIME_LEAVE';
 
 export type MachineNoteType = 'NORMAL' | 'BROKEN' | 'WAITING_MATERIAL' | 'NO_STOCK' | 'MODEL_MISMATCH';
 
@@ -212,6 +214,8 @@ export interface StaffRecord {
   lateMinutes?: number;
   earlyMinutes?: number;
   isLocked?: boolean;
+  lockType?: StaffLockType;
+  lockedDay?: number;
   annualLeaveQuota?: number;
   qrAccessEnabled?: boolean;
   qrAccessToken?: string;
@@ -682,6 +686,7 @@ export interface MatrixEmployeeTimekeeping {
     position: string;
     shift: 'DAY' | 'NIGHT';
     isLocked?: boolean;
+    lockType?: StaffLockType;
     lockedDay?: number;
     manualUnlocked?: boolean;
     days: Record<number, MatrixDayTimeEntry>;

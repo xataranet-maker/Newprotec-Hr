@@ -4,6 +4,7 @@ import {
   LeaveRegistrationRecord,
   MatrixDayTimeEntry,
   MatrixEmployeeTimekeeping,
+  StaffLockType,
   StaffRecord,
 } from '../types';
 
@@ -65,6 +66,28 @@ export function isLeaveMatrixStatus(status?: string): boolean {
   );
 }
 
+export function resolveStaffLockType(
+  staff?: StaffRecord,
+  record?: Pick<MatrixEmployeeTimekeeping, 'lockType' | 'days'>
+): StaffLockType {
+  if (record?.lockType === 'REGIME_LEAVE' || record?.lockType === 'RESIGNED') {
+    return record.lockType;
+  }
+  if (staff?.lockType === 'REGIME_LEAVE' || staff?.lockType === 'RESIGNED') {
+    return staff.lockType;
+  }
+  if ((staff?.attendance as string) === 'Nghỉ chế độ') {
+    return 'REGIME_LEAVE';
+  }
+  if (record?.days) {
+    const hasRegimeDay = Object.values(record.days).some(
+      (d) => (d?.status as string) === 'Nghỉ chế độ'
+    );
+    if (hasRegimeDay) return 'REGIME_LEAVE';
+  }
+  return 'RESIGNED';
+}
+
 export function isStaffLockedFromMatrix(
   staff?: StaffRecord,
   record?: Pick<MatrixEmployeeTimekeeping, 'isLocked' | 'manualUnlocked'> | boolean
@@ -72,7 +95,12 @@ export function isStaffLockedFromMatrix(
   const recLocked = typeof record === 'boolean' ? record : record?.isLocked;
   const manualUnlocked = typeof record === 'boolean' ? false : Boolean(record?.manualUnlocked);
   if (recLocked === true) return true;
-  if (staff?.attendance === 'Đã nghỉ việc' || (staff?.attendance as string) === 'Đã thôi việc') {
+  if (manualUnlocked && recLocked === false) return false;
+  if (
+    staff?.attendance === 'Đã nghỉ việc' ||
+    (staff?.attendance as string) === 'Đã thôi việc' ||
+    (staff?.attendance as string) === 'Nghỉ chế độ'
+  ) {
     return true;
   }
   if (!manualUnlocked && staff?.isLocked) return true;
@@ -498,7 +526,8 @@ export function applyJoinDateAndLockRules(
   isLocked?: boolean,
   lockedDay?: number,
   holidayDays: Record<number, boolean> = {},
-  leaveRecords?: LeaveRegistrationRecord[]
+  leaveRecords?: LeaveRegistrationRecord[],
+  lockType?: StaffLockType
 ): Record<number, MatrixDayTimeEntry> {
   const nextDays: Record<number, MatrixDayTimeEntry> = {};
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -511,6 +540,9 @@ export function applyJoinDateAndLockRules(
   );
 
   const effectiveLocked = isStaffLockedFromMatrix(staff, isLocked);
+  const effectiveLockType: StaffLockType = lockType || resolveStaffLockType(staff);
+  const lockedDayStatus: AttendanceStatus =
+    effectiveLockType === 'REGIME_LEAVE' ? 'Nghỉ chế độ' : 'Đã nghỉ việc';
 
   for (let day = 1; day <= daysInMonth; day += 1) {
     let existing: MatrixDayTimeEntry | undefined = days[day];
@@ -549,7 +581,7 @@ export function applyJoinDateAndLockRules(
         otHolidayHours: 0,
         otHolidayNightHours: 0,
         isHoliday: false,
-        status: (isSun ? '' : 'Đã nghỉ việc') as AttendanceStatus,
+        status: (isSun ? '' : lockedDayStatus) as AttendanceStatus,
         isAutoDefault: false,
       };
       continue;
@@ -631,6 +663,7 @@ export function applyJoinDateAndLockRules(
           isLeaveMatrixStatus(existing.status) ||
           existingStatusStr === 'Đã nghỉ việc' ||
           existingStatusStr === 'Đã thôi việc' ||
+          existingStatusStr === 'Nghỉ chế độ' ||
           Boolean(existing.isManual) ||
           Boolean(existing.isRestored) ||
           existing.leaveRecordId !== undefined);
@@ -842,6 +875,9 @@ export function loadOrInitDepartmentMatrix(
       const resolvedLocked = matchedStaff
         ? isStaffLockedFromMatrix(matchedStaff, sourceRec)
         : Boolean(sourceRec.isLocked);
+      const resolvedLockType = resolvedLocked
+        ? resolveStaffLockType(matchedStaff, sourceRec)
+        : undefined;
       const rawDays = sourceRec.days || {};
       const appliedDays = matchedStaff
         ? applyJoinDateAndLockRules(
@@ -852,7 +888,8 @@ export function loadOrInitDepartmentMatrix(
             resolvedLocked,
             sourceRec.lockedDay,
             holidays,
-            leaveRecords
+            leaveRecords,
+            resolvedLockType
           )
         : rawDays;
       const totals = recalculateStaffTotals(appliedDays);
@@ -871,7 +908,13 @@ export function loadOrInitDepartmentMatrix(
           }
         }
       }
-      normalized[empId] = { ...sourceRec, isLocked: resolvedLocked, days: appliedDays, ...totals };
+      normalized[empId] = {
+        ...sourceRec,
+        isLocked: resolvedLocked,
+        lockType: resolvedLockType,
+        days: appliedDays,
+        ...totals,
+      };
     });
   }
 
@@ -886,7 +929,8 @@ export function loadOrInitDepartmentMatrix(
       const initLocked = sibRec
         ? isStaffLockedFromMatrix(staff, sibRec)
         : isSan || isStaffLockedFromMatrix(staff);
-      const initLockedDay = sibRec ? sibRec.lockedDay : isSan ? 12 : undefined;
+      const initLockedDay = sibRec ? sibRec.lockedDay : isSan ? 12 : staff.lockedDay;
+      const initLockType = initLocked ? resolveStaffLockType(staff, sibRec) : undefined;
       const rawDays = sibRec?.days
         ? sibRec.days
         : buildDefaultEmployeeMonthDays(staff, year, month, holidays, initLocked);
@@ -898,7 +942,8 @@ export function loadOrInitDepartmentMatrix(
         initLocked,
         initLockedDay,
         holidays,
-        leaveRecords
+        leaveRecords,
+        initLockType
       );
       const totals = recalculateStaffTotals(daysRecord);
       normalized[staff.employeeId] = {
@@ -908,6 +953,7 @@ export function loadOrInitDepartmentMatrix(
         position: staff.position || 'Công nhân vận hành',
         shift: staff.shift,
         isLocked: initLocked,
+        lockType: initLockType,
         lockedDay: initLockedDay,
         manualUnlocked: sibRec?.manualUnlocked,
         days: daysRecord,
@@ -917,15 +963,18 @@ export function loadOrInitDepartmentMatrix(
     } else {
       const rec = normalized[existingKey];
       const resolvedLocked = isStaffLockedFromMatrix(staff, rec);
+      const resolvedLockType = resolvedLocked ? resolveStaffLockType(staff, rec) : undefined;
+      const resolvedLockedDay = rec.lockedDay ?? staff.lockedDay;
       const appliedDays = applyJoinDateAndLockRules(
         rec.days || {},
         staff,
         year,
         month,
         resolvedLocked,
-        rec.lockedDay,
+        resolvedLockedDay,
         holidays,
-        leaveRecords
+        leaveRecords,
+        resolvedLockType
       );
       const totals = recalculateStaffTotals(appliedDays);
       if (resolvedLocked !== Boolean(rec.isLocked)) {
@@ -942,6 +991,8 @@ export function loadOrInitDepartmentMatrix(
         position: staff.position || rec.position,
         shift: staff.shift,
         isLocked: resolvedLocked,
+        lockType: resolvedLockType,
+        lockedDay: resolvedLocked ? resolvedLockedDay : rec.lockedDay,
         days: appliedDays,
         ...totals,
       };
@@ -1017,7 +1068,9 @@ export function getEmployeeProfileMatrixData(
                 month,
                 isStaffLockedFromMatrix(staffInfo, parsed[matchedKey]),
                 parsed[matchedKey].lockedDay,
-                holidays
+                holidays,
+                undefined,
+                resolveStaffLockType(staffInfo, parsed[matchedKey])
               )
             : baseDays;
           return {
@@ -1037,7 +1090,9 @@ export function getEmployeeProfileMatrixData(
                 month,
                 isStaffLockedFromMatrix(staffInfo, parsed[matchedKey]),
                 parsed[matchedKey].lockedDay,
-                holidays
+                holidays,
+                undefined,
+                resolveStaffLockType(staffInfo, parsed[matchedKey])
               )
             : baseDays;
           bestMatch = {
@@ -1089,8 +1144,10 @@ export function getEmployeeProfileMatrixData(
         year,
         month,
         locked,
+        staffInfo.lockedDay,
+        fallbackHolidays,
         undefined,
-        fallbackHolidays
+        resolveStaffLockType(staffInfo)
       ),
       holidays: fallbackHolidays,
       sourceDepartment: 'MULTI',
@@ -1964,6 +2021,7 @@ export function restoreFlatAttendanceBackupRows(
       normStatusUpper === 'VẮNG MẶT' ||
       normStatusUpper === 'ĐÃ NGHỈ VIỆC' ||
       normStatusUpper === 'ĐÃ THÔI VIỆC' ||
+      normStatusUpper === 'NGHỈ CHẾ ĐỘ' ||
       normStatusUpper === 'LEAVE' ||
       normStatusUpper === 'SICK';
 
@@ -1972,6 +2030,8 @@ export function restoreFlatAttendanceBackupRows(
       matrixStatus = lateIn ? 'Đi muộn' : earlyOut ? 'Về sớm' : 'Đúng giờ';
     } else if (normStatusUpper === 'ĐÃ THÔI VIỆC') {
       matrixStatus = 'Đã nghỉ việc';
+    } else if (normStatusUpper === 'NGHỈ CHẾ ĐỘ') {
+      matrixStatus = 'Nghỉ chế độ';
     } else if (statusRaw) {
       matrixStatus = statusRaw as AttendanceStatus;
     }
@@ -2095,4 +2155,89 @@ export function restoreFlatAttendanceBackupRows(
     restoredCount: attendanceHistory.length,
   };
 }
+
+export function syncStaffLockToMatrices(
+  staff: StaffRecord,
+  shouldLock: boolean,
+  lockType: StaffLockType,
+  lockedDay?: number,
+  targetYear?: number,
+  targetMonth?: number
+) {
+  const now = new Date();
+  const year = targetYear || now.getFullYear();
+  const month = targetMonth || now.getMonth() + 1;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const effectiveDay = shouldLock
+    ? Math.min(daysInMonth, Math.max(1, lockedDay || now.getDate()))
+    : undefined;
+  const primaryDept =
+    (staff.department || 'MULTI').trim().toUpperCase() === 'MULTI' ? 'MULTI' : 'ALL';
+
+  const updatedStaff: StaffRecord = {
+    ...staff,
+    isLocked: shouldLock,
+    lockType: shouldLock ? lockType : undefined,
+    lockedDay: effectiveDay,
+    attendance: shouldLock
+      ? lockType === 'REGIME_LEAVE'
+        ? 'Nghỉ chế độ'
+        : 'Đã nghỉ việc'
+      : staff.attendance === 'Đã nghỉ việc' ||
+        (staff.attendance as string) === 'Đã thôi việc' ||
+        (staff.attendance as string) === 'Nghỉ chế độ'
+      ? 'Đúng giờ'
+      : staff.attendance,
+  };
+
+  const { matrix, holidays } = loadOrInitDepartmentMatrix(
+    primaryDept,
+    year,
+    month,
+    [updatedStaff],
+    false
+  );
+  const empKey = findEmployeeKey(matrix, staff.employeeId) || staff.employeeId;
+  const current: MatrixEmployeeTimekeeping = matrix[empKey] || {
+    employeeId: staff.employeeId,
+    fullName: staff.fullName,
+    department: staff.department || primaryDept,
+    position: staff.position || 'OP',
+    shift: staff.shift,
+    isLocked: false,
+    days: {},
+    totalWorkHours: 0,
+    totalDayOt: 0,
+    totalNightOt: 0,
+    totalSundayOt: 0,
+  };
+
+  const appliedDays = applyJoinDateAndLockRules(
+    current.days || {},
+    updatedStaff,
+    year,
+    month,
+    shouldLock,
+    effectiveDay,
+    holidays,
+    undefined,
+    shouldLock ? lockType : undefined
+  );
+  const totals = recalculateStaffTotals(appliedDays);
+  const nextMatrix: Record<string, MatrixEmployeeTimekeeping> = {
+    ...matrix,
+    [empKey]: {
+      ...current,
+      isLocked: shouldLock,
+      lockType: shouldLock ? lockType : undefined,
+      lockedDay: effectiveDay,
+      manualUnlocked: !shouldLock,
+      days: appliedDays,
+      ...totals,
+    },
+  };
+
+  saveDepartmentMatrix(primaryDept, year, month, nextMatrix, holidays, true, true);
+}
+
 

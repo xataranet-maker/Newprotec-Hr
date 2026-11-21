@@ -7,6 +7,7 @@ import {
   MatrixDayTimeEntry,
   MatrixEmployeeTimekeeping,
   LeaveRegistrationRecord,
+  StaffLockType,
 } from '../../types';
 import {
   CalendarDays,
@@ -25,7 +26,6 @@ import {
   X,
   Lock,
   Unlock,
-  AlertTriangle,
   CalendarHeart,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -43,9 +43,11 @@ import {
   isFutureCalendarDay,
   isLeaveMatrixStatus,
   isStaffLockedFromMatrix,
+  resolveStaffLockType,
   MATRIX_UPDATED_EVENT,
   calculateMatrixDayHoursFromTimes,
 } from '../../lib/matrixTimekeeping';
+import { EmployeeLockModal } from './EmployeeLockModal';
 
 interface DepartmentTimekeepingMatrixProps {
   department: string;
@@ -57,6 +59,12 @@ interface DepartmentTimekeepingMatrixProps {
   leaveRecords?: LeaveRegistrationRecord[];
   userRole?: string;
   onViewProfile?: (staff: StaffRecord) => void;
+  onUpdateStaffLock?: (
+    staff: StaffRecord,
+    shouldLock: boolean,
+    lockType: StaffLockType,
+    lockedDay?: number
+  ) => void;
 }
 
 interface DayHeaderMeta {
@@ -80,6 +88,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
   allStaff = [],
   leaveRecords,
   onViewProfile,
+  onUpdateStaffLock,
 }) => {
   const currentDate = new Date();
   const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
@@ -117,10 +126,11 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     entry: MatrixDayTimeEntry;
   } | null>(null);
 
-  // Modal Khóa Nhân Viên Nghỉ Việc
+  // Modal Khóa Nhân Viên (Nghỉ Chế Độ / Thôi Việc)
   const [lockModal, setLockModal] = useState<{
     staff: StaffRecord;
     isLocked: boolean;
+    lockType: StaffLockType;
     lockedDay: number;
   } | null>(null);
 
@@ -411,7 +421,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
   };
 
   // Open Lock Employee Modal
-  const openLockModal = (staff: StaffRecord) => {
+  const openLockModal = (staff: StaffRecord, overrideDay?: number) => {
     const current = matrixData[staff.employeeId] || {
       employeeId: staff.employeeId,
       fullName: staff.fullName,
@@ -422,20 +432,29 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       days: {},
     };
     const defaultDay =
+      overrideDay ||
       current.lockedDay ||
       (selectedYear === currentDate.getFullYear() && selectedMonth === currentDate.getMonth() + 1
         ? currentDate.getDate()
         : 12);
 
+    const detectedLockType = resolveStaffLockType(staff, current);
+
     setLockModal({
       staff,
       isLocked: Boolean(current.isLocked),
+      lockType: detectedLockType,
       lockedDay: Math.min(daysInMonth, Math.max(1, defaultDay)),
     });
   };
 
-  // Apply or Remove Lock for Resigned Staff
-  const handleApplyLock = (staff: StaffRecord, shouldLock: boolean, dayNumber: number) => {
+  // Apply or Remove Lock for Staff (Regime Leave or Resigned)
+  const handleApplyLock = (
+    staff: StaffRecord,
+    shouldLock: boolean,
+    lockType: StaffLockType,
+    dayNumber: number
+  ) => {
     const current = matrixData[staff.employeeId] || {
       employeeId: staff.employeeId,
       fullName: staff.fullName,
@@ -455,7 +474,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       shouldLock,
       targetDay,
       holidayDays,
-      leaveRecords
+      leaveRecords,
+      shouldLock ? lockType : undefined
     );
     const totals = recalculateStaffTotals(appliedDays);
 
@@ -464,6 +484,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       [staff.employeeId]: {
         ...current,
         isLocked: shouldLock,
+        lockType: shouldLock ? lockType : undefined,
         lockedDay: targetDay,
         manualUnlocked: !shouldLock,
         days: appliedDays,
@@ -473,10 +494,19 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
     setMatrixData(nextMatrix);
     persistMatrixAndHolidays(nextMatrix, holidayDays);
+
+    const isCurrentMonthView =
+      selectedYear === currentDate.getFullYear() && selectedMonth === currentDate.getMonth() + 1;
+    if (isCurrentMonthView || !shouldLock) {
+      onUpdateStaffLock?.(staff, shouldLock, lockType, targetDay);
+    }
+
     setLockModal(null);
     showToast(
       shouldLock
-        ? `Đã khóa nhân viên ${staff.fullName} (nghỉ việc từ ngày ${targetDay}) thành công!`
+        ? lockType === 'REGIME_LEAVE'
+          ? `Đã khóa nghỉ chế độ cho nhân viên ${staff.fullName} từ ngày ${targetDay} thành công!`
+          : `Đã khóa thôi việc cho nhân viên ${staff.fullName} từ ngày ${targetDay} thành công!`
         : `Đã mở khóa nhân viên ${staff.fullName} thành công!`
     );
   };
@@ -588,7 +618,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         current.isLocked,
         current.lockedDay,
         holidayDays,
-        leaveRecords
+        leaveRecords,
+        resolveStaffLockType(staff, current)
       );
       const totals = recalculateStaffTotals(appliedDays);
       updated[staff.employeeId] = {
@@ -612,9 +643,14 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       return;
     }
     if (record?.isLocked) {
+      const recLockType = resolveStaffLockType(staff, record);
       if (record.lockedDay !== undefined) {
         if (meta.day >= record.lockedDay) {
-          showToast(`Nhân viên ${staff.fullName} đã nghỉ việc từ ngày ${record.lockedDay}. Không thể chấm công.`);
+          showToast(
+            recLockType === 'REGIME_LEAVE'
+              ? `Nhân viên ${staff.fullName} đang khóa nghỉ chế độ từ ngày ${record.lockedDay}. Không thể chấm công.`
+              : `Nhân viên ${staff.fullName} đã thôi việc từ ngày ${record.lockedDay}. Không thể chấm công.`
+          );
           return;
         }
       } else {
@@ -1122,10 +1158,19 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       monthDaysMeta.forEach((m) => {
         const d = days[m.day];
         const isBeforeJoin = isDayBeforeJoinDate(selectedYear, selectedMonth, m.day, staff.dateJoined);
+        const recLockType = resolveStaffLockType(staff, record);
+        const isAfterLockedDay = Boolean(
+          record?.isLocked && record?.lockedDay !== undefined && m.day >= record.lockedDay
+        );
+        const isRegimeLeave = Boolean(
+          (isAfterLockedDay && recLockType === 'REGIME_LEAVE') ||
+            (d?.status as string) === 'Nghỉ chế độ'
+        );
         const isResigned = Boolean(
-          (record?.isLocked && record?.lockedDay !== undefined && m.day >= record.lockedDay) ||
-          d?.status === 'Đã nghỉ việc' ||
-          (d?.status as string) === 'Đã thôi việc'
+          !isRegimeLeave &&
+            ((isAfterLockedDay && recLockType !== 'REGIME_LEAVE') ||
+              d?.status === 'Đã nghỉ việc' ||
+              (d?.status as string) === 'Đã thôi việc')
         );
 
         // Check if there is actual timekeeping data / working time
@@ -1141,7 +1186,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
           (d?.otHolidayNightHours || 0);
 
         const hideAsBeforeJoin = isBeforeJoin && !hasMatrixRealData(d);
-        const hasWorkingData = !hideAsBeforeJoin && !isResigned && (hasInTime || hasOutTime || totalHours > 0);
+        const hasWorkingData =
+          !hideAsBeforeJoin && !isResigned && !isRegimeLeave && (hasInTime || hasOutTime || totalHours > 0);
 
         // Determine night shift vs day shift
         const isNight =
@@ -1167,6 +1213,16 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
           caCell = '';
           vaoCell = '';
           raCell = '';
+        } else if (isRegimeLeave) {
+          if (m.isSunday) {
+            caCell = '';
+            vaoCell = '';
+            raCell = '';
+          } else {
+            caCell = 'Nghỉ chế độ';
+            vaoCell = '';
+            raCell = '';
+          }
         } else if (isResigned) {
           if (m.isSunday) {
             caCell = '';
@@ -1356,6 +1412,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
           const days = { ...currentRec.days };
           let minResignedDay: number | undefined = undefined;
+          let importedLockType: StaffLockType | undefined = undefined;
 
           dayColMap.forEach(({ colIdx, dayNum }) => {
             const caVal = String(caRow[colIdx] || '').trim();
@@ -1367,16 +1424,20 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             const raTime = normalizeTime(raVal);
             const hasTime = vaoTime.includes(':') || raTime.includes(':');
 
+            const isRegime =
+              caLower.includes('nghỉ chế độ') || vaoLower.includes('nghỉ chế độ');
             const isResigned =
-              caLower.includes('đã thôi việc') ||
-              caLower.includes('đã nghỉ việc') ||
-              caLower.includes('thôi việc') ||
-              vaoLower.includes('thôi việc') ||
-              vaoLower.includes('nghỉ việc');
+              !isRegime &&
+              (caLower.includes('đã thôi việc') ||
+                caLower.includes('đã nghỉ việc') ||
+                caLower.includes('thôi việc') ||
+                vaoLower.includes('thôi việc') ||
+                vaoLower.includes('nghỉ việc'));
 
-            if (isResigned) {
+            if (isRegime || isResigned) {
               if (minResignedDay === undefined || dayNum < minResignedDay) {
                 minResignedDay = dayNum;
+                importedLockType = isRegime ? 'REGIME_LEAVE' : 'RESIGNED';
               }
             }
 
@@ -1395,7 +1456,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             let otHolidayNightHours = 0;
             let status: AttendanceStatus = 'Đúng giờ';
 
-            if (isResigned) {
+            if (isRegime) {
+              status = 'Nghỉ chế độ';
+            } else if (isResigned) {
               status = 'Đã nghỉ việc';
             } else if (caLower.includes('nghỉ phép') || vaoVal.includes('Nghỉ phép')) {
               status = 'Nghỉ phép';
@@ -1482,6 +1545,9 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
           const isLocked = minResignedDay !== undefined ? true : Boolean(currentRec.isLocked);
           const lockedDay = minResignedDay !== undefined ? minResignedDay : currentRec.lockedDay;
+          const resolvedLockType = isLocked
+            ? importedLockType || resolveStaffLockType(matchedStaff, currentRec)
+            : undefined;
           const appliedDays = applyJoinDateAndLockRules(
             days,
             matchedStaff,
@@ -1490,12 +1556,14 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             isLocked,
             lockedDay,
             holidayDays,
-            leaveRecords
+            leaveRecords,
+            resolvedLockType
           );
           const totals = recalculateStaffTotals(appliedDays);
           nextMatrix[matchedStaff.employeeId] = {
             ...currentRec,
             isLocked,
+            lockType: resolvedLockType,
             lockedDay,
             days: appliedDays,
             ...totals,
@@ -1903,18 +1971,38 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           {staff.fullName}
                         </button>
                         {record.isLocked ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openLockModal(staff);
-                            }}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-600/70 text-amber-300 text-[9px] font-bold cursor-pointer transition-colors shadow-xs shrink-0"
-                            title={`Nhân viên đã nghỉ việc từ ngày ${record.lockedDay || 1}. Nhấn để cấu hình hoặc mở khóa.`}
-                          >
-                            <Lock className="w-2.5 h-2.5 text-amber-400" />
-                            <span>Nghỉ việc (N{record.lockedDay || 1})</span>
-                          </button>
+                          (() => {
+                            const recLockType = resolveStaffLockType(staff, record);
+                            const isRegime = recLockType === 'REGIME_LEAVE';
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openLockModal(staff);
+                                }}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[9px] font-bold cursor-pointer transition-colors shadow-xs shrink-0 ${
+                                  isRegime
+                                    ? 'bg-indigo-950/80 hover:bg-indigo-900 border-indigo-600/70 text-indigo-300'
+                                    : 'bg-amber-950/80 hover:bg-amber-900 border-amber-600/70 text-amber-300'
+                                }`}
+                                title={
+                                  isRegime
+                                    ? `Nhân viên đang khóa nghỉ chế độ từ ngày ${record.lockedDay || 1}. Nhấn để cấu hình hoặc mở khóa.`
+                                    : `Nhân viên đã thôi việc từ ngày ${record.lockedDay || 1}. Nhấn để cấu hình hoặc mở khóa.`
+                                }
+                              >
+                                <Lock
+                                  className={`w-2.5 h-2.5 ${isRegime ? 'text-indigo-400' : 'text-amber-400'}`}
+                                />
+                                <span>
+                                  {isRegime
+                                    ? `Nghỉ chế độ (N${record.lockedDay || 1})`
+                                    : `Thôi việc (N${record.lockedDay || 1})`}
+                                </span>
+                              </button>
+                            );
+                          })()
                         ) : (
                           <button
                             type="button"
@@ -1923,7 +2011,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                               openLockModal(staff);
                             }}
                             className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-                            title="Nhấn để khóa nhân viên nghỉ việc"
+                            title="Nhấn để khóa nhân viên (nghỉ chế độ / thôi việc)"
                           >
                             <Unlock className="w-3 h-3" />
                           </button>
@@ -2016,11 +2104,19 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         staff.dateJoined
                       );
                       const hideAsBeforeJoin = isBeforeJoin && !hasMatrixRealData(rawEntry);
+                      const recLockType = resolveStaffLockType(staff, record);
+                      const isAfterLockedDay = Boolean(
+                        record?.isLocked && record?.lockedDay !== undefined && m.day >= record.lockedDay
+                      );
+                      const isRegimeLeave = Boolean(
+                        !hideAsBeforeJoin &&
+                          ((isAfterLockedDay && recLockType === 'REGIME_LEAVE') ||
+                            (rawEntry?.status as string) === 'Nghỉ chế độ')
+                      );
                       const isResigned = Boolean(
                         !hideAsBeforeJoin &&
-                          ((record?.isLocked &&
-                            record?.lockedDay !== undefined &&
-                            m.day >= record.lockedDay) ||
+                          !isRegimeLeave &&
+                          ((isAfterLockedDay && recLockType !== 'REGIME_LEAVE') ||
                             rawEntry?.status === 'Đã nghỉ việc' ||
                             (rawEntry?.status as string) === 'Đã thôi việc')
                       );
@@ -2036,7 +2132,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         otHolidayHours: 0,
                         otHolidayNightHours: 0,
                         isHoliday: m.isHoliday,
-                        status: (hideAsBeforeJoin || isResigned
+                        status: (hideAsBeforeJoin || isResigned || isRegimeLeave
                           ? ''
                           : m.isHoliday
                           ? 'Nghỉ lễ'
@@ -2070,6 +2166,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           className={`py-1.5 px-1.5 text-center border-r border-slate-800/80 cursor-pointer transition-colors relative hover:ring-1 hover:ring-cyan-400 ${
                             hideAsBeforeJoin
                               ? 'bg-slate-950/70 hover:bg-slate-900/60'
+                              : isRegimeLeave
+                              ? 'bg-indigo-950/30 hover:bg-indigo-900/40'
                               : isResigned
                               ? 'bg-slate-950/60 hover:bg-slate-900/60'
                               : isHolidayCell
@@ -2083,8 +2181,10 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           title={
                             hideAsBeforeJoin
                               ? `${staff.fullName} - Chưa vào làm (vào làm từ ${staff.dateJoined})`
+                              : isRegimeLeave
+                              ? `${staff.fullName} - Nghỉ chế độ từ ngày ${record?.lockedDay || m.day}`
                               : isResigned
-                              ? `${staff.fullName} - Đã nghỉ việc từ ngày ${record?.lockedDay || m.day}`
+                              ? `${staff.fullName} - Đã thôi việc từ ngày ${record?.lockedDay || m.day}`
                               : `Kích để sửa: ${staff.fullName} - Ngày ${m.day}/${selectedMonth} (${
                                   isHolidayCell ? 'Ngày Lễ' : m.dayOfWeek
                                 })`
@@ -2092,6 +2192,16 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                         >
                           {hideAsBeforeJoin ? (
                             <div className="text-[10px] font-mono py-1 select-none">&nbsp;</div>
+                          ) : isRegimeLeave ? (
+                            isSunday || isHolidayCell ? (
+                              <div className="text-[10px] font-mono py-1 select-none">&nbsp;</div>
+                            ) : (
+                              <div className="py-0.5">
+                                <span className="px-1.5 py-0.5 rounded bg-indigo-950/70 text-indigo-300 border border-indigo-600/50 font-mono text-[9px] font-semibold whitespace-nowrap">
+                                  Nghỉ chế độ
+                                </span>
+                              </div>
+                            )
                           ) : isResigned ? (
                             isSunday || isHolidayCell ? (
                               <div className="text-[10px] font-mono py-1 select-none">&nbsp;</div>
@@ -2925,14 +3035,16 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   <button
                     type="button"
                     onClick={() => {
-                      handleApplyLock(editingCell.staff, true, editingCell.day);
+                      const st = editingCell.staff;
+                      const d = editingCell.day;
                       setEditingCell(null);
+                      openLockModal(st, d);
                     }}
                     className="px-2 py-0.5 rounded text-[9px] bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-600/70 font-bold flex items-center gap-1 cursor-pointer"
-                    title="Khóa toàn bộ ngày công từ ngày này trở đi (đánh dấu nghỉ việc)"
+                    title="Mở hộp thoại chọn Khóa nghỉ chế độ hoặc Khóa thôi việc từ ngày này"
                   >
                     <Lock className="w-2.5 h-2.5 text-amber-400" />
-                    <span>Khóa nghỉ việc từ N{editingCell.day}</span>
+                    <span>Khóa nhân viên từ N{editingCell.day}</span>
                   </button>
                 </div>
               </div>
@@ -2960,6 +3072,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                   <option value="Nghỉ lễ">Nghỉ lễ</option>
                   <option value="Nghỉ chủ nhật">Nghỉ chủ nhật</option>
                   <option value="Vắng mặt">Vắng mặt</option>
+                  <option value="Nghỉ chế độ">Nghỉ chế độ</option>
                   <option value="Đã nghỉ việc">Đã thôi việc (Nghỉ việc)</option>
                 </select>
               </div>
@@ -2984,187 +3097,24 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         </div>
       )}
 
-      {/* Modal Cấu Hình Khóa Nhân Viên Nghỉ Việc */}
-      {lockModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div
-                  className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                    lockModal.isLocked
-                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                      : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
-                  }`}
-                >
-                  {lockModal.isLocked ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
-                </div>
-                <div>
-                  <h3 className="font-bold text-white text-sm sm:text-base">
-                    Khóa Nhân Viên &amp; Trạng Thái Nghỉ Việc
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Tháng {selectedMonth}/{selectedYear} · {departmentTitle}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setLockModal(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Thông tin nhân viên */}
-            <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 text-xs space-y-1.5">
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 font-medium">Họ và tên:</span>
-                <span className="font-bold text-cyan-300 text-sm">{lockModal.staff.fullName}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 font-medium">Mã nhân viên:</span>
-                <span className="font-mono text-slate-200">{lockModal.staff.employeeId}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 font-medium">Vị trí · Ca:</span>
-                <span className="text-slate-300">
-                  {lockModal.staff.position} · {lockModal.staff.shift === 'DAY' ? 'Ca Ngày' : 'Ca Đêm'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400 font-medium">Ngày vào làm:</span>
-                <span className="font-mono text-slate-300">{lockModal.staff.dateJoined || 'Chưa ghi nhận'}</span>
-              </div>
-              <div className="flex justify-between items-center pt-1 border-t border-slate-800/80">
-                <span className="text-slate-400 font-medium">Trạng thái hiện tại:</span>
-                {lockModal.isLocked ? (
-                  <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-[10px]">
-                    ĐANG KHÓA (Nghỉ việc từ N{lockModal.lockedDay})
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-[10px]">
-                    Đang làm việc bình thường
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Chọn hình thức */}
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                  <CalendarDays className="w-4 h-4 text-amber-400" />
-                  <span>Chọn ngày bắt đầu nghỉ việc / khóa (1 đến {daysInMonth}):</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={daysInMonth}
-                    value={lockModal.lockedDay}
-                    onChange={(e) =>
-                      setLockModal({
-                        ...lockModal,
-                        lockedDay: Math.min(daysInMonth, Math.max(1, Number(e.target.value) || 1)),
-                      })
-                    }
-                    className="w-24 bg-slate-950 border border-slate-700 rounded-lg p-2 font-mono text-center text-white font-bold text-base focus:border-amber-500 focus:outline-hidden"
-                  />
-                  <span className="text-xs text-slate-400">
-                    tháng {selectedMonth}/{selectedYear}
-                  </span>
-                </div>
-
-                {/* Nút chọn nhanh */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  <span className="text-[10px] text-slate-400 self-center">Chọn nhanh:</span>
-                  {[
-                    { label: 'Ngày 1', val: 1 },
-                    { label: 'Ngày 10', val: 10 },
-                    { label: 'Ngày 12', val: 12 },
-                    { label: 'Ngày 15', val: 15 },
-                    { label: 'Ngày 20', val: 20 },
-                    {
-                      label: `Hôm nay (N${new Date().getDate()})`,
-                      val: Math.min(daysInMonth, new Date().getDate()),
-                    },
-                  ].map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => setLockModal({ ...lockModal, lockedDay: preset.val })}
-                      className={`px-2 py-0.5 rounded text-[10px] font-semibold border cursor-pointer transition-colors ${
-                        lockModal.lockedDay === preset.val
-                          ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
-                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                      }`}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Hộp quy tắc nghiệp vụ */}
-              <div className="bg-amber-950/30 border border-amber-800/50 p-3 rounded-xl text-[11px] text-amber-200/90 space-y-1">
-                <div className="font-bold flex items-center gap-1.5 text-amber-300">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  <span>Quy tắc hiển thị &amp; bảo lưu công:</span>
-                </div>
-                <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1">
-                  <li>
-                    <span className="text-amber-300 font-semibold">
-                      Từ ngày {lockModal.lockedDay} đến hết tháng:
-                    </span>{' '}
-                    Khóa không cho chấm công, ngày thường hiển thị <strong>'Đã thôi việc'</strong>, Chủ Nhật để
-                    trống trạng thái, không hiển thị giờ vào/ra.
-                  </li>
-                  <li>
-                    <span className="text-emerald-300 font-semibold">Trước ngày {lockModal.lockedDay}:</span>{' '}
-                    Giữ nguyên toàn bộ ngày công và giờ tăng ca thực tế đã làm.
-                  </li>
-                </ul>
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t border-slate-800">
-              {lockModal.isLocked ? (
-                <button
-                  type="button"
-                  onClick={() => handleApplyLock(lockModal.staff, false, lockModal.lockedDay)}
-                  className="w-full sm:w-auto px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
-                >
-                  <Unlock className="w-3.5 h-3.5" />
-                  <span>Mở Khóa Nhân Viên</span>
-                </button>
-              ) : (
-                <div />
-              )}
-
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                <button
-                  type="button"
-                  onClick={() => setLockModal(null)}
-                  className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs cursor-pointer"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleApplyLock(lockModal.staff, true, lockModal.lockedDay)}
-                  className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
-                >
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>{lockModal.isLocked ? 'Cập Nhật Ngày Khóa' : 'Khóa Nghỉ Việc'}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal Cấu Hình Khóa Nhân Viên (Nghỉ Chế Độ / Thôi Việc) */}
+      <EmployeeLockModal
+        isOpen={Boolean(lockModal)}
+        staff={lockModal?.staff || null}
+        initialLocked={Boolean(lockModal?.isLocked)}
+        initialLockType={lockModal?.lockType || 'RESIGNED'}
+        initialLockedDay={lockModal?.lockedDay || 1}
+        selectedMonth={selectedMonth}
+        selectedYear={selectedYear}
+        daysInMonth={daysInMonth}
+        departmentTitle={departmentTitle}
+        onClose={() => setLockModal(null)}
+        onConfirm={(shouldLock, chosenType, chosenDay) => {
+          if (lockModal) {
+            handleApplyLock(lockModal.staff, shouldLock, chosenType, chosenDay);
+          }
+        }}
+      />
     </div>
   );
 };

@@ -76,6 +76,8 @@ import {
   ProductionPlan,
   SalarySecurityConfig,
   LeaveRegistrationRecord,
+  StaffLockType,
+  AttendanceStatus,
 } from './types';
 import {
   SALARY_SECURITY_STORAGE_KEY,
@@ -623,6 +625,34 @@ export default function App() {
     [allStaff]
   );
 
+  const handleUpdateStaffLockStatus = useCallback(
+    (staff: StaffRecord, shouldLock: boolean, lockType: StaffLockType, lockedDay?: number) => {
+      const normId = staff.employeeId.trim().toLowerCase();
+      const applyUpdate = (list: StaffRecord[]) =>
+        list.map((s) => {
+          if (s.employeeId.trim().toLowerCase() !== normId) return s;
+          return {
+            ...s,
+            isLocked: shouldLock,
+            lockType: shouldLock ? lockType : undefined,
+            lockedDay: shouldLock ? lockedDay : undefined,
+            attendance: shouldLock
+              ? lockType === 'REGIME_LEAVE'
+                ? ('Nghỉ chế độ' as AttendanceStatus)
+                : ('Đã nghỉ việc' as AttendanceStatus)
+              : s.attendance === 'Đã nghỉ việc' ||
+                (s.attendance as string) === 'Đã thôi việc' ||
+                (s.attendance as string) === 'Nghỉ chế độ'
+              ? ('Đúng giờ' as AttendanceStatus)
+              : s.attendance,
+          };
+        });
+      setStaffRecords(applyUpdate);
+      setHrStaff(applyUpdate);
+    },
+    []
+  );
+
   const handleLogin = useCallback((user: UserAccount) => {
     setViewingProfileStaff(null);
     setCurrentUser(user);
@@ -885,6 +915,7 @@ export default function App() {
             overtimeRecords={overtimeRecords}
             leaveRecords={leaveRecords}
             onViewProfile={setViewingProfileStaff}
+            onUpdateStaffLock={handleUpdateStaffLockStatus}
           />
         );
 
@@ -955,6 +986,7 @@ export default function App() {
             overtimeRecords={overtimeRecords}
             leaveRecords={leaveRecords}
             onViewProfile={setViewingProfileStaff}
+            onUpdateStaffLock={handleUpdateStaffLockStatus}
           />
         );
       case 'hr_attendance_confirm':

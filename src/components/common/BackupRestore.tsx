@@ -46,6 +46,8 @@ export const STAFF_BACKUP_HEADERS = [
   'employeeId',
   'avatarUrl',
   'isLocked',
+  'lockType',
+  'lockedDay',
 ] as const;
 
 export const ATTENDANCE_BACKUP_HEADERS = [
@@ -189,6 +191,15 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
 
     const attendanceRaw = String(pickField(norm, 'attendance', 'trạng thái') || 'UNMARKED').trim();
     const isLocked = parseBooleanLock(norm['islocked']);
+    const rawLockType = String(pickField(norm, 'locktype') || '').trim().toUpperCase();
+    const lockType =
+      rawLockType === 'REGIME_LEAVE' || rawLockType === 'RESIGNED'
+        ? rawLockType
+        : attendanceRaw === 'Nghỉ chế độ'
+        ? 'REGIME_LEAVE'
+        : undefined;
+    const rawLockedDay = Number(pickField(norm, 'lockedday'));
+    const lockedDay = Number.isFinite(rawLockedDay) && rawLockedDay >= 1 && rawLockedDay <= 31 ? Math.trunc(rawLockedDay) : undefined;
 
     const staffItem: StaffRecord = {
       id: parseNumericId(norm['id'], baseTs + idx, usedIds),
@@ -205,6 +216,8 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
       workUnit: workUnitRaw || departmentRaw || 'MULTI',
       avatarUrl: String(pickField(norm, 'avatarurl') || '').trim(),
       ...(isLocked !== undefined ? { isLocked } : {}),
+      ...(lockType ? { lockType } : {}),
+      ...(lockedDay !== undefined ? { lockedDay } : {}),
     };
 
     if ((staffItem.department || '').toUpperCase() === 'HR') {
@@ -236,6 +249,8 @@ function buildStaffExportRows(allStaff: StaffRecord[]): Record<string, any>[] {
       employeeId: s.employeeId || '',
       avatarUrl: s.avatarUrl || '',
       isLocked: s.isLocked === undefined ? '' : s.isLocked,
+      lockType: s.lockType || '',
+      lockedDay: s.lockedDay === undefined ? '' : s.lockedDay,
     };
   });
 }

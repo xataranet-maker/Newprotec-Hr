@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus } from '../../types';
+import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus, StaffLockType } from '../../types';
 import { 
   Users, Search, Filter, Phone, Building, Clock, 
   AlertTriangle, CheckCircle2, LayoutGrid, Table, Trash2, X,
-  QrCode, ShieldCheck, ShieldOff
+  QrCode, ShieldCheck, ShieldOff, Lock, Unlock
 } from 'lucide-react';
 import { isStaffQrEnabled, generateStaffQrToken, getStaffQrToken } from '../../lib/staffQr';
+import { resolveStaffLockType, syncStaffLockToMatrices } from '../../lib/matrixTimekeeping';
 import { EmployeeQRModal } from '../common/EmployeeQRModal';
+import { EmployeeLockModal } from '../common/EmployeeLockModal';
 
 interface HRStaffManagementProps {
   multiStaff: StaffRecord[];
@@ -45,6 +47,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
   const [viewMode, setViewMode] = useState<'CARDS' | 'TABLE'>('CARDS');
   const [confirmDeleteStaff, setConfirmDeleteStaff] = useState<(StaffRecord & { dept?: string }) | null>(null);
   const [qrModalStaff, setQrModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
+  const [lockModalStaff, setLockModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
   const [deleteToast, setDeleteToast] = useState<string | null>(null);
 
   const handleConfirmDelete = () => {
@@ -106,12 +109,76 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
     return matchDept && matchSearch && matchStatus && matchQr;
   });
 
+  const handleApplyStaffLock = (
+    staff: StaffRecord & { deptKey?: string },
+    shouldLock: boolean,
+    lockType: StaffLockType,
+    lockedDay: number
+  ) => {
+    const resolvedDept = staff.deptKey || (staff.department === 'HR' ? 'HR' : 'MULTI');
+    const updater = (prev: StaffRecord[]) =>
+      prev.map(item =>
+        item.employeeId === staff.employeeId
+          ? {
+              ...item,
+              isLocked: shouldLock,
+              lockType: shouldLock ? lockType : undefined,
+              lockedDay: shouldLock ? lockedDay : undefined,
+              attendance: shouldLock
+                ? lockType === 'REGIME_LEAVE'
+                  ? ('Nghỉ chế độ' as AttendanceStatus)
+                  : ('Đã nghỉ việc' as AttendanceStatus)
+                : item.attendance === 'Đã nghỉ việc' ||
+                  (item.attendance as string) === 'Đã thôi việc' ||
+                  (item.attendance as string) === 'Nghỉ chế độ'
+                ? ('Đúng giờ' as AttendanceStatus)
+                : item.attendance,
+            }
+          : item
+      );
+
+    if (resolvedDept === 'MULTI') setMultiStaff(updater(multiStaff));
+    else if (resolvedDept === 'HR') setHrStaff(updater(hrStaff));
+
+    const now = new Date();
+    syncStaffLockToMatrices(
+      staff,
+      shouldLock,
+      lockType,
+      lockedDay,
+      now.getFullYear(),
+      now.getMonth() + 1
+    );
+
+    setLockModalStaff(null);
+    setDeleteToast(
+      shouldLock
+        ? lockType === 'REGIME_LEAVE'
+          ? `Đã khóa nghỉ chế độ cho nhân viên ${staff.fullName} từ ngày ${lockedDay}.`
+          : `Đã khóa thôi việc cho nhân viên ${staff.fullName} từ ngày ${lockedDay}.`
+        : `Đã mở khóa nhân viên ${staff.fullName}.`
+    );
+    window.setTimeout(() => setDeleteToast(null), 4000);
+  };
+
   const handleUpdateStaffAttendance = (employeeId: string, deptKey: string, status: AttendanceStatus) => {
+    const isLockStatus =
+      status === 'Đã nghỉ việc' || (status as string) === 'Đã thôi việc' || (status as string) === 'Nghỉ chế độ';
+    const nextLockType: StaffLockType | undefined =
+      (status as string) === 'Nghỉ chế độ'
+        ? 'REGIME_LEAVE'
+        : status === 'Đã nghỉ việc' || (status as string) === 'Đã thôi việc'
+        ? 'RESIGNED'
+        : undefined;
+
     const updater = (prev: StaffRecord[]) => prev.map(s => {
       if (s.employeeId === employeeId) {
         return {
           ...s,
           attendance: status,
+          isLocked: isLockStatus ? true : false,
+          lockType: nextLockType,
+          lockedDay: isLockStatus ? (s.lockedDay || new Date().getDate()) : undefined,
           lateMinutes: status === 'Đi muộn' ? (s.lateMinutes || 30) : undefined,
           lateIn: status === 'Đi muộn' ? (s.lateIn || '08:30') : undefined,
           earlyMinutes: status === 'Về sớm' ? (s.earlyMinutes || 30) : undefined,
@@ -207,6 +274,8 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
               <option value="Nghỉ phép">Nghỉ phép</option>
               <option value="Nghỉ ốm">Nghỉ ốm</option>
               <option value="Vắng mặt">Vắng mặt</option>
+              <option value="Nghỉ chế độ">Nghỉ chế độ</option>
+              <option value="Đã nghỉ việc">Đã nghỉ việc (Thôi việc)</option>
             </select>
 
             <select
@@ -313,6 +382,40 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                     <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700/50">
                       {s.dept}
                     </span>
+                    {(() => {
+                      const staffLocked = Boolean(
+                        s.isLocked ||
+                          s.attendance === 'Đã nghỉ việc' ||
+                          (s.attendance as string) === 'Đã thôi việc' ||
+                          (s.attendance as string) === 'Nghỉ chế độ'
+                      );
+                      const isRegime = resolveStaffLockType(s) === 'REGIME_LEAVE';
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setLockModalStaff(s)}
+                          title={
+                            staffLocked
+                              ? isRegime
+                                ? 'Đang khóa nghỉ chế độ — nhấn để cấu hình hoặc mở khóa'
+                                : 'Đang khóa thôi việc — nhấn để cấu hình hoặc mở khóa'
+                              : 'Khóa nhân viên (Nghỉ chế độ / Thôi việc)'
+                          }
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-semibold transition-colors cursor-pointer ${
+                            staffLocked
+                              ? isRegime
+                                ? 'bg-indigo-950/70 hover:bg-indigo-900 text-indigo-300 border-indigo-600/70'
+                                : 'bg-amber-950/70 hover:bg-amber-900 text-amber-300 border-amber-600/70'
+                              : 'bg-slate-800/80 hover:bg-amber-950/60 text-slate-300 hover:text-amber-300 border-slate-700 hover:border-amber-600/60'
+                          }`}
+                        >
+                          {staffLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                          <span>
+                            {staffLocked ? (isRegime ? 'Nghỉ chế độ' : 'Thôi việc') : 'Khóa'}
+                          </span>
+                        </button>
+                      );
+                    })()}
                     {onDeleteStaff && (
                       <button
                         type="button"
@@ -356,6 +459,8 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           ? 'bg-amber-950/70 text-amber-300 border-amber-600'
                           : s.attendance === 'Về sớm'
                           ? 'bg-orange-950/70 text-orange-300 border-orange-600'
+                          : (s.attendance as string) === 'Nghỉ chế độ'
+                          ? 'bg-indigo-950/80 text-indigo-300 border-indigo-600'
                           : s.attendance === 'Đã nghỉ việc'
                           ? 'bg-rose-950/80 text-rose-300 border-rose-600'
                           : 'bg-slate-900 text-slate-300 border-slate-700'
@@ -367,6 +472,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                       <option value="Nghỉ phép">Nghỉ phép</option>
                       <option value="Nghỉ ốm">Nghỉ ốm</option>
                       <option value="Vắng mặt">Vắng mặt</option>
+                      <option value="Nghỉ chế độ">Nghỉ chế độ</option>
                       <option value="Đã nghỉ việc">Đã nghỉ việc (Thôi việc)</option>
                     </select>
                   </div>
@@ -516,7 +622,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                   <th className="py-2.5 px-3">Thời Gian Đi Muộn</th>
                   <th className="py-2.5 px-3">Thời Gian Về Sớm</th>
                   <th className="py-2.5 px-3 text-center">Mã QR &amp; Quyền</th>
-                  {onDeleteStaff && <th className="py-2.5 px-3 text-center">Thao Tác</th>}
+                  <th className="py-2.5 px-3 text-center">Thao Tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-200">
@@ -555,6 +661,8 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                               ? 'bg-amber-950/70 text-amber-300 border-amber-600'
                               : s.attendance === 'Về sớm'
                               ? 'bg-orange-950/70 text-orange-300 border-orange-600'
+                              : (s.attendance as string) === 'Nghỉ chế độ'
+                              ? 'bg-indigo-950/80 text-indigo-300 border-indigo-600'
                               : s.attendance === 'Đã nghỉ việc'
                               ? 'bg-rose-950/80 text-rose-300 border-rose-600'
                               : 'bg-slate-900 text-slate-300 border-slate-700'
@@ -566,6 +674,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           <option value="Nghỉ phép">Nghỉ phép</option>
                           <option value="Nghỉ ốm">Nghỉ ốm</option>
                           <option value="Vắng mặt">Vắng mặt</option>
+                          <option value="Nghỉ chế độ">Nghỉ chế độ</option>
                           <option value="Đã nghỉ việc">Đã nghỉ việc (Thôi việc)</option>
                         </select>
                       </td>
@@ -653,19 +762,53 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           </button>
                         </div>
                       </td>
-                      {onDeleteStaff && (
-                        <td className="py-2.5 px-3 text-center" onClick={e => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteStaff(s)}
-                            title={`Xóa nhân viên ${s.fullName}`}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-800/60 text-[11px] font-semibold transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Xóa</span>
-                          </button>
-                        </td>
-                      )}
+                      <td className="py-2.5 px-3 text-center" onClick={e => e.stopPropagation()}>
+                        <div className="inline-flex items-center gap-1.5">
+                          {(() => {
+                            const staffLocked = Boolean(
+                              s.isLocked ||
+                                s.attendance === 'Đã nghỉ việc' ||
+                                (s.attendance as string) === 'Đã thôi việc' ||
+                                (s.attendance as string) === 'Nghỉ chế độ'
+                            );
+                            const isRegime = resolveStaffLockType(s) === 'REGIME_LEAVE';
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => setLockModalStaff(s)}
+                                title={
+                                  staffLocked
+                                    ? isRegime
+                                      ? 'Đang khóa nghỉ chế độ — nhấn để cấu hình hoặc mở khóa'
+                                      : 'Đang khóa thôi việc — nhấn để cấu hình hoặc mở khóa'
+                                    : 'Khóa nhân viên (Nghỉ chế độ / Thôi việc)'
+                                }
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer ${
+                                  staffLocked
+                                    ? isRegime
+                                      ? 'bg-indigo-950/70 hover:bg-indigo-900 text-indigo-300 border-indigo-600/70'
+                                      : 'bg-amber-950/70 hover:bg-amber-900 text-amber-300 border-amber-600/70'
+                                    : 'bg-slate-800 hover:bg-amber-950/60 text-slate-300 hover:text-amber-300 border-slate-700'
+                                }`}
+                              >
+                                {staffLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                                <span>{staffLocked ? (isRegime ? 'Nghỉ chế độ' : 'Thôi việc') : 'Khóa'}</span>
+                              </button>
+                            );
+                          })()}
+                          {onDeleteStaff && (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteStaff(s)}
+                              title={`Xóa nhân viên ${s.fullName}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-950/50 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-800/60 text-[11px] font-semibold transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Xóa</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -763,6 +906,41 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
         onToggleQrAccess={handleToggleQrAccess}
         onRegenerateQrToken={handleRegenerateQrToken}
       />
+      {(() => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
+        const daysInCurrentMonth = new Date(year, month, 0).getDate();
+        const activeStaff = lockModalStaff
+          ? allStaff.find(st => st.employeeId === lockModalStaff.employeeId) || lockModalStaff
+          : null;
+        const activeLocked = Boolean(
+          activeStaff &&
+            (activeStaff.isLocked ||
+              activeStaff.attendance === 'Đã nghỉ việc' ||
+              (activeStaff.attendance as string) === 'Đã thôi việc' ||
+              (activeStaff.attendance as string) === 'Nghỉ chế độ')
+        );
+        return (
+          <EmployeeLockModal
+            isOpen={Boolean(activeStaff)}
+            staff={activeStaff}
+            initialLocked={activeLocked}
+            initialLockType={resolveStaffLockType(activeStaff || undefined)}
+            initialLockedDay={activeStaff?.lockedDay || now.getDate()}
+            selectedMonth={month}
+            selectedYear={year}
+            daysInMonth={daysInCurrentMonth}
+            departmentTitle={lockModalStaff?.dept || 'Toàn nhà máy'}
+            onClose={() => setLockModalStaff(null)}
+            onConfirm={(shouldLock, chosenType, chosenDay) => {
+              if (lockModalStaff) {
+                handleApplyStaffLock(lockModalStaff, shouldLock, chosenType, chosenDay);
+              }
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };

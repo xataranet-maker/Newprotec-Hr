@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus } from '../../types';
+import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus, StaffLockType } from '../../types';
 import { 
   Users, Plus, Search, CheckCircle2, Clock, Phone, 
   AlertTriangle, ArrowRight, LayoutGrid, Table, Calendar, Check, X,
-  QrCode, ShieldCheck, ShieldOff
+  QrCode, ShieldCheck, ShieldOff, Lock, Unlock
 } from 'lucide-react';
-import { formatDateDDMMYYYY } from '../../lib/matrixTimekeeping';
+import { formatDateDDMMYYYY, resolveStaffLockType, syncStaffLockToMatrices } from '../../lib/matrixTimekeeping';
 import { isStaffQrEnabled, generateStaffQrToken, getStaffQrToken } from '../../lib/staffQr';
 import { EmployeeQRModal } from '../common/EmployeeQRModal';
+import { EmployeeLockModal } from '../common/EmployeeLockModal';
 
 const getTodayIso = () => {
   const now = new Date();
@@ -40,6 +41,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
   const [showOtModal, setShowOtModal] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffRecord | null>(null);
   const [qrModalStaff, setQrModalStaff] = useState<StaffRecord | null>(null);
+  const [lockModalStaff, setLockModalStaff] = useState<StaffRecord | null>(null);
   const [otHours, setOtHours] = useState(2);
   const [otReason, setOtReason] = useState('Tăng ca hỗ trợ đơn hàng gấp');
 
@@ -145,12 +147,65 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
     );
   };
 
+  const handleApplyStaffLock = (
+    staff: StaffRecord,
+    shouldLock: boolean,
+    lockType: StaffLockType,
+    lockedDay: number
+  ) => {
+    onUpdate(
+      data.map(item =>
+        item.employeeId === staff.employeeId
+          ? {
+              ...item,
+              isLocked: shouldLock,
+              lockType: shouldLock ? lockType : undefined,
+              lockedDay: shouldLock ? lockedDay : undefined,
+              attendance: shouldLock
+                ? lockType === 'REGIME_LEAVE'
+                  ? ('Nghỉ chế độ' as AttendanceStatus)
+                  : ('Đã nghỉ việc' as AttendanceStatus)
+                : item.attendance === 'Đã nghỉ việc' ||
+                  (item.attendance as string) === 'Đã thôi việc' ||
+                  (item.attendance as string) === 'Nghỉ chế độ'
+                ? ('Đúng giờ' as AttendanceStatus)
+                : item.attendance,
+            }
+          : item
+      )
+    );
+
+    const now = new Date();
+    syncStaffLockToMatrices(
+      staff,
+      shouldLock,
+      lockType,
+      lockedDay,
+      now.getFullYear(),
+      now.getMonth() + 1
+    );
+
+    setLockModalStaff(null);
+  };
+
   const handleUpdateAttendance = (id: number, status: AttendanceStatus) => {
+    const isLockStatus =
+      status === 'Đã nghỉ việc' || (status as string) === 'Đã thôi việc' || (status as string) === 'Nghỉ chế độ';
+    const nextLockType: StaffLockType | undefined =
+      (status as string) === 'Nghỉ chế độ'
+        ? 'REGIME_LEAVE'
+        : status === 'Đã nghỉ việc' || (status as string) === 'Đã thôi việc'
+        ? 'RESIGNED'
+        : undefined;
+
     onUpdate(data.map(s => {
       if (s.id === id) {
         return {
           ...s,
           attendance: status,
+          isLocked: isLockStatus ? true : false,
+          lockType: nextLockType,
+          lockedDay: isLockStatus ? (s.lockedDay || new Date().getDate()) : undefined,
           lateMinutes: status === 'Đi muộn' ? (s.lateMinutes || 30) : undefined,
           lateIn: status === 'Đi muộn' ? (s.lateIn || '08:30') : undefined,
           earlyMinutes: status === 'Về sớm' ? (s.earlyMinutes || 30) : undefined,
@@ -259,6 +314,8 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
               <option value="Nghỉ phép">Nghỉ phép</option>
               <option value="Nghỉ ốm">Nghỉ ốm</option>
               <option value="Vắng mặt">Vắng mặt</option>
+              <option value="Nghỉ chế độ">Nghỉ chế độ</option>
+              <option value="Đã nghỉ việc">Đã nghỉ việc (Thôi việc)</option>
             </select>
           </div>
 
@@ -390,6 +447,10 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                           ? 'bg-amber-950/70 text-amber-300 border-amber-600'
                           : staff.attendance === 'Về sớm'
                           ? 'bg-orange-950/70 text-orange-300 border-orange-600'
+                          : (staff.attendance as string) === 'Nghỉ chế độ'
+                          ? 'bg-indigo-950/80 text-indigo-300 border-indigo-600'
+                          : staff.attendance === 'Đã nghỉ việc'
+                          ? 'bg-rose-950/80 text-rose-300 border-rose-600'
                           : 'bg-slate-900 text-slate-300 border-slate-700'
                       }`}
                     >
@@ -399,6 +460,8 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                       <option value="Nghỉ phép">Nghỉ phép</option>
                       <option value="Nghỉ ốm">Nghỉ ốm</option>
                       <option value="Vắng mặt">Vắng mặt</option>
+                      <option value="Nghỉ chế độ">Nghỉ chế độ</option>
+                      <option value="Đã nghỉ việc">Đã nghỉ việc (Thôi việc)</option>
                     </select>
                   </div>
 
@@ -540,7 +603,39 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                   )}
                 </div>
 
-                <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                <div className="flex flex-wrap items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                  {(() => {
+                    const staffLocked = Boolean(
+                      staff.isLocked ||
+                        staff.attendance === 'Đã nghỉ việc' ||
+                        (staff.attendance as string) === 'Đã thôi việc' ||
+                        (staff.attendance as string) === 'Nghỉ chế độ'
+                    );
+                    const isRegime = resolveStaffLockType(staff) === 'REGIME_LEAVE';
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setLockModalStaff(staff)}
+                        title={
+                          staffLocked
+                            ? isRegime
+                              ? 'Đang khóa nghỉ chế độ — nhấn để cấu hình hoặc mở khóa'
+                              : 'Đang khóa thôi việc — nhấn để cấu hình hoặc mở khóa'
+                            : 'Khóa nhân viên (Nghỉ chế độ / Thôi việc)'
+                        }
+                        className={`px-2 py-1.5 rounded-lg border text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
+                          staffLocked
+                            ? isRegime
+                              ? 'bg-indigo-950/70 hover:bg-indigo-900 text-indigo-300 border-indigo-600/70'
+                              : 'bg-amber-950/70 hover:bg-amber-900 text-amber-300 border-amber-600/70'
+                            : 'bg-slate-800 hover:bg-amber-950/60 text-slate-300 hover:text-amber-300 border-slate-700'
+                        }`}
+                      >
+                        {staffLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                        <span>{staffLocked ? (isRegime ? 'Nghỉ chế độ' : 'Thôi việc') : 'Khóa'}</span>
+                      </button>
+                    );
+                  })()}
                   <button
                     type="button"
                     onClick={() => handleToggleQrAccess(staff, !isStaffQrEnabled(staff))}
@@ -574,7 +669,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                   </button>
                   <button
                     onClick={() => { setSelectedStaff(staff); setShowOtModal(true); }}
-                    className="flex-1 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-cyan-300 font-semibold cursor-pointer transition-colors"
+                    className="flex-1 py-1.5 px-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-cyan-300 font-semibold cursor-pointer transition-colors whitespace-nowrap"
                   >
                     + Tăng Ca
                   </button>
@@ -631,6 +726,10 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                               ? 'bg-amber-950/70 text-amber-300 border-amber-600'
                               : staff.attendance === 'Về sớm'
                               ? 'bg-orange-950/70 text-orange-300 border-orange-600'
+                              : (staff.attendance as string) === 'Nghỉ chế độ'
+                              ? 'bg-indigo-950/80 text-indigo-300 border-indigo-600'
+                              : staff.attendance === 'Đã nghỉ việc'
+                              ? 'bg-rose-950/80 text-rose-300 border-rose-600'
                               : 'bg-slate-900 text-slate-300 border-slate-700'
                           }`}
                         >
@@ -640,6 +739,8 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                           <option value="Nghỉ phép">Nghỉ phép</option>
                           <option value="Nghỉ ốm">Nghỉ ốm</option>
                           <option value="Vắng mặt">Vắng mặt</option>
+                          <option value="Nghỉ chế độ">Nghỉ chế độ</option>
+                          <option value="Đã nghỉ việc">Đã nghỉ việc (Thôi việc)</option>
                         </select>
                       </td>
                       <td className="py-2.5 px-3" onClick={e => e.stopPropagation()}>
@@ -694,6 +795,38 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                       </td>
                       <td className="py-2.5 px-3 text-right" onClick={e => e.stopPropagation()}>
                         <div className="inline-flex items-center gap-1.5">
+                          {(() => {
+                            const staffLocked = Boolean(
+                              staff.isLocked ||
+                                staff.attendance === 'Đã nghỉ việc' ||
+                                (staff.attendance as string) === 'Đã thôi việc' ||
+                                (staff.attendance as string) === 'Nghỉ chế độ'
+                            );
+                            const isRegime = resolveStaffLockType(staff) === 'REGIME_LEAVE';
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => setLockModalStaff(staff)}
+                                title={
+                                  staffLocked
+                                    ? isRegime
+                                      ? 'Đang khóa nghỉ chế độ — nhấn để cấu hình hoặc mở khóa'
+                                      : 'Đang khóa thôi việc — nhấn để cấu hình hoặc mở khóa'
+                                    : 'Khóa nhân viên (Nghỉ chế độ / Thôi việc)'
+                                }
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border cursor-pointer transition-colors ${
+                                  staffLocked
+                                    ? isRegime
+                                      ? 'bg-indigo-950/70 text-indigo-300 border-indigo-600/70'
+                                      : 'bg-amber-950/70 text-amber-300 border-amber-600/70'
+                                    : 'bg-slate-800 hover:bg-amber-950/60 text-slate-300 hover:text-amber-300 border-slate-700'
+                                }`}
+                              >
+                                {staffLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                                <span>{staffLocked ? (isRegime ? 'Nghỉ chế độ' : 'Thôi việc') : 'Khóa'}</span>
+                              </button>
+                            );
+                          })()}
                           <button
                             type="button"
                             onClick={() => handleToggleQrAccess(staff, !isStaffQrEnabled(staff))}
@@ -994,6 +1127,41 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
         onToggleQrAccess={handleToggleQrAccess}
         onRegenerateQrToken={handleRegenerateQrToken}
       />
+      {(() => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1;
+        const daysInCurrentMonth = new Date(year, month, 0).getDate();
+        const activeStaff = lockModalStaff
+          ? data.find(st => st.employeeId === lockModalStaff.employeeId) || lockModalStaff
+          : null;
+        const activeLocked = Boolean(
+          activeStaff &&
+            (activeStaff.isLocked ||
+              activeStaff.attendance === 'Đã nghỉ việc' ||
+              (activeStaff.attendance as string) === 'Đã thôi việc' ||
+              (activeStaff.attendance as string) === 'Nghỉ chế độ')
+        );
+        return (
+          <EmployeeLockModal
+            isOpen={Boolean(activeStaff)}
+            staff={activeStaff}
+            initialLocked={activeLocked}
+            initialLockType={resolveStaffLockType(activeStaff || undefined)}
+            initialLockedDay={activeStaff?.lockedDay || now.getDate()}
+            selectedMonth={month}
+            selectedYear={year}
+            daysInMonth={daysInCurrentMonth}
+            departmentTitle="Multi Auto"
+            onClose={() => setLockModalStaff(null)}
+            onConfirm={(shouldLock, chosenType, chosenDay) => {
+              if (lockModalStaff) {
+                handleApplyStaffLock(lockModalStaff, shouldLock, chosenType, chosenDay);
+              }
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };
