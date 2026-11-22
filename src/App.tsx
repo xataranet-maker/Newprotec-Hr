@@ -12,6 +12,7 @@ import { EmployeeProfile } from './components/hr/EmployeeProfile';
 import { AppQRModal } from './components/common/AppQRModal';
 import { AttendanceQRKiosk } from './components/common/AttendanceQRKiosk';
 import { SecurityGateControl } from './components/security/SecurityGateControl';
+import { AppCatalogBrochure } from './components/common/AppCatalogBrochure';
 import { QrCode, ShieldOff, LogIn, Loader2 } from 'lucide-react';
 import {
   parseStaffQrParamsFromUrl,
@@ -956,6 +957,8 @@ export default function App() {
             currentUser={currentUser}
           />
         );
+      case 'catalog_brochure':
+        return <AppCatalogBrochure />;
       case 'personal_profile':
         return (
           <EmployeeProfile
