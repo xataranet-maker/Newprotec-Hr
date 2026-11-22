@@ -57,9 +57,6 @@ import {
   VI_DAYS,
 } from './HRTimekeeping';
 import {
-  Briefcase,
-  Phone,
-  MapPin,
   Edit3,
   ChevronLeft,
   ChevronRight,
@@ -72,7 +69,6 @@ import {
   Timer,
   Send,
   Save,
-  Hash,
   CalendarCheck,
   AlertCircle,
   AlertTriangle,
@@ -1158,45 +1154,6 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             <ScanLine className="w-3.5 h-3.5 text-emerald-300" />
             <span>CHẤM CÔNG QR</span>
           </button>
-
-          {/* 4 Stacked Identity Boxes */}
-          <div className="space-y-2.5 pt-1 text-xs">
-            <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-cyan-950/30 border border-cyan-500/40">
-              <span className="flex items-center gap-2 text-[10px] font-bold text-cyan-300 uppercase tracking-wider">
-                <Hash className="w-3.5 h-3.5 text-cyan-400" />
-                <span>MÃ NV</span>
-              </span>
-              <span className="font-mono font-bold text-white text-xs">{empId}</span>
-            </div>
-
-            <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-purple-950/25 border border-purple-500/40">
-              <span className="flex items-center gap-2 text-[10px] font-bold text-purple-300 uppercase tracking-wider">
-                <Briefcase className="w-3.5 h-3.5 text-purple-400" />
-                <span>BỘ PHẬN</span>
-              </span>
-              <span className="font-mono font-bold text-white text-xs uppercase">{empDept}</span>
-            </div>
-
-            <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-emerald-950/25 border border-emerald-500/40">
-              <span className="flex items-center gap-2 text-[10px] font-bold text-emerald-300 uppercase tracking-wider">
-                <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                <span>ĐIỆN THOẠI</span>
-              </span>
-              <span className="font-mono font-bold text-white text-xs">
-                {staffInfo?.phone?.trim() ? staffInfo.phone : '--'}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-amber-950/25 border border-amber-500/40">
-              <span className="flex items-center gap-2 text-[10px] font-bold text-amber-300 uppercase tracking-wider">
-                <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                <span>QUÊ QUÁN</span>
-              </span>
-              <span className="font-mono font-bold text-white text-xs truncate max-w-[110px]" title={staffInfo?.hometown || '--'}>
-                {staffInfo?.hometown?.trim() ? staffInfo.hometown : '--'}
-              </span>
-            </div>
-          </div>
 
           {/* Sửa Thông Tin Button */}
           {staffInfo && (
