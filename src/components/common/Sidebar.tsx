@@ -3,7 +3,7 @@ import { RibbonTab, Language, UserRole } from '../../types';
 import { translations } from '../../data/locales';
 import { 
   ChevronRight, ChevronLeft, X, LayoutGrid, Settings, 
-  Home, Factory, Users, ShieldAlert,
+  Home, Factory, Users, ShieldAlert, ShieldCheck,
   Pin, PinOff, Sparkles
 } from 'lucide-react';
 
@@ -32,6 +32,7 @@ const TAB_ICONS: Record<string, any> = {
   home: Home,
   Multi: Factory,
   hr_admin: Users,
+  security: ShieldCheck,
   admin: ShieldAlert
 };
 

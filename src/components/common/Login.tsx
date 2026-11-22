@@ -97,6 +97,16 @@ export const Login: React.FC<LoginProps> = ({
       });
       return;
     }
+    if ((trimmedUser.toLowerCase() === 'an ninh' || trimmedUser.toLowerCase() === 'anninh') && trimmedPass === '123') {
+      onLogin({
+        username: 'AN NINH',
+        fullName: 'Bảo Vệ / An Ninh Cổng',
+        role: 'security',
+        employeeId: 'ANNINH',
+        department: 'SECURITY'
+      });
+      return;
+    }
 
     setError('Tài khoản hoặc mật khẩu không chính xác.');
   };

@@ -28,6 +28,9 @@ export const translations: Record<Language, Record<string, string>> = {
     'BẢO MẬT LƯƠNG': 'BẢO MẬT LƯƠNG',
     'ĐĂNG KÝ PHÉP': 'ĐĂNG KÝ PHÉP',
     'NGHỈ PHÉP': 'NGHỈ PHÉP',
+    'AN NINH': 'AN NINH',
+    'KIỂM SOÁT CỔNG': 'KIỂM SOÁT CỔNG',
+    'KIỂM SOÁT RA / VÀO': 'KIỂM SOÁT RA / VÀO',
   },
   ko: {
     'HOME': '홈',
@@ -56,6 +59,9 @@ export const translations: Record<Language, Record<string, string>> = {
     'BẢO MẬT LƯƠNG': '급여 보안',
     'ĐĂNG KÝ PHÉP': '휴가 신청',
     'NGHỈ PHÉP': '휴가 현황',
+    'AN NINH': '보안 / 출입관리',
+    'KIỂM SOÁT CỔNG': '출입문 통제',
+    'KIỂM SOÁT RA / VÀO': '출입 기록 현황',
   },
   en: {
     'HOME': 'HOME',
@@ -84,5 +90,8 @@ export const translations: Record<Language, Record<string, string>> = {
     'BẢO MẬT LƯƠNG': 'PAYROLL SECURITY',
     'ĐĂNG KÝ PHÉP': 'LEAVE REGISTRATION',
     'NGHỈ PHÉP': 'LEAVE BALANCE',
+    'AN NINH': 'SECURITY',
+    'KIỂM SOÁT CỔNG': 'GATE CONTROL',
+    'KIỂM SOÁT RA / VÀO': 'IN / OUT LOG',
   },
 };

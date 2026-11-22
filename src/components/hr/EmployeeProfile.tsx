@@ -85,6 +85,7 @@ import {
   ShieldCheck,
   ShieldOff,
   ScanLine,
+  BadgeCheck,
 } from 'lucide-react';
 import {
   buildStaffQrUrl,
@@ -92,7 +93,8 @@ import {
   getStaffQrToken,
   isStaffQrEnabled,
 } from '../../lib/staffQr';
-import { EmployeeQRCodeSvg, EmployeeQRModal } from '../common/EmployeeQRModal';
+import { EmployeeQRModal } from '../common/EmployeeQRModal';
+import { EmployeeIdCard, printEmployeeIdCard } from '../common/EmployeeIdCard';
 import { EmployeeMobileBottomNav } from './EmployeeMobileBottomNav';
 import { AttendanceQRScannerModal } from './AttendanceQRScannerModal';
 
@@ -153,6 +155,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   onAddLeaveRecord,
   onDeleteLeaveRecord,
   onUpdateStaffInfo,
+  onUpdateAvatar,
   viewerHasSalaryAccess = true,
   isModal = false,
   onClose,
@@ -273,6 +276,31 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       qrAccessToken: generateStaffQrToken(st.employeeId),
     });
     showToast(`Đã tạo Mã QR mới cho ${st.fullName} (mã cũ đã bị hủy)!`);
+  };
+
+  const canManageBadge = Boolean(
+    allowManageQr ||
+      (!isQrDirectAccess &&
+        (currentUser.role === 'admin' ||
+          currentUser.role === 'hr' ||
+          currentUser.role === 'multiauto'))
+  );
+
+  const handleToggleBadgeIssued = (st: StaffRecord) => {
+    const nextIssued = !st.badgeIssued;
+    onUpdateStaffInfo({
+      ...st,
+      badgeIssued: nextIssued,
+      badgeIssuedAt: nextIssued ? new Date().toLocaleDateString('vi-VN') : undefined,
+      badgeIssuedBy: nextIssued ? currentUser.fullName || currentUser.username : undefined,
+      qrAccessEnabled: nextIssued ? true : st.qrAccessEnabled,
+      qrAccessToken: getStaffQrToken(st),
+    });
+    showToast(
+      nextIssued
+        ? `Đã xác nhận cấp thẻ đeo cho ${st.fullName}!`
+        : `Đã cập nhật trạng thái chưa cấp thẻ đeo cho ${st.fullName}.`
+    );
   };
 
   const showToast = (msg: string) => {
@@ -1021,64 +1049,85 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     >
       {/* LEFT SIDEBAR: NEWPROTEC IDENTITY CARD (Visible on overview tab on mobile, always visible on desktop) */}
       <aside
-        className={`w-full lg:w-[270px] shrink-0 bg-[#080f1e] border-b lg:border-b-0 lg:border-r border-slate-800/80 p-5 ${
+        className={`w-full lg:w-[290px] shrink-0 bg-[#080f1e] border-b lg:border-b-0 lg:border-r border-slate-800/80 p-4 sm:p-5 ${
           activeTab === 'overview' ? 'flex' : 'hidden lg:flex'
         } flex-col justify-between gap-5 lg:overflow-y-auto custom-scrollbar`}
       >
-        <div className="space-y-4">
-          {/* MÃ QR TRUY CẬP NHANH HỒ SƠ (Thay thế vị trí Avatar phía trên) */}
-          <div className="p-3 rounded-xl bg-slate-900/75 border border-slate-800/90 space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
-                <QrCode className="w-3.5 h-3.5 text-cyan-400" />
-                <span>MÃ QR HỒ SƠ</span>
-              </span>
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border ${
-                  qrEnabled
-                    ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60'
-                    : 'bg-rose-950/60 text-rose-300 border-rose-700/60'
-                }`}
+        <div className="space-y-3.5">
+          {/* THẺ NHÂN VIÊN ĐÓNG KHUNG RIÊNG + IN THẺ + CẤP THẺ ĐEO */}
+          <div className="p-2.5 rounded-2xl bg-slate-900/80 border border-cyan-500/35 shadow-lg space-y-2.5">
+            <EmployeeIdCard
+              staff={resolvedStaff}
+              allowAvatarEdit={true}
+              onUpdateAvatar={(avatarUrl) => {
+                onUpdateStaffInfo({ ...resolvedStaff, avatarUrl });
+                onUpdateAvatar?.(avatarUrl);
+                showToast(`Đã cập nhật ảnh thẻ cho ${empName}!`);
+              }}
+              onClickQr={() => setShowQrModal(true)}
+              compact={true}
+            />
+
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => printEmployeeIdCard(resolvedStaff)}
+                className="py-1.5 px-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                title="In thẻ nhân viên"
               >
-                {qrEnabled ? (
-                  <>
-                    <ShieldCheck className="w-3 h-3" />
-                    <span>Đã cấp quyền</span>
-                  </>
-                ) : (
-                  <>
-                    <ShieldOff className="w-3 h-3" />
-                    <span>Đã khóa QR</span>
-                  </>
-                )}
-              </span>
+                <Printer className="w-3.5 h-3.5" />
+                <span>In thẻ</span>
+              </button>
+
+              {canManageBadge ? (
+                <button
+                  type="button"
+                  onClick={() => handleToggleBadgeIssued(resolvedStaff)}
+                  title={
+                    resolvedStaff.badgeIssued
+                      ? 'Đã cấp thẻ đeo (Nhấn để thu hồi)'
+                      : 'Nhấn để xác nhận cấp thẻ đeo cho nhân viên'
+                  }
+                  className={`py-1.5 px-2.5 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer ${
+                    resolvedStaff.badgeIssued
+                      ? 'bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border-emerald-600/60'
+                      : 'bg-amber-600/20 hover:bg-amber-600/35 text-amber-200 border-amber-500/60'
+                  }`}
+                >
+                  <BadgeCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">
+                    {resolvedStaff.badgeIssued ? 'Đã cấp thẻ' : 'Cấp thẻ đeo'}
+                  </span>
+                </button>
+              ) : (
+                <div
+                  className={`py-1.5 px-2.5 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1 ${
+                    resolvedStaff.badgeIssued
+                      ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/50'
+                      : 'bg-slate-800/80 text-slate-400 border-slate-700'
+                  }`}
+                >
+                  <BadgeCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">
+                    {resolvedStaff.badgeIssued ? 'Đã cấp thẻ' : 'Chưa cấp thẻ'}
+                  </span>
+                </div>
+              )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowQrModal(true)}
-              className="w-full flex flex-col items-center p-2.5 rounded-xl bg-white hover:ring-2 hover:ring-cyan-400 transition-all cursor-pointer shadow-inner"
-              title="Nhấn để phóng to, tải xuống hoặc quản lý mã QR hồ sơ"
-            >
-              <EmployeeQRCodeSvg staff={resolvedStaff} value={qrPreviewUrl} size={144} theme="newprotec" />
-            </button>
-
-            <div className="text-center">
-              <div className="text-xs font-extrabold text-white tracking-wide uppercase truncate">
-                {empName}
+            {resolvedStaff.badgeIssued && resolvedStaff.badgeIssuedAt && (
+              <div className="text-[10px] font-mono text-emerald-300/90 text-center">
+                Cấp thẻ đeo ngày {resolvedStaff.badgeIssuedAt}
               </div>
-              <div className="text-[10px] font-bold text-cyan-300 uppercase tracking-wider mt-0.5 truncate">
-                {empPosition}
-              </div>
-            </div>
+            )}
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 pt-0.5">
               <button
                 type="button"
                 onClick={() => setShowQrModal(true)}
-                className="flex-1 py-1.5 px-2.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-600 border border-cyan-700/60 text-cyan-200 hover:text-white text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                className="flex-1 py-1.5 px-2 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-700 text-cyan-300 text-[10px] font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
               >
-                <QrCode className="w-3.5 h-3.5" />
+                <QrCode className="w-3 h-3" />
                 <span>Mở &amp; Tải QR</span>
               </button>
 
@@ -1087,27 +1136,28 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                   type="button"
                   onClick={() => handleToggleMyQrAccess(resolvedStaff, !qrEnabled)}
                   title={qrEnabled ? 'Khóa quyền truy cập QR' : 'Cấp quyền truy cập QR'}
-                  className={`py-1.5 px-2.5 rounded-lg border text-[10px] font-bold transition-colors cursor-pointer ${
+                  className={`py-1.5 px-2.5 rounded-lg border text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer ${
                     qrEnabled
-                      ? 'bg-rose-950/60 hover:bg-rose-600 border-rose-700/60 text-rose-300 hover:text-white'
-                      : 'bg-emerald-950/60 hover:bg-emerald-600 border-emerald-700/60 text-emerald-300 hover:text-white'
+                      ? 'bg-emerald-950/60 hover:bg-rose-950/70 border-emerald-700/60 text-emerald-300 hover:text-rose-300'
+                      : 'bg-rose-950/60 hover:bg-emerald-950/70 border-rose-700/60 text-rose-300 hover:text-emerald-300'
                   }`}
                 >
-                  {qrEnabled ? 'Khóa' : 'Cấp'}
+                  {qrEnabled ? <ShieldCheck className="w-3 h-3" /> : <ShieldOff className="w-3 h-3" />}
+                  <span>{qrEnabled ? 'QR Mở' : 'QR Khóa'}</span>
                 </button>
               )}
             </div>
-
-            <button
-              type="button"
-              onClick={() => setShowAttendanceQrScanner(true)}
-              className="w-full py-2 px-3 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-200 hover:text-white text-[11px] font-extrabold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm shadow-emerald-950/30"
-              title="Mở camera quét mã QR chấm công hoặc điền thời gian thủ công"
-            >
-              <ScanLine className="w-3.5 h-3.5 text-emerald-300" />
-              <span>CHẤM CÔNG QR</span>
-            </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setShowAttendanceQrScanner(true)}
+            className="w-full py-2.5 px-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-200 hover:text-white text-[11px] font-extrabold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm shadow-emerald-950/30"
+            title="Mở camera quét mã QR chấm công hoặc điền thời gian thủ công"
+          >
+            <ScanLine className="w-3.5 h-3.5 text-emerald-300" />
+            <span>CHẤM CÔNG QR</span>
+          </button>
 
           {/* 4 Stacked Identity Boxes */}
           <div className="space-y-2.5 pt-1 text-xs">

@@ -10,6 +10,7 @@
         "exportedRecords": { "type": "array" },
         "netDataRecords": { "type": "array" },
         "staffRecords": { "type": "array" },
+        "securityLogs": { "type": "array" },
         "updatedAt": { "type": "string", "maxLength": 64 }
       }
     },
@@ -43,8 +44,12 @@
         "earlyMinutes": { "type": "number" },
         "earlyOut": { "type": "string", "maxLength": 16 },
         "phone": { "type": "string", "maxLength": 32 },
+        "avatarUrl": { "type": "string" },
         "qrAccessEnabled": { "type": "boolean" },
-        "qrAccessToken": { "type": "string", "maxLength": 64 }
+        "qrAccessToken": { "type": "string", "maxLength": 64 },
+        "badgeIssued": { "type": "boolean" },
+        "badgeIssuedAt": { "type": "string", "maxLength": 32 },
+        "badgeIssuedBy": { "type": "string", "maxLength": 128 }
       },
       "required": ["employeeId", "fullName"]
     },

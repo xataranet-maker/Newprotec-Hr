@@ -11,6 +11,7 @@ import { DepartmentTimekeepingMatrix } from './components/common/DepartmentTimek
 import { EmployeeProfile } from './components/hr/EmployeeProfile';
 import { AppQRModal } from './components/common/AppQRModal';
 import { AttendanceQRKiosk } from './components/common/AttendanceQRKiosk';
+import { SecurityGateControl } from './components/security/SecurityGateControl';
 import { QrCode, ShieldOff, LogIn, Loader2 } from 'lucide-react';
 import {
   parseStaffQrParamsFromUrl,
@@ -82,6 +83,7 @@ import {
   LeaveRegistrationRecord,
   StaffLockType,
   AttendanceStatus,
+  SecurityGateLogRecord,
 } from './types';
 import {
   SALARY_SECURITY_STORAGE_KEY,
@@ -103,11 +105,17 @@ const loadFromStorage = (key: string, defaultValue: any) => {
   return defaultValue;
 };
 
-const ensureSeededQrUser = (list: UserAccount[]): UserAccount[] => {
-  const hasQr = list.some((u) => u.username.trim().toLowerCase() === 'qrcode');
-  if (hasQr) return list;
-  const qrSeed = INITIAL_USERS.find((u) => u.username.trim().toLowerCase() === 'qrcode');
-  return qrSeed ? [...list, qrSeed] : list;
+const ensureSeededSystemUsers = (list: UserAccount[]): UserAccount[] => {
+  let result = [...list];
+  const systemUsernames = ['qrcode', 'an ninh'];
+  systemUsernames.forEach((sysName) => {
+    const exists = result.some((u) => u.username.trim().toLowerCase() === sysName);
+    if (!exists) {
+      const seed = INITIAL_USERS.find((u) => u.username.trim().toLowerCase() === sysName);
+      if (seed) result = [...result, seed];
+    }
+  });
+  return result;
 };
 
 export default function App() {
@@ -117,7 +125,7 @@ export default function App() {
 
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>(() => {
     const saved = loadFromStorage('app_users', null);
-    if (saved && saved.length > 0) return ensureSeededQrUser(saved);
+    if (saved && saved.length > 0) return ensureSeededSystemUsers(saved);
     return INITIAL_USERS;
   });
 
@@ -198,6 +206,9 @@ export default function App() {
       [...initialMulti, ...initialHr]
     );
   });
+  const [securityLogs, setSecurityLogs] = useState<SecurityGateLogRecord[]>(() =>
+    loadFromStorage('app_security_logs', [])
+  );
   const [matrixVersion, setMatrixVersion] = useState(0);
 
   useEffect(() => {
@@ -232,6 +243,7 @@ export default function App() {
     localStorage.setItem('app_production_plans', JSON.stringify(productionPlans));
     localStorage.setItem(SALARY_SECURITY_STORAGE_KEY, JSON.stringify(salarySecurity));
     localStorage.setItem(LEAVE_REGISTRATIONS_STORAGE_KEY, JSON.stringify(leaveRecords));
+    localStorage.setItem('app_security_logs', JSON.stringify(securityLogs));
   }, [
     userAccounts,
     language,
@@ -253,6 +265,7 @@ export default function App() {
     productionPlans,
     salarySecurity,
     leaveRecords,
+    securityLogs,
   ]);
 
   const allStaff = useMemo(() => [...staffRecords, ...hrStaff], [staffRecords, hrStaff]);
@@ -274,6 +287,7 @@ export default function App() {
   const visibleTabs = useMemo(() => {
     return ribbonData
       .filter((tab) => {
+        if (currentUser?.role === 'security') return tab.id === 'security';
         const roleAllowed = !tab.allowedRoles || (currentUser && tab.allowedRoles.includes(currentUser.role));
         if (tab.id === 'admin' && currentUser?.username.toLowerCase() === 'admin') return false;
         return roleAllowed;
@@ -352,6 +366,7 @@ export default function App() {
       productionPlans,
       salarySecurity,
       leaveRecords,
+      securityLogs,
       matrixSnapshots: getAllStoredMatrixSnapshots(),
       language,
     }),
@@ -375,6 +390,7 @@ export default function App() {
       productionPlans,
       salarySecurity,
       leaveRecords,
+      securityLogs,
       matrixVersion,
       language,
     ]
@@ -389,7 +405,7 @@ export default function App() {
     if (!s || typeof s !== 'object') return;
     skipNextAutoPush.current = true;
     if (Array.isArray(s.userAccounts) && s.userAccounts.length > 0) {
-      setUserAccounts(ensureSeededQrUser(s.userAccounts));
+      setUserAccounts(ensureSeededSystemUsers(s.userAccounts));
     }
     if (s.language) setLanguage(s.language);
     if (Array.isArray(s.staffRecords)) setStaffRecords(s.staffRecords);
@@ -409,6 +425,7 @@ export default function App() {
     if (Array.isArray(s.attendanceRequests)) setAttendanceRequests(s.attendanceRequests);
     if (Array.isArray(s.productionPlans)) setProductionPlans(s.productionPlans);
     if (Array.isArray(s.leaveRecords)) setLeaveRecords(s.leaveRecords);
+    if (Array.isArray(s.securityLogs)) setSecurityLogs(s.securityLogs);
     if (s.salarySecurity && typeof s.salarySecurity === 'object') {
       setSalarySecurity(normalizeSalarySecurityConfig(s.salarySecurity));
     }
@@ -553,21 +570,53 @@ export default function App() {
 
   const handleUpdateStaffInfo = useCallback(
     (updatedStaff: StaffRecord) => {
-      const dept = updatedStaff.department?.toUpperCase();
+      const targetNorm = updatedStaff.employeeId.trim().toLowerCase();
       const updater = (prev: StaffRecord[]) =>
-        prev.map((s) => (s.employeeId === updatedStaff.employeeId ? updatedStaff : s));
+        prev.map((s) =>
+          s.employeeId.trim().toLowerCase() === targetNorm ? { ...s, ...updatedStaff } : s
+        );
 
-      if (dept === 'MULTI') {
-        setStaffRecords(updater);
-      } else if (dept === 'HR' || dept === 'HC & NS') {
-        setHrStaff(updater);
-      } else {
-        setStaffRecords(updater);
-        setHrStaff(updater);
-      }
+      setStaffRecords(updater);
+      setHrStaff(updater);
     },
     []
   );
+
+  const handleRecordSecurityScan = useCallback(
+    (staff: StaffRecord, direction: 'IN' | 'OUT'): SecurityGateLogRecord => {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+
+      const record: SecurityGateLogRecord = {
+        id: Date.now(),
+        employeeId: staff.employeeId,
+        fullName: staff.fullName,
+        department: staff.department || 'MULTI',
+        position: staff.position || 'Nhân viên',
+        direction,
+        timestamp: now.toISOString(),
+        date: `${y}-${m}-${d}`,
+        dateStr: `${d}/${m}/${y}`,
+        timeStr: `${hh}:${mm}:${ss}`,
+        badgeIssued: Boolean(staff.badgeIssued),
+        recordedBy: currentUser?.fullName || currentUser?.username || 'AN NINH',
+      };
+      setSecurityLogs((prev) => [record, ...prev]);
+      return record;
+    },
+    [currentUser]
+  );
+
+  const handleUpdateSecurityDirection = useCallback((logId: number, direction: 'IN' | 'OUT') => {
+    setSecurityLogs((prev) =>
+      prev.map((item) => (item.id === logId ? { ...item, direction } : item))
+    );
+  }, []);
 
   const handleUpdateAvatar = useCallback(
     (newUrl: string) => {
@@ -688,6 +737,9 @@ export default function App() {
     } else if (user.role === 'qrcode') {
       setActiveTab('home');
       setActiveItem('qr_attendance_kiosk');
+    } else if (user.role === 'security') {
+      setActiveTab('security');
+      setActiveItem('security_gate_log');
     } else {
       setActiveTab('home');
       setActiveItem('dashboard_home');
@@ -841,6 +893,18 @@ export default function App() {
         <AttendanceQRKiosk
           isStandaloneAccount={true}
           onLogout={() => setCurrentUser(null)}
+        />
+      );
+    }
+
+    if (currentUser.role === 'security') {
+      return (
+        <SecurityGateControl
+          allStaff={allStaff}
+          logs={securityLogs}
+          onRecordScan={handleRecordSecurityScan}
+          onUpdateDirection={handleUpdateSecurityDirection}
+          recordedByLabel={currentUser.fullName || currentUser.username}
         />
       );
     }
@@ -1156,6 +1220,18 @@ export default function App() {
               MULTI_STAFF: { data: staffRecords, setter: setStaffRecords },
               HR_STAFF: { data: hrStaff, setter: setHrStaff },
             }}
+          />
+        );
+
+      // --- TAB AN NINH ---
+      case 'security_gate_log':
+        return (
+          <SecurityGateControl
+            allStaff={allStaff}
+            logs={securityLogs}
+            onRecordScan={handleRecordSecurityScan}
+            onUpdateDirection={handleUpdateSecurityDirection}
+            recordedByLabel={currentUser.fullName || currentUser.username}
           />
         );
 

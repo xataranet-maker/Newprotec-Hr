@@ -365,6 +365,9 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
       Number.isFinite(rawQuota) && rawQuota >= 0 ? rawQuota : undefined;
     const qrAccessEnabled = parseBooleanOptional(norm['qraccessenabled']);
     const qrAccessToken = String(pickField(norm, 'qraccesstoken') || '').trim() || undefined;
+    const badgeIssued = parseBooleanOptional(norm['badgeissued']);
+    const badgeIssuedAt = String(pickField(norm, 'badgeissuedat') || '').trim() || undefined;
+    const badgeIssuedBy = String(pickField(norm, 'badgeissuedby') || '').trim() || undefined;
     const note = String(pickField(norm, 'note', 'ghi chú') || '').trim() || undefined;
 
     const staffItem: StaffRecord = {
@@ -387,6 +390,9 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
       ...(annualLeaveQuota !== undefined ? { annualLeaveQuota } : {}),
       ...(qrAccessEnabled !== undefined ? { qrAccessEnabled } : {}),
       ...(qrAccessToken ? { qrAccessToken } : {}),
+      ...(badgeIssued !== undefined ? { badgeIssued } : {}),
+      ...(badgeIssuedAt ? { badgeIssuedAt } : {}),
+      ...(badgeIssuedBy ? { badgeIssuedBy } : {}),
       ...(note ? { note } : {}),
     };
 
@@ -424,6 +430,9 @@ function buildStaffExportRows(allStaff: StaffRecord[]): Record<string, any>[] {
       annualLeaveQuota: s.annualLeaveQuota === undefined ? '' : s.annualLeaveQuota,
       qrAccessEnabled: s.qrAccessEnabled === undefined ? '' : s.qrAccessEnabled,
       qrAccessToken: s.qrAccessToken || '',
+      badgeIssued: s.badgeIssued === undefined ? '' : s.badgeIssued,
+      badgeIssuedAt: s.badgeIssuedAt || '',
+      badgeIssuedBy: s.badgeIssuedBy || '',
       note: s.note || '',
     };
   });

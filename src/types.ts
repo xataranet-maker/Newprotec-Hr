@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'multiauto' | 'hr' | 'report_viewer' | 'user' | 'staff' | 'view_all' | 'qrcode';
+export type UserRole = 'admin' | 'multiauto' | 'hr' | 'report_viewer' | 'user' | 'staff' | 'view_all' | 'qrcode' | 'security';
 
 export type Language = 'vi' | 'ko' | 'en';
 
@@ -219,6 +219,25 @@ export interface StaffRecord {
   annualLeaveQuota?: number;
   qrAccessEnabled?: boolean;
   qrAccessToken?: string;
+  badgeIssued?: boolean;
+  badgeIssuedAt?: string;
+  badgeIssuedBy?: string;
+}
+
+export interface SecurityGateLogRecord {
+  id: number;
+  employeeId: string;
+  fullName: string;
+  department: string;
+  position: string;
+  direction: 'IN' | 'OUT';
+  timestamp: string;
+  date: string;    // YYYY-MM-DD
+  dateStr: string; // DD/MM/YYYY
+  timeStr: string; // HH:mm:ss
+  badgeIssued?: boolean;
+  recordedBy?: string;
+  note?: string;
 }
 
 export interface AccessoryRecord {

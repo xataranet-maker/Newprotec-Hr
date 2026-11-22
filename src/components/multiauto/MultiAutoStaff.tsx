@@ -3,11 +3,12 @@ import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus, StaffL
 import { 
   Users, Plus, Search, CheckCircle2, Clock, Phone, 
   AlertTriangle, ArrowRight, LayoutGrid, Table, Calendar, Check, X,
-  QrCode, ShieldCheck, ShieldOff, Lock, Unlock
+  QrCode, ShieldCheck, ShieldOff, Lock, Unlock, CreditCard, Printer
 } from 'lucide-react';
 import { formatDateDDMMYYYY, resolveStaffLockType, syncStaffLockToMatrices } from '../../lib/matrixTimekeeping';
 import { isStaffQrEnabled, generateStaffQrToken, getStaffQrToken } from '../../lib/staffQr';
 import { EmployeeQRModal } from '../common/EmployeeQRModal';
+import { EmployeeIdCardModal, printEmployeeIdCard } from '../common/EmployeeIdCard';
 import { EmployeeLockModal } from '../common/EmployeeLockModal';
 
 const getTodayIso = () => {
@@ -41,6 +42,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
   const [showOtModal, setShowOtModal] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffRecord | null>(null);
   const [qrModalStaff, setQrModalStaff] = useState<StaffRecord | null>(null);
+  const [idCardModalStaff, setIdCardModalStaff] = useState<StaffRecord | null>(null);
   const [lockModalStaff, setLockModalStaff] = useState<StaffRecord | null>(null);
   const [otHours, setOtHours] = useState(2);
   const [otReason, setOtReason] = useState('Tăng ca hỗ trợ đơn hàng gấp');
@@ -145,6 +147,10 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
           : s
       )
     );
+  };
+
+  const handleUpdateSingleStaff = (updated: StaffRecord) => {
+    onUpdate(data.map(s => (s.employeeId === updated.employeeId ? updated : s)));
   };
 
   const handleApplyStaffLock = (
@@ -660,6 +666,24 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                   </button>
                   <button
                     type="button"
+                    onClick={() => setIdCardModalStaff(staff)}
+                    className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-cyan-700 text-cyan-200 hover:text-white border border-slate-700 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                    title="Xem thẻ nhân viên"
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span>Xem thẻ</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => printEmployeeIdCard(staff)}
+                    className="px-2 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/50 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                    title="In thẻ nhân viên"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>In thẻ</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setQrModalStaff(staff)}
                     className="px-2.5 py-1.5 rounded-lg bg-cyan-950/50 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-700/60 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
                     title="Xem & Tải mã QR hồ sơ"
@@ -838,6 +862,24 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                             }`}
                           >
                             {isStaffQrEnabled(staff) ? <ShieldCheck className="w-3 h-3" /> : <ShieldOff className="w-3 h-3" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIdCardModalStaff(staff)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-cyan-700 text-cyan-200 hover:text-white border border-slate-700 text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap"
+                            title="Xem thẻ nhân viên"
+                          >
+                            <CreditCard className="w-3 h-3" />
+                            <span>Xem thẻ</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => printEmployeeIdCard(staff)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/50 text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap"
+                            title="In thẻ nhân viên"
+                          >
+                            <Printer className="w-3 h-3" />
+                            <span>In thẻ</span>
                           </button>
                           <button
                             type="button"
@@ -1126,6 +1168,21 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
         canManage={true}
         onToggleQrAccess={handleToggleQrAccess}
         onRegenerateQrToken={handleRegenerateQrToken}
+      />
+      <EmployeeIdCardModal
+        staff={
+          idCardModalStaff
+            ? data.find(st => st.employeeId === idCardModalStaff.employeeId) || idCardModalStaff
+            : null
+        }
+        onClose={() => setIdCardModalStaff(null)}
+        allowAvatarEdit={true}
+        canManageBadge={true}
+        onUpdateStaff={handleUpdateSingleStaff}
+        onOpenQrDetail={(st) => {
+          setIdCardModalStaff(null);
+          setQrModalStaff(st);
+        }}
       />
       {(() => {
         const now = new Date();

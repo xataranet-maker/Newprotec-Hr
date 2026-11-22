@@ -102,6 +102,20 @@ export const ribbonData: RibbonTab[] = [
     ],
   },
   {
+    id: 'security',
+    label: 'AN NINH',
+    allowedRoles: ['admin', 'hr', 'security'],
+    groups: [
+      {
+        id: 'security_gate',
+        label: 'KIỂM SOÁT CỔNG',
+        items: [
+          { id: 'security_gate_log', label: 'KIỂM SOÁT RA / VÀO', icon: ShieldCheck, isLarge: true, color: 'text-cyan-400' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'admin',
     label: 'ADMIN',
     allowedRoles: ['admin'],

@@ -3,11 +3,12 @@ import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus, StaffL
 import { 
   Users, Search, Filter, Phone, Building, Clock, 
   AlertTriangle, CheckCircle2, LayoutGrid, Table, Trash2, X,
-  QrCode, ShieldCheck, ShieldOff, Lock, Unlock
+  QrCode, ShieldCheck, ShieldOff, Lock, Unlock, CreditCard, Printer
 } from 'lucide-react';
 import { isStaffQrEnabled, generateStaffQrToken, getStaffQrToken } from '../../lib/staffQr';
 import { resolveStaffLockType, syncStaffLockToMatrices } from '../../lib/matrixTimekeeping';
 import { EmployeeQRModal } from '../common/EmployeeQRModal';
+import { EmployeeIdCardModal, printEmployeeIdCard } from '../common/EmployeeIdCard';
 import { EmployeeLockModal } from '../common/EmployeeLockModal';
 
 interface HRStaffManagementProps {
@@ -47,6 +48,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
   const [viewMode, setViewMode] = useState<'CARDS' | 'TABLE'>('CARDS');
   const [confirmDeleteStaff, setConfirmDeleteStaff] = useState<(StaffRecord & { dept?: string }) | null>(null);
   const [qrModalStaff, setQrModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
+  const [idCardModalStaff, setIdCardModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
   const [lockModalStaff, setLockModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
   const [deleteToast, setDeleteToast] = useState<string | null>(null);
 
@@ -95,6 +97,21 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
           : item
       );
 
+    if (resolvedDept === 'MULTI') setMultiStaff(updater(multiStaff));
+    else if (resolvedDept === 'HR') setHrStaff(updater(hrStaff));
+  };
+
+  const handleUpdateSingleStaff = (updated: StaffRecord & { deptKey?: string }) => {
+    const resolvedDept = updated.deptKey || (updated.department === 'HR' ? 'HR' : 'MULTI');
+    const updater = (prev: StaffRecord[]) =>
+      prev.map(item =>
+        item.employeeId === updated.employeeId
+          ? {
+              ...item,
+              ...updated,
+            }
+          : item
+      );
     if (resolvedDept === 'MULTI') setMultiStaff(updater(multiStaff));
     else if (resolvedDept === 'HR') setHrStaff(updater(hrStaff));
   };
@@ -560,10 +577,10 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                       </div>
                     </div>
                   )}
-                  {/* QR Quick Access Management Row */}
+                  {/* QR & ID Card Quick Access Management Row */}
                   <div
                     onClick={e => e.stopPropagation()}
-                    className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/60"
+                    className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-slate-800/60"
                   >
                     <button
                       type="button"
@@ -573,7 +590,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           ? 'Nhấn để tắt quyền truy cập nhanh bằng mã QR'
                           : 'Nhấn để cấp quyền truy cập nhanh bằng mã QR'
                       }
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
                         isStaffQrEnabled(s)
                           ? 'bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border-emerald-700/60'
                           : 'bg-rose-950/60 hover:bg-rose-900/70 text-rose-300 border-rose-700/60'
@@ -582,24 +599,46 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                       {isStaffQrEnabled(s) ? (
                         <>
                           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>QR: Đã Cấp Quyền</span>
+                          <span>QR: Đã Cấp</span>
                         </>
                       ) : (
                         <>
                           <ShieldOff className="w-3.5 h-3.5 text-rose-400" />
-                          <span>QR: Đã Khóa</span>
+                          <span>QR: Khóa</span>
                         </>
                       )}
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setQrModalStaff(s)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-950/50 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-700/60 text-[11px] font-semibold transition-colors cursor-pointer"
-                    >
-                      <QrCode className="w-3.5 h-3.5" />
-                      <span>Mã QR</span>
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setIdCardModalStaff(s)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-cyan-700 text-cyan-200 hover:text-white border border-slate-700 text-[11px] font-semibold transition-colors cursor-pointer"
+                        title="Xem thẻ nhân viên"
+                      >
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span>Xem thẻ</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => printEmployeeIdCard(s)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/50 text-[11px] font-semibold transition-colors cursor-pointer"
+                        title="In thẻ nhân viên"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>In thẻ</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setQrModalStaff(s)}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-cyan-950/50 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-700/60 text-[11px] font-semibold transition-colors cursor-pointer"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>QR</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -764,6 +803,24 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                       </td>
                       <td className="py-2.5 px-3 text-center" onClick={e => e.stopPropagation()}>
                         <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setIdCardModalStaff(s)}
+                            title="Xem thẻ nhân viên"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-cyan-700 text-cyan-200 hover:text-white border border-slate-700 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap"
+                          >
+                            <CreditCard className="w-3 h-3" />
+                            <span>Xem thẻ</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => printEmployeeIdCard(s)}
+                            title="In thẻ nhân viên"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/50 text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap"
+                          >
+                            <Printer className="w-3 h-3" />
+                            <span>In thẻ</span>
+                          </button>
                           {(() => {
                             const staffLocked = Boolean(
                               s.isLocked ||
@@ -905,6 +962,21 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
         canManage={true}
         onToggleQrAccess={handleToggleQrAccess}
         onRegenerateQrToken={handleRegenerateQrToken}
+      />
+      <EmployeeIdCardModal
+        staff={
+          idCardModalStaff
+            ? allStaff.find(st => st.employeeId === idCardModalStaff.employeeId) || idCardModalStaff
+            : null
+        }
+        onClose={() => setIdCardModalStaff(null)}
+        allowAvatarEdit={true}
+        canManageBadge={true}
+        onUpdateStaff={handleUpdateSingleStaff}
+        onOpenQrDetail={(st) => {
+          setIdCardModalStaff(null);
+          setQrModalStaff(st as any);
+        }}
       />
       {(() => {
         const now = new Date();
