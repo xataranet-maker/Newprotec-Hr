@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UserAccount, StaffRecord, Language } from '../../types';
 import { translations } from '../../data/locales';
-import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode, ScanLine } from 'lucide-react';
+import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode, ScanLine, FileText } from 'lucide-react';
 import { AppQRModal } from './AppQRModal';
 import { StaffQRScannerModal } from './StaffQRScannerModal';
 
@@ -12,6 +12,7 @@ interface LoginProps {
   onQrQuickAccess?: (params: { employeeId: string; token: string }, staff: StaffRecord) => void;
   language: Language;
   onLanguageChange: (lang: Language) => void;
+  onOpenCatalog?: () => void;
 }
 
 export const Login: React.FC<LoginProps> = ({
@@ -20,7 +21,8 @@ export const Login: React.FC<LoginProps> = ({
   onLogin,
   onQrQuickAccess,
   language,
-  onLanguageChange
+  onLanguageChange,
+  onOpenCatalog,
 }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -281,6 +283,17 @@ export const Login: React.FC<LoginProps> = ({
               </svg>
               <span>Đăng nhập bằng Google (Firebase Auth)</span>
             </button>
+
+            {onOpenCatalog && (
+              <button
+                type="button"
+                onClick={onOpenCatalog}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-200 hover:text-white text-xs font-bold transition-all cursor-pointer shadow-lg shadow-cyan-950/30"
+              >
+                <FileText className="w-4 h-4 text-cyan-400" />
+                <span>🌐 Xem Catalog Giới Thiệu Ứng Dụng (Không Cần Đăng Nhập)</span>
+              </button>
+            )}
           </form>
         </div>
       </div>
