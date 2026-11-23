@@ -321,61 +321,6 @@ export const Login: React.FC<LoginProps> = ({
               <ScanLine className="w-4 h-4 text-teal-300" />
               <span>Quét Mã QR Truy Cập Nhanh</span>
             </button>
-
-            {/* Open QRCODE Station via Zalo-style Admin QR Scan */}
-            {onOpenQrcodeGate && (
-              <button
-                type="button"
-                onClick={onOpenQrcodeGate}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/50 text-emerald-200 hover:text-white text-xs font-bold shadow-md shadow-emerald-950/30 transition-all cursor-pointer"
-              >
-                <QrCode className="w-4 h-4 text-emerald-400" />
-                <span>Đăng Nhập Trạm QRCODE (Quét QR Admin)</span>
-              </button>
-            )}
-
-            {/* Firebase Google Auth Button */}
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  const { signInWithPopup } = await import('firebase/auth');
-                  const { auth, googleProvider } = await import('../../lib/firebase');
-                  const result = await signInWithPopup(auth, googleProvider);
-                  if (result.user) {
-                    onLogin({
-                      username: result.user.email || result.user.uid,
-                      fullName: result.user.displayName || result.user.email || 'Google User',
-                      role: 'admin',
-                      employeeId: result.user.uid.slice(0, 8).toUpperCase()
-                    });
-                  }
-                } catch (err: any) {
-                  console.error('Firebase Auth Error:', err);
-                  setError(`Lỗi đăng nhập Google Firebase: ${err.message}`);
-                }
-              }}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-700/80 text-white text-xs font-semibold transition-all cursor-pointer"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-              </svg>
-              <span>Đăng nhập bằng Google (Firebase Auth)</span>
-            </button>
-
-            {onOpenCatalog && (
-              <button
-                type="button"
-                onClick={onOpenCatalog}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/45 text-amber-200 hover:text-white text-xs font-bold transition-all cursor-pointer shadow-lg shadow-amber-950/20"
-              >
-                <FileText className="w-4 h-4 text-amber-400" />
-                <span>Xem Catalog Giới Thiệu Ứng Dụng (Không Cần Đăng Nhập)</span>
-              </button>
-            )}
           </form>
         </div>
       </div>
