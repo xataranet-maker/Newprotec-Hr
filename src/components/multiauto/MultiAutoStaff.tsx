@@ -12,6 +12,7 @@ import { EmployeeQRModal } from '../common/EmployeeQRModal';
 import { EmployeeIdCardModal, printEmployeeIdCard } from '../common/EmployeeIdCard';
 import { EmployeeLockModal } from '../common/EmployeeLockModal';
 import { EmployeeFaceSettingsModal } from '../common/EmployeeFaceSettingsModal';
+import { StaffAvatarBadge } from '../common/StaffAvatarBadge';
 
 const getTodayIso = () => {
   const now = new Date();
@@ -424,9 +425,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                 {/* Card Top */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-inner">
-                      {staff.fullName.charAt(0)}
-                    </div>
+                    <StaffAvatarBadge staff={staff} sizeClass="w-9 h-9 rounded-xl" />
                     <div>
                       <div className="font-bold text-white text-sm hover:text-cyan-300 transition-colors">{staff.fullName}</div>
                       <div className="text-[10px] text-cyan-400 font-mono">Mã: {staff.employeeId}</div>
@@ -763,7 +762,12 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                       className="hover:bg-slate-800/40 transition-colors cursor-pointer"
                     >
                       <td className="py-2.5 px-3 font-mono text-cyan-400 font-semibold">{staff.employeeId}</td>
-                      <td className="py-2.5 px-3 font-bold text-white hover:text-cyan-300">{staff.fullName}</td>
+                      <td className="py-2.5 px-3 font-bold text-white hover:text-cyan-300">
+                        <div className="flex items-center gap-2">
+                          <StaffAvatarBadge staff={staff} sizeClass="w-7 h-7 rounded-md" />
+                          <span>{staff.fullName}</span>
+                        </div>
+                      </td>
                       <td className="py-2.5 px-3 text-slate-300">{staff.position}</td>
                       <td className="py-2.5 px-3">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${staff.shift === 'DAY' ? 'bg-amber-950/60 text-amber-300' : 'bg-indigo-950/60 text-indigo-300'}`}>

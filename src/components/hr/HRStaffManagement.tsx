@@ -12,6 +12,7 @@ import { EmployeeQRModal } from '../common/EmployeeQRModal';
 import { EmployeeIdCardModal, printEmployeeIdCard } from '../common/EmployeeIdCard';
 import { EmployeeLockModal } from '../common/EmployeeLockModal';
 import { EmployeeFaceSettingsModal } from '../common/EmployeeFaceSettingsModal';
+import { StaffAvatarBadge } from '../common/StaffAvatarBadge';
 
 interface HRStaffManagementProps {
   multiStaff: StaffRecord[];
@@ -403,9 +404,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
               >
                 <div className="flex justify-between items-start">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-inner">
-                      {s.fullName.charAt(0)}
-                    </div>
+                    <StaffAvatarBadge staff={s} sizeClass="w-9 h-9 rounded-lg" />
                     <div>
                       <div className="font-bold text-white text-sm hover:text-cyan-300 transition-colors">{s.fullName}</div>
                       <div className="text-[10px] text-cyan-400 font-mono">Mã: {s.employeeId}</div>
@@ -709,7 +708,12 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                       className="hover:bg-slate-800/40 transition-colors cursor-pointer"
                     >
                       <td className="py-2.5 px-3 font-mono text-cyan-400 font-semibold">{s.employeeId}</td>
-                      <td className="py-2.5 px-3 font-bold text-white hover:text-cyan-300">{s.fullName}</td>
+                      <td className="py-2.5 px-3 font-bold text-white hover:text-cyan-300">
+                        <div className="flex items-center gap-2">
+                          <StaffAvatarBadge staff={s} sizeClass="w-7 h-7 rounded-md" />
+                          <span>{s.fullName}</span>
+                        </div>
+                      </td>
                       <td className="py-2.5 px-3">
                         <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300">
                           {s.dept}
