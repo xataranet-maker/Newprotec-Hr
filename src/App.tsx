@@ -119,6 +119,46 @@ const ensureSeededSystemUsers = (list: UserAccount[]): UserAccount[] => {
   return result;
 };
 
+const checkIsPublicCatalogUrl = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const catalogParam = (params.get('catalog') || '').toLowerCase();
+    const modeParam = (params.get('mode') || '').toLowerCase();
+    const hash = (window.location.hash || '').toLowerCase();
+    return (
+      catalogParam === '1' ||
+      catalogParam === 'true' ||
+      modeParam === 'catalog' ||
+      hash === '#catalog'
+    );
+  } catch {
+    return false;
+  }
+};
+
+const updatePublicCatalogUrl = (open: boolean) => {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    if (open) {
+      url.searchParams.set('catalog', '1');
+      window.history.replaceState({}, '', url.toString());
+    } else {
+      url.searchParams.delete('catalog');
+      if ((url.searchParams.get('mode') || '').toLowerCase() === 'catalog') {
+        url.searchParams.delete('mode');
+      }
+      if (url.hash.toLowerCase() === '#catalog') {
+        url.hash = '';
+      }
+      window.history.replaceState({}, '', url.toString());
+    }
+  } catch {
+    // ignore URL errors
+  }
+};
+
 export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
@@ -133,6 +173,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [qrRouteParams, setQrRouteParams] = useState<{ employeeId: string; token: string } | null>(() =>
     parseStaffQrParamsFromUrl()
+  );
+  const [isPublicCatalogOpen, setIsPublicCatalogOpen] = useState<boolean>(() =>
+    checkIsPublicCatalogUrl()
   );
   const [initialSyncDone, setInitialSyncDone] = useState(false);
   const [viewingProfileStaff, setViewingProfileStaff] = useState<StaffRecord | null>(null);
@@ -871,17 +914,44 @@ export default function App() {
       );
     }
 
+    if (isPublicCatalogOpen) {
+      return (
+        <div className="min-h-dvh bg-[#020617] text-slate-100 flex flex-col">
+          <main className="flex-1 overflow-y-auto custom-scrollbar">
+            <AppCatalogBrochure
+              isPublicView={true}
+              onBackToLogin={() => {
+                updatePublicCatalogUrl(false);
+                setIsPublicCatalogOpen(false);
+              }}
+            />
+          </main>
+          <PWAPrompt />
+        </div>
+      );
+    }
+
     return (
       <Login
         users={userAccounts}
         allStaff={allStaff}
-        onLogin={handleLogin}
+        onLogin={(user) => {
+          updatePublicCatalogUrl(false);
+          setIsPublicCatalogOpen(false);
+          handleLogin(user);
+        }}
         onQrQuickAccess={({ employeeId, token }) => {
+          updatePublicCatalogUrl(false);
+          setIsPublicCatalogOpen(false);
           setStaffQrParamsInUrl(employeeId, token);
           setQrRouteParams({ employeeId, token });
         }}
         language={language}
         onLanguageChange={setLanguage}
+        onOpenCatalog={() => {
+          updatePublicCatalogUrl(true);
+          setIsPublicCatalogOpen(true);
+        }}
       />
     );
   }

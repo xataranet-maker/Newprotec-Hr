@@ -470,7 +470,7 @@ export const AppQRModal: React.FC<AppQRModalProps> = ({ isOpen, onClose }) => {
               <Link2 className="w-3.5 h-3.5 text-cyan-400" />
               <span>Đường dẫn mã hóa trong QR:</span>
             </label>
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => setQrUrl(SHARED_APP_URL)}
@@ -481,6 +481,17 @@ export const AppQRModal: React.FC<AppQRModalProps> = ({ isOpen, onClose }) => {
                 }`}
               >
                 Link Chính Thức
+              </button>
+              <button
+                type="button"
+                onClick={() => setQrUrl(`${currentOrigin}?catalog=1`)}
+                className={`px-2 py-0.5 rounded text-[10px] border cursor-pointer transition-colors ${
+                  qrUrl === `${currentOrigin}?catalog=1`
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 font-bold'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                Link Catalog Công Khai
               </button>
               {currentOrigin !== SHARED_APP_URL && (
                 <button

@@ -130,6 +130,18 @@ export const Login: React.FC<LoginProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {onOpenCatalog && (
+            <button
+              type="button"
+              onClick={onOpenCatalog}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/50 text-amber-200 text-xs font-bold transition-colors cursor-pointer"
+              title="Xem Catalog giới thiệu ứng dụng không cần đăng nhập"
+            >
+              <FileText className="w-3.5 h-3.5 text-amber-400" />
+              <span>Catalog Ứng Dụng</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setShowQRModal(true)}
@@ -288,10 +300,10 @@ export const Login: React.FC<LoginProps> = ({
               <button
                 type="button"
                 onClick={onOpenCatalog}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-200 hover:text-white text-xs font-bold transition-all cursor-pointer shadow-lg shadow-cyan-950/30"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/45 text-amber-200 hover:text-white text-xs font-bold transition-all cursor-pointer shadow-lg shadow-amber-950/20"
               >
-                <FileText className="w-4 h-4 text-cyan-400" />
-                <span>🌐 Xem Catalog Giới Thiệu Ứng Dụng (Không Cần Đăng Nhập)</span>
+                <FileText className="w-4 h-4 text-amber-400" />
+                <span>Xem Catalog Giới Thiệu Ứng Dụng (Không Cần Đăng Nhập)</span>
               </button>
             )}
           </form>

@@ -19,11 +19,20 @@ import {
   ZoomIn,
   X,
   Lock,
+  Share2,
+  Copy,
+  Check,
+  Globe,
+  ExternalLink,
+  LogIn,
+  Layers,
 } from 'lucide-react';
 
 interface AppCatalogBrochureProps {
   onClose?: () => void;
   isModal?: boolean;
+  isPublicView?: boolean;
+  onBackToLogin?: () => void;
 }
 
 interface CatalogTabItem {
@@ -485,6 +494,8 @@ const CATALOG_ITEMS: CatalogTabItem[] = [
 export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
   onClose,
   isModal = false,
+  isPublicView = false,
+  onBackToLogin,
 }) => {
   const fullCatalogRef = useRef<HTMLDivElement | null>(null);
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -492,6 +503,33 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
   const [activeGroupFilter, setActiveGroupFilter] = useState<'ALL' | 'CORE' | 'HR' | 'EMPLOYEE' | 'KIOSK'>('ALL');
   const [previewItem, setPreviewItem] = useState<CatalogTabItem | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const promoUrl = useMemo(() => {
+    if (typeof window === 'undefined') return 'https://newprotec-vina.app/?catalog=1';
+    return `${window.location.origin}${window.location.pathname}?catalog=1`;
+  }, []);
+
+  const shareText =
+    'Khám phá Catalog tính năng Newprotec Vina Smart MES V2.0 — Quản trị Sản xuất, HC&NS, Chấm công QR/Khuôn mặt, Bảng lương bảo mật & Cổng nhân viên Mobile.';
+
+  const handleCopyPromoLink = async () => {
+    try {
+      await navigator.clipboard.writeText(promoUrl);
+      setCopiedLink(true);
+      window.setTimeout(() => setCopiedLink(false), 2500);
+    } catch {
+      // Fallback copy via temporary input
+      const input = document.createElement('input');
+      input.value = promoUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      setCopiedLink(true);
+      window.setTimeout(() => setCopiedLink(false), 2500);
+    }
+  };
 
   const visibleGroups = useMemo(() => {
     if (activeGroupFilter === 'ALL') return CATALOG_GROUPS;
@@ -561,8 +599,65 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
     } catch (err) {
       console.error('Catalog PNG Export Error:', err);
       setExportError(
-        'Không thể tạo ảnh PNG toàn trang quá dài trên thiết bị này. Vui lòng chọn lọc theo từng Phần (Phần I → IV) hoặc bấm "In / Lưu PDF".'
+        'Không thể tạo ảnh PNG toàn trang quá dài trên thiết bị này. Vui lòng chọn tải theo từng Chương (Chương 1 → 4) hoặc bấm "In / Lưu PDF".'
       );
+    } finally {
+      setExportingKey(null);
+    }
+  };
+
+  const chapterFilenameMap: Record<'CORE' | 'HR' | 'EMPLOYEE' | 'KIOSK', string> = {
+    CORE: 'Catalog-Newprotec-Chuong-1-He-Thong-Cot-Loi.png',
+    HR: 'Catalog-Newprotec-Chuong-2-Hanh-Chinh-Nhan-Su.png',
+    EMPLOYEE: 'Catalog-Newprotec-Chuong-3-Cong-Nhan-Vien-Mobile.png',
+    KIOSK: 'Catalog-Newprotec-Chuong-4-Tram-Kiosk-An-Ninh.png',
+  };
+
+  const handleExportChapter = async (groupId: 'CORE' | 'HR' | 'EMPLOYEE' | 'KIOSK') => {
+    if (exportingKey) return;
+    if (activeGroupFilter !== 'ALL' && activeGroupFilter !== groupId) {
+      setActiveGroupFilter('ALL');
+      await new Promise((r) => window.setTimeout(r, 150));
+    }
+    const targetEl = groupRefs.current[groupId];
+    await exportElementToPng(targetEl, `CH_${groupId}`, chapterFilenameMap[groupId]);
+  };
+
+  const handleExportAllChaptersSequentially = async () => {
+    if (exportingKey) return;
+    if (activeGroupFilter !== 'ALL') {
+      setActiveGroupFilter('ALL');
+      await new Promise((r) => window.setTimeout(r, 150));
+    }
+    setExportError(null);
+    setExportingKey('ALL_CHAPTERS');
+    try {
+      for (const grp of CATALOG_GROUPS) {
+        const el = groupRefs.current[grp.id];
+        if (!el) continue;
+        await waitForImagesReady(el);
+        const rect = el.getBoundingClientRect();
+        const safeScale = rect.height > 8500 ? 1 : rect.height > 4800 ? 1.35 : 1.75;
+        const canvas = await html2canvas(el, {
+          scale: safeScale,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#020617',
+          logging: false,
+          onclone: sanitizeClonedStylesForHtml2Canvas,
+        });
+        const dataUrl = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = chapterFilenameMap[grp.id];
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        await new Promise((r) => window.setTimeout(r, 300));
+      }
+    } catch (err) {
+      console.error('Sequential Chapter PNG Export Error:', err);
+      setExportError('Có lỗi xảy ra khi tải tự động từng chương. Vui lòng thử bấm tải lẻ từng Chương.');
     } finally {
       setExportingKey(null);
     }
@@ -1023,7 +1118,7 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
                 padding: '20px',
               }}
             >
-              {/* Section Banner */}
+              {/* Section Banner with Branded Chapter Stamp for Standalone Chapter PNG Exports */}
               <div
                 style={{
                   display: 'flex',
@@ -1035,7 +1130,7 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
                 }}
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span
                       style={{
                         fontSize: '10px',
@@ -1050,18 +1145,28 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
                     >
                       {group.code} · {groupItems.length} TAB
                     </span>
-                    <h2
+                    <span
                       style={{
-                        margin: 0,
-                        fontSize: '17px',
-                        fontWeight: 900,
-                        color: '#ffffff',
-                        textTransform: 'uppercase',
+                        fontSize: '10px',
+                        fontFamily: 'monospace',
+                        fontWeight: 700,
+                        color: '#64748b',
                       }}
                     >
-                      {group.title}
-                    </h2>
+                      NEWPROTEC VINA SMART MES V2.0
+                    </span>
                   </div>
+                  <h2
+                    style={{
+                      margin: '4px 0 0 0',
+                      fontSize: '17px',
+                      fontWeight: 900,
+                      color: '#ffffff',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {group.title}
+                  </h2>
                   <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8' }}>
                     {group.description}
                   </p>
@@ -1109,93 +1214,257 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
     </div>
   );
 
-  const toolbarControls = (
-    <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/95 border border-slate-800 p-3.5 rounded-2xl shadow-lg">
-      {/* Filter Groups */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          onClick={() => setActiveGroupFilter('ALL')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
-            activeGroupFilter === 'ALL'
-              ? 'bg-cyan-600 text-white shadow'
-              : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-white'
-          }`}
-        >
-          <LayoutGrid className="w-3.5 h-3.5" />
-          <span>Tất Cả ({CATALOG_ITEMS.length} Tab)</span>
-        </button>
+  const encodedUrl = encodeURIComponent(promoUrl);
+  const encodedText = encodeURIComponent(shareText);
 
-        {CATALOG_GROUPS.map((g) => (
+  const toolbarControls = (
+    <div className="space-y-3 bg-slate-900/95 border border-slate-800 p-4 rounded-2xl shadow-lg">
+      {/* Row 1: Filter Chapters + Full/Print Export */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
-            key={g.id}
             type="button"
-            onClick={() => setActiveGroupFilter(g.id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-              activeGroupFilter === g.id
-                ? 'bg-slate-800 border border-cyan-500/60 text-cyan-300 shadow'
+            onClick={() => setActiveGroupFilter('ALL')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeGroupFilter === 'ALL'
+                ? 'bg-cyan-600 text-white shadow'
                 : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-white'
             }`}
           >
-            {g.code}
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span>Tất Cả ({CATALOG_ITEMS.length} Tab)</span>
           </button>
-        ))}
-      </div>
 
-      {/* Export & Print Buttons */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() =>
-            exportElementToPng(
-              activeGroupFilter === 'ALL'
-                ? fullCatalogRef.current
-                : groupRefs.current[activeGroupFilter] || fullCatalogRef.current,
-              'MAIN',
-              activeGroupFilter === 'ALL'
-                ? 'Catalog-Newprotec-Vina-21-Tabs.png'
-                : `Catalog-Newprotec-Vina-${activeGroupFilter}.png`
-            )
-          }
-          disabled={Boolean(exportingKey)}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 shadow-lg shadow-cyan-950/40"
-        >
-          {exportingKey === 'MAIN' ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Đang tạo PNG...</span>
-            </>
-          ) : (
-            <>
-              <Download className="w-4 h-4" />
-              <span>
-                {activeGroupFilter === 'ALL'
-                  ? 'Tải Xuống PNG (Toàn Bộ)'
-                  : `Tải PNG ${activeGroupFilter}`}
-              </span>
-            </>
-          )}
-        </button>
+          {CATALOG_GROUPS.map((g, idx) => (
+            <button
+              key={g.id}
+              type="button"
+              onClick={() => setActiveGroupFilter(g.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                activeGroupFilter === g.id
+                  ? 'bg-slate-800 border border-cyan-500/60 text-cyan-300 shadow'
+                  : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              Chương {idx + 1} ({g.code})
+            </button>
+          ))}
+        </div>
 
-        <button
-          type="button"
-          onClick={handlePrint}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
-        >
-          <Printer className="w-4 h-4 text-cyan-400" />
-          <span>In Catalog</span>
-        </button>
-
-        {isModal && onClose && (
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
-            title="Đóng"
+            onClick={() =>
+              exportElementToPng(
+                activeGroupFilter === 'ALL'
+                  ? fullCatalogRef.current
+                  : groupRefs.current[activeGroupFilter] || fullCatalogRef.current,
+                'MAIN',
+                activeGroupFilter === 'ALL'
+                  ? 'Catalog-Newprotec-Vina-21-Tabs.png'
+                  : chapterFilenameMap[activeGroupFilter]
+              )
+            }
+            disabled={Boolean(exportingKey)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 shadow-lg shadow-cyan-950/40"
           >
-            <X className="w-4 h-4" />
+            {exportingKey === 'MAIN' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Đang tạo PNG...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" />
+                <span>
+                  {activeGroupFilter === 'ALL'
+                    ? 'Tải PNG Toàn Bộ (21 Tab)'
+                    : `Tải PNG ${activeGroupFilter}`}
+                </span>
+              </>
+            )}
           </button>
-        )}
+
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold transition-colors cursor-pointer"
+          >
+            <Printer className="w-4 h-4 text-cyan-400" />
+            <span>In Catalog</span>
+          </button>
+
+          {isModal && onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              title="Đóng"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Row 2: Direct Chapter-by-Chapter PNG Download Buttons */}
+      <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-amber-300">
+          <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span>Tải File PNG Chia Theo Từng Chương:</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {CATALOG_GROUPS.map((g, idx) => {
+            const count = CATALOG_ITEMS.filter((item) => item.groupId === g.id).length;
+            const key = `CH_${g.id}`;
+            return (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => handleExportChapter(g.id)}
+                disabled={Boolean(exportingKey)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-700/80 hover:border-cyan-500/50 text-slate-200 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                title={`Tải PNG riêng ${g.code}: ${g.title}`}
+              >
+                {exportingKey === key ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                ) : (
+                  <Download className="w-3.5 h-3.5 text-cyan-400" />
+                )}
+                <span>
+                  Chương {idx + 1} ({count} Tab)
+                </span>
+              </button>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={handleExportAllChaptersSequentially}
+            disabled={Boolean(exportingKey)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/35 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {exportingKey === 'ALL_CHAPTERS' ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Đang tải 4 chương...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-3.5 h-3.5" />
+                <span>Tải Cả 4 Chương (4 PNG)</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Row 3: Promotional Link & Social Media Sharing Bar */}
+      <div className="pt-3 border-t border-slate-800/80 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        {/* Public Promo URL + Copy */}
+        <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-cyan-300 shrink-0">
+            <Globe className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Link Quảng Bá Công Khai:</span>
+          </div>
+          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 min-w-0 flex-1 max-w-md">
+            <input
+              type="text"
+              readOnly
+              value={promoUrl}
+              onClick={(e) => (e.target as HTMLInputElement).select()}
+              className="bg-transparent text-[11px] font-mono text-cyan-300 w-full outline-none truncate"
+              aria-label="Đường link quảng bá ứng dụng không cần đăng nhập"
+            />
+            <button
+              type="button"
+              onClick={handleCopyPromoLink}
+              className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
+                copiedLink
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+              }`}
+            >
+              {copiedLink ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              <span>{copiedLink ? 'Đã chép' : 'Sao chép'}</span>
+            </button>
+          </div>
+          {!isPublicView && (
+            <a
+              href={promoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-semibold transition-colors"
+              title="Mở thử đường link xem công khai không cần đăng nhập"
+            >
+              <ExternalLink className="w-3 h-3 text-cyan-400" />
+              <span>Xem thử link công khai</span>
+            </a>
+          )}
+        </div>
+
+        {/* Social Media Share Buttons */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">
+            <Share2 className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Chia sẻ:</span>
+          </span>
+
+          <a
+            href={`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodedText}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#1877F2]/20 hover:bg-[#1877F2]/35 border border-[#1877F2]/50 text-blue-300 text-[11px] font-bold transition-colors"
+          >
+            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+              <path d="M22 12c0-5.52-4.48-10-10-10S2 6.48 2 12c0 4.84 3.44 8.87 8 9.8V15H8v-3h2V9.5C10 7.57 11.57 6 13.5 6H16v3h-2c-.55 0-1 .45-1 1v2h3v3h-3v6.95c5.05-.5 9-4.76 9-9.95z" />
+            </svg>
+            <span>Facebook</span>
+          </a>
+
+          <a
+            href={`https://zalo.me/share?url=${encodedUrl}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => {
+              handleCopyPromoLink();
+            }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/50 text-sky-300 text-[11px] font-bold transition-colors"
+          >
+            <span className="font-black text-[10px] px-1 rounded bg-sky-500 text-white leading-tight">Z</span>
+            <span>Zalo</span>
+          </a>
+
+          <a
+            href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#0A66C2]/20 hover:bg-[#0A66C2]/35 border border-[#0A66C2]/50 text-sky-200 text-[11px] font-bold transition-colors"
+          >
+            <span className="font-black text-[10px] px-1 rounded bg-[#0A66C2] text-white leading-tight">in</span>
+            <span>LinkedIn</span>
+          </a>
+
+          <a
+            href={`https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-100 text-[11px] font-bold transition-colors"
+          >
+            <span className="font-black text-[11px]">𝕏</span>
+            <span>X / Twitter</span>
+          </a>
+
+          <a
+            href={`https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/50 text-cyan-200 text-[11px] font-bold transition-colors"
+          >
+            <span>Telegram</span>
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -1259,26 +1528,43 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
 
   return (
     <div className="p-4 sm:p-6 max-w-[1320px] mx-auto space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0">
             <FileText className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-white uppercase tracking-wide flex items-center gap-2">
+            <h2 className="text-base font-bold text-white uppercase tracking-wide flex flex-wrap items-center gap-2">
               <span>Catalog Ứng Dụng Theo Từng Tab ({CATALOG_ITEMS.length} Tab)</span>
+              {isPublicView && (
+                <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
+                  CHẾ ĐỘ XEM CÔNG KHAI
+                </span>
+              )}
             </h2>
             <p className="text-xs text-slate-400">
-              Trình bày chi tiết chức năng, tiện ích từng tab kèm 21 ảnh chụp màn hình vận hành thực tế — hỗ trợ tải PNG quảng bá.
+              Trình bày chi tiết chức năng, tiện ích từng tab kèm 21 ảnh chụp màn hình vận hành thực tế — hỗ trợ chia sẻ &amp; tải PNG theo từng chương.
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400">
-          <Smartphone className="w-4 h-4 text-cyan-400" />
-          <span>Desktop &amp; Mobile App</span>
-          <span className="text-slate-700">|</span>
-          <Clock className="w-4 h-4 text-emerald-400" />
-          <span>Newprotec Vina V2.0</span>
+        <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-slate-400">
+          <div className="flex items-center gap-2">
+            <Smartphone className="w-4 h-4 text-cyan-400" />
+            <span>Desktop &amp; Mobile App</span>
+            <span className="text-slate-700">|</span>
+            <Clock className="w-4 h-4 text-emerald-400" />
+            <span>Newprotec Vina V2.0</span>
+          </div>
+          {isPublicView && onBackToLogin && (
+            <button
+              type="button"
+              onClick={onBackToLogin}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-sans text-xs font-bold transition-colors cursor-pointer shadow"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Đăng Nhập Hệ Thống</span>
+            </button>
+          )}
         </div>
       </div>
 
