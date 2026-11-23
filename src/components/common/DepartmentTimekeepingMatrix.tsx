@@ -29,6 +29,7 @@ import {
   Unlock,
   CalendarHeart,
   QrCode,
+  ScanFace,
   AlertTriangle,
   CheckCircle2,
   Edit3,
@@ -40,6 +41,7 @@ import {
   getMatrixEntryTotalHours,
   getMatrixStorageKey,
   getQrPunchStorageKey,
+  getFacePunchStorageKey,
   isMatrixEntryWorking,
   loadOrInitDepartmentMatrix,
   recalculateStaffTotals,
@@ -54,7 +56,7 @@ import {
   MATRIX_UPDATED_EVENT,
   calculateMatrixDayHoursFromTimes,
 } from '../../lib/matrixTimekeeping';
-import { loadQrPunchMap } from '../../lib/attendanceQr';
+import { loadQrPunchMap, loadFacePunchMap } from '../../lib/attendanceQr';
 import {
   getMachineSwipeStorageKey,
   buildComparisonRowForEmployeeDay,
@@ -120,6 +122,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
   const holidayStorageKey = getHolidayStorageKey(department, selectedYear, selectedMonth);
   const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
   const qrStorageKey = getQrPunchStorageKey(selectedYear, selectedMonth);
+  const faceStorageKey = getFacePunchStorageKey(selectedYear, selectedMonth);
 
   const [swipeRecords, setSwipeRecords] = useState<Record<string, MachineSwipeRecord>>(() => {
     try {
@@ -133,10 +136,21 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
   const [qrPunchRecords, setQrPunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
     loadQrPunchMap(selectedYear, selectedMonth)
   );
-  const hasManualCompareSourceRef = useRef(false);
-  const [compareSource, setCompareSource] = useState<'MQT' | 'QR'>(() =>
-    Object.keys(qrPunchRecords).length > 0 && Object.keys(swipeRecords).length === 0 ? 'QR' : 'MQT'
+  const [facePunchRecords, setFacePunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
+    loadFacePunchMap(selectedYear, selectedMonth)
   );
+  const hasManualCompareSourceRef = useRef(false);
+  const [compareSource, setCompareSource] = useState<'MQT' | 'QR' | 'FACE'>(() => {
+    if (Object.keys(qrPunchRecords).length > 0 && Object.keys(swipeRecords).length === 0) return 'QR';
+    if (
+      Object.keys(facePunchRecords).length > 0 &&
+      Object.keys(swipeRecords).length === 0 &&
+      Object.keys(qrPunchRecords).length === 0
+    ) {
+      return 'FACE';
+    }
+    return 'MQT';
+  });
 
   // Holiday dates map: day (1..31) -> boolean
   const [holidayDays, setHolidayDays] = useState<Record<number, boolean>>(() => {
@@ -244,7 +258,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     setMatrixData(matrix);
   }, [storageKey, targetStaff, selectedYear, selectedMonth, department, leaveRecords]);
 
-  // Reload swipe & QR punch maps on month/year change
+  // Reload swipe, QR & Face punch maps on month/year change
   useEffect(() => {
     let nextSwipe: Record<string, MachineSwipeRecord> = {};
     try {
@@ -254,18 +268,26 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       nextSwipe = {};
     }
     const nextQr = loadQrPunchMap(selectedYear, selectedMonth);
+    const nextFace = loadFacePunchMap(selectedYear, selectedMonth);
     setSwipeRecords(nextSwipe);
     setQrPunchRecords(nextQr);
+    setFacePunchRecords(nextFace);
     if (!hasManualCompareSourceRef.current) {
       if (Object.keys(nextQr).length > 0 && Object.keys(nextSwipe).length === 0) {
         setCompareSource('QR');
-      } else if (Object.keys(nextSwipe).length > 0 && Object.keys(nextQr).length === 0) {
+      } else if (
+        Object.keys(nextFace).length > 0 &&
+        Object.keys(nextSwipe).length === 0 &&
+        Object.keys(nextQr).length === 0
+      ) {
+        setCompareSource('FACE');
+      } else if (Object.keys(nextSwipe).length > 0 && Object.keys(nextQr).length === 0 && Object.keys(nextFace).length === 0) {
         setCompareSource('MQT');
       }
     }
-  }, [swipeStorageKey, qrStorageKey, selectedYear, selectedMonth]);
+  }, [swipeStorageKey, qrStorageKey, faceStorageKey, selectedYear, selectedMonth]);
 
-  // Reload if updated externally (e.g. edited from HRTimekeeping, Leave registration, QR scan, or sibling matrix)
+  // Reload if updated externally (e.g. edited from HRTimekeeping, Leave registration, QR/Face scan, or sibling matrix)
   useEffect(() => {
     const refreshPunches = () => {
       let nextSwipe: Record<string, MachineSwipeRecord> = {};
@@ -277,11 +299,19 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         // ignore
       }
       const nextQr = loadQrPunchMap(selectedYear, selectedMonth);
+      const nextFace = loadFacePunchMap(selectedYear, selectedMonth);
       setQrPunchRecords(nextQr);
+      setFacePunchRecords(nextFace);
       if (!hasManualCompareSourceRef.current) {
         if (Object.keys(nextQr).length > 0 && Object.keys(nextSwipe).length === 0) {
           setCompareSource('QR');
-        } else if (Object.keys(nextSwipe).length > 0 && Object.keys(nextQr).length === 0) {
+        } else if (
+          Object.keys(nextFace).length > 0 &&
+          Object.keys(nextSwipe).length === 0 &&
+          Object.keys(nextQr).length === 0
+        ) {
+          setCompareSource('FACE');
+        } else if (Object.keys(nextSwipe).length > 0 && Object.keys(nextQr).length === 0 && Object.keys(nextFace).length === 0) {
           setCompareSource('MQT');
         }
       }
@@ -1214,7 +1244,12 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
 
   const deptComparisonRows = useMemo<ComparisonRow[]>(() => {
     const rows: ComparisonRow[] = [];
-    const activeMap = compareSource === 'QR' ? qrPunchRecords : swipeRecords;
+    const activeMap =
+      compareSource === 'QR'
+        ? qrPunchRecords
+        : compareSource === 'FACE'
+        ? facePunchRecords
+        : swipeRecords;
     displayedStaff.forEach((staff) => {
       const daysMap = matrixData[staff.employeeId]?.days || {};
       monthDaysMeta.forEach((m) => {
@@ -1243,6 +1278,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
     holidayDays,
     swipeRecords,
     qrPunchRecords,
+    facePunchRecords,
     compareSource,
   ]);
 
@@ -1292,16 +1328,18 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
   const deptSourceCounts = useMemo(() => {
     let mqtCount = 0;
     let qrCount = 0;
+    let faceCount = 0;
     displayedStaff.forEach((staff) => {
       const prefix = `${staff.employeeId.trim().toLowerCase()}_`;
       monthDaysMeta.forEach((m) => {
         const key = `${prefix}${m.day}`;
         if (swipeRecords[key]) mqtCount++;
         if (qrPunchRecords[key]) qrCount++;
+        if (facePunchRecords[key]) faceCount++;
       });
     });
-    return { mqtCount, qrCount };
-  }, [displayedStaff, monthDaysMeta, swipeRecords, qrPunchRecords]);
+    return { mqtCount, qrCount, faceCount };
+  }, [displayedStaff, monthDaysMeta, swipeRecords, qrPunchRecords, facePunchRecords]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const swipeFileInputRef = useRef<HTMLInputElement>(null);
@@ -2033,12 +2071,20 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               <div className="text-slate-300 space-y-0.5">
                 <div>
                   <strong className="text-white">
-                    Đối Chiếu Dữ Liệu {compareSource === 'QR' ? 'Quét QR' : 'Máy Quẹt Thẻ'} vs Chấm Công Thường (BC)
+                    Đối Chiếu Dữ Liệu{' '}
+                    {compareSource === 'QR'
+                      ? 'Quét QR'
+                      : compareSource === 'FACE'
+                      ? 'Chấm Công Khuôn Mặt'
+                      : 'Máy Quẹt Thẻ'}{' '}
+                    vs Chấm Công Thường (BC)
                   </strong>{' '}
                   — Phòng <strong className="text-cyan-300">{departmentTitle}</strong>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Khi nhân viên quét mã QR, giờ vào/ra được lưu riêng vào cột <strong className="text-cyan-300">QR</strong> (không ghi đè ô chấm công thường). Chuyển nhanh giữa <strong className="text-blue-300">Quẹt thẻ</strong> và <strong className="text-cyan-300">QR</strong> ngay tại tiêu đề cột nhóm 2 để đối chiếu với bảng chấm công thường.
+                  Khi nhân viên quét mã QR hoặc chấm công Khuôn mặt, giờ vào/ra được lưu riêng (không ghi đè ô chấm công thường). Chuyển nhanh giữa{' '}
+                  <strong className="text-blue-300">Quẹt thẻ</strong>, <strong className="text-cyan-300">QR</strong> và{' '}
+                  <strong className="text-sky-300">Khuôn mặt</strong> ngay tại tiêu đề cột nhóm 2 để đối chiếu với bảng chấm công thường.
                 </p>
               </div>
             </div>
@@ -2073,6 +2119,21 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                 >
                   <QrCode className="w-3.5 h-3.5" />
                   QR ({deptSourceCounts.qrCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    hasManualCompareSourceRef.current = true;
+                    setCompareSource('FACE');
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer inline-flex items-center gap-1 ${
+                    compareSource === 'FACE'
+                      ? 'bg-sky-600 text-white shadow'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <ScanFace className="w-3.5 h-3.5" />
+                  Khuôn mặt ({deptSourceCounts.faceCount})
                 </button>
               </div>
 
@@ -2115,7 +2176,11 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             </div>
             <div className="bg-rose-950/30 border border-rose-700/50 p-3 rounded-xl">
               <div className="text-[10px] text-rose-300 uppercase font-semibold">
-                {compareSource === 'QR' ? 'Thiếu Giờ Quét QR' : 'Thiếu Giờ Quẹt Thẻ'}
+                {compareSource === 'QR'
+                  ? 'Thiếu Giờ Quét QR'
+                  : compareSource === 'FACE'
+                  ? 'Thiếu Giờ Khuôn Mặt'
+                  : 'Thiếu Giờ Quẹt Thẻ'}
               </div>
               <div className="text-lg font-bold font-mono text-rose-400 mt-0.5">{deptCompareStats.missingCount}</div>
             </div>
@@ -2125,7 +2190,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             </div>
           </div>
 
-          {/* Comparison Table with [Quẹt thẻ | QR] inside Group 2 header */}
+          {/* Comparison Table with [Quẹt thẻ | QR | Khuôn mặt] inside Group 2 header */}
           <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
             <div className="overflow-auto custom-scrollbar max-h-[68vh]">
               <table className="w-full min-w-[1440px] text-left border-collapse text-xs whitespace-nowrap">
@@ -2151,12 +2216,18 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                       className={`py-1.5 px-3 text-center border-r border-slate-800 font-bold border-b ${
                         compareSource === 'QR'
                           ? 'bg-cyan-950/35 text-cyan-300 border-cyan-800/40'
+                          : compareSource === 'FACE'
+                          ? 'bg-sky-950/35 text-sky-300 border-sky-800/40'
                           : 'bg-blue-950/35 text-blue-300 border-blue-800/40'
                       }`}
                     >
                       <div className="flex items-center justify-center gap-2">
                         <span>
-                          {compareSource === 'QR' ? '2. CHẤM CÔNG BẰNG MÃ QR' : '2. MÁY QUẸT THẺ (MQT)'}
+                          {compareSource === 'QR'
+                            ? '2. CHẤM CÔNG BẰNG MÃ QR'
+                            : compareSource === 'FACE'
+                            ? '2. CHẤM CÔNG KHUÔN MẶT'
+                            : '2. MÁY QUẸT THẺ (MQT)'}
                         </span>
                         <span className="inline-flex items-center p-0.5 rounded bg-slate-950/90 border border-slate-700/80">
                           <button
@@ -2187,6 +2258,20 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           >
                             QR
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              hasManualCompareSourceRef.current = true;
+                              setCompareSource('FACE');
+                            }}
+                            className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
+                              compareSource === 'FACE'
+                                ? 'bg-sky-600 text-white'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Khuôn mặt
+                          </button>
                         </span>
                       </div>
                     </th>
@@ -2194,7 +2279,7 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                       Trạng Thái
                     </th>
                     <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-800 min-w-[300px] text-white font-bold">
-                      Chi Tiết Đối Chiếu ({compareSource === 'QR' ? 'QR vs BC' : 'MQT vs BC'})
+                      Chi Tiết Đối Chiếu ({compareSource === 'QR' ? 'QR vs BC' : compareSource === 'FACE' ? 'Khuôn Mặt vs BC' : 'MQT vs BC'})
                     </th>
                     <th rowSpan={2} className="py-2.5 px-3 text-right min-w-[105px]">
                       Thao Tác
@@ -2212,20 +2297,40 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                     </th>
                     <th
                       className={`py-2 px-2.5 text-center border-r border-slate-800 ${
-                        compareSource === 'QR' ? 'bg-cyan-950/15 text-cyan-300' : 'bg-blue-950/15 text-blue-300'
+                        compareSource === 'QR'
+                          ? 'bg-cyan-950/15 text-cyan-300'
+                          : compareSource === 'FACE'
+                          ? 'bg-sky-950/15 text-sky-300'
+                          : 'bg-blue-950/15 text-blue-300'
                       }`}
                     >
-                      {compareSource === 'QR' ? 'Giờ Vào (QR)' : 'Giờ Vào (MQT)'}
+                      {compareSource === 'QR'
+                        ? 'Giờ Vào (QR)'
+                        : compareSource === 'FACE'
+                        ? 'Giờ Vào (Khuôn Mặt)'
+                        : 'Giờ Vào (MQT)'}
                     </th>
                     <th
                       className={`py-2 px-2.5 text-center border-r border-slate-800 ${
-                        compareSource === 'QR' ? 'bg-cyan-950/15 text-cyan-300' : 'bg-blue-950/15 text-blue-300'
+                        compareSource === 'QR'
+                          ? 'bg-cyan-950/15 text-cyan-300'
+                          : compareSource === 'FACE'
+                          ? 'bg-sky-950/15 text-sky-300'
+                          : 'bg-blue-950/15 text-blue-300'
                       }`}
                     >
-                      {compareSource === 'QR' ? 'Giờ Ra (QR)' : 'Giờ Ra (MQT)'}
+                      {compareSource === 'QR'
+                        ? 'Giờ Ra (QR)'
+                        : compareSource === 'FACE'
+                        ? 'Giờ Ra (Khuôn Mặt)'
+                        : 'Giờ Ra (MQT)'}
                     </th>
                     <th className="py-2 px-2.5 text-center border-r border-slate-800 bg-blue-950/15 text-cyan-300 font-bold">
-                      {compareSource === 'QR' ? 'Tăng Ca (QR)' : 'Tăng Ca (MQT)'}
+                      {compareSource === 'QR'
+                        ? 'Tăng Ca (QR)'
+                        : compareSource === 'FACE'
+                        ? 'Tăng Ca (Khuôn Mặt)'
+                        : 'Tăng Ca (MQT)'}
                     </th>
                   </tr>
                 </thead>
@@ -2303,7 +2408,11 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                               </span>
                             ) : row.hasBcWork ? (
                               <span className="text-[10px] text-rose-400 font-sans font-bold">
-                                {compareSource === 'QR' ? 'Chưa quét' : 'Thiếu vào'}
+                                {compareSource === 'QR'
+                                  ? 'Chưa quét'
+                                  : compareSource === 'FACE'
+                                  ? 'Chưa chấm'
+                                  : 'Thiếu vào'}
                               </span>
                             ) : (
                               <span className="text-slate-600">-</span>
@@ -2316,7 +2425,11 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                               </span>
                             ) : row.hasBcWork ? (
                               <span className="text-[10px] text-amber-400 font-sans font-bold">
-                                {compareSource === 'QR' ? 'Chưa quét' : 'Thiếu ra'}
+                                {compareSource === 'QR'
+                                  ? 'Chưa quét'
+                                  : compareSource === 'FACE'
+                                  ? 'Chưa chấm'
+                                  : 'Thiếu ra'}
                               </span>
                             ) : (
                               <span className="text-slate-600">-</span>
@@ -3263,12 +3376,13 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                 </label>
               </div>
 
-              {/* Dữ liệu tham chiếu từ Máy Quẹt Thẻ & Quét QR (nếu có) */}
+              {/* Dữ liệu tham chiếu từ Máy Quẹt Thẻ, Quét QR & Khuôn Mặt (nếu có) */}
               {(() => {
                 const punchKey = `${editingCell.staff.employeeId.trim().toLowerCase()}_${editingCell.day}`;
                 const qrRec = qrPunchRecords[punchKey];
+                const faceRec = facePunchRecords[punchKey];
                 const mqtRec = swipeRecords[punchKey];
-                if (!qrRec && !mqtRec) return null;
+                if (!qrRec && !faceRec && !mqtRec) return null;
                 return (
                   <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1.5 text-[11px]">
                     <div className="text-[10px] font-bold uppercase text-slate-400">
@@ -3292,6 +3406,29 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                           <span>
                             <strong>Giờ Quét QR:</strong>{' '}
                             <span className="font-mono">{qrRec.rawInTime || '--:--'} - {qrRec.rawOutTime || '--:--'}</span>
+                          </span>
+                        </span>
+                        <span className="text-[10px] underline">Lấy vào BC</span>
+                      </button>
+                    )}
+                    {faceRec && (faceRec.rawInTime || faceRec.rawOutTime) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const defIn = editingCell.entry.shift === 'NIGHT' ? '20:00' : '08:00';
+                          const defOut = editingCell.entry.shift === 'NIGHT' ? '05:00' : '17:00';
+                          handleTimeOrShiftChange({
+                            inTime: normalizeTimeString(faceRec.rawInTime) || defIn,
+                            outTime: normalizeTimeString(faceRec.rawOutTime) || defOut,
+                          });
+                        }}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-sky-950/40 hover:bg-sky-950/80 border border-sky-600/40 text-sky-300 flex items-center justify-between cursor-pointer transition-colors"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <ScanFace className="w-3.5 h-3.5 text-sky-400" />
+                          <span>
+                            <strong>Giờ Khuôn Mặt:</strong>{' '}
+                            <span className="font-mono">{faceRec.rawInTime || '--:--'} - {faceRec.rawOutTime || '--:--'}</span>
                           </span>
                         </span>
                         <span className="text-[10px] underline">Lấy vào BC</span>

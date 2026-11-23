@@ -47,6 +47,10 @@
         "avatarUrl": { "type": "string" },
         "qrAccessEnabled": { "type": "boolean" },
         "qrAccessToken": { "type": "string", "maxLength": 64 },
+        "faceAccessEnabled": { "type": "boolean" },
+        "faceDescriptor": { "type": "array" },
+        "facePhotoUrl": { "type": "string" },
+        "faceUpdatedAt": { "type": "string", "maxLength": 32 },
         "badgeIssued": { "type": "boolean" },
         "badgeIssuedAt": { "type": "string", "maxLength": 32 },
         "badgeIssuedBy": { "type": "string", "maxLength": 128 }

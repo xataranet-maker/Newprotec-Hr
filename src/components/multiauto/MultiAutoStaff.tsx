@@ -3,13 +3,15 @@ import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus, StaffL
 import { 
   Users, Plus, Search, CheckCircle2, Clock, Phone, 
   AlertTriangle, ArrowRight, LayoutGrid, Table, Calendar, Check, X,
-  QrCode, ShieldCheck, ShieldOff, Lock, Unlock, CreditCard, Printer
+  QrCode, ShieldCheck, ShieldOff, Lock, Unlock, CreditCard, Printer, ScanFace
 } from 'lucide-react';
 import { formatDateDDMMYYYY, resolveStaffLockType, syncStaffLockToMatrices } from '../../lib/matrixTimekeeping';
 import { isStaffQrEnabled, generateStaffQrToken, getStaffQrToken } from '../../lib/staffQr';
+import { isStaffFaceEnrolled, isStaffFaceEnabled } from '../../lib/faceRecognition';
 import { EmployeeQRModal } from '../common/EmployeeQRModal';
 import { EmployeeIdCardModal, printEmployeeIdCard } from '../common/EmployeeIdCard';
 import { EmployeeLockModal } from '../common/EmployeeLockModal';
+import { EmployeeFaceSettingsModal } from '../common/EmployeeFaceSettingsModal';
 
 const getTodayIso = () => {
   const now = new Date();
@@ -36,6 +38,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filterShift, setFilterShift] = useState<'ALL' | 'DAY' | 'NIGHT'>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [filterFace, setFilterFace] = useState<'ALL' | 'ENROLLED' | 'UNENROLLED'>('ALL');
   const [viewMode, setViewMode] = useState<'CARDS' | 'TABLE'>('CARDS');
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -44,6 +47,7 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
   const [qrModalStaff, setQrModalStaff] = useState<StaffRecord | null>(null);
   const [idCardModalStaff, setIdCardModalStaff] = useState<StaffRecord | null>(null);
   const [lockModalStaff, setLockModalStaff] = useState<StaffRecord | null>(null);
+  const [faceModalStaff, setFaceModalStaff] = useState<StaffRecord | null>(null);
   const [otHours, setOtHours] = useState(2);
   const [otReason, setOtReason] = useState('Tăng ca hỗ trợ đơn hàng gấp');
 
@@ -66,7 +70,9 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
       s.employeeId.toLowerCase().includes(searchTerm.toLowerCase());
     const matchShift = filterShift === 'ALL' || s.shift === filterShift;
     const matchStatus = filterStatus === 'ALL' || s.attendance === filterStatus;
-    return matchSearch && matchShift && matchStatus;
+    const faceOn = isStaffFaceEnrolled(s);
+    const matchFace = filterFace === 'ALL' || (filterFace === 'ENROLLED' ? faceOn : !faceOn);
+    return matchSearch && matchShift && matchStatus && matchFace;
   });
 
   // Calculate Attendance Stats
@@ -322,6 +328,16 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
               <option value="Vắng mặt">Vắng mặt</option>
               <option value="Nghỉ chế độ">Nghỉ chế độ</option>
               <option value="Đã nghỉ việc">Đã nghỉ việc (Thôi việc)</option>
+            </select>
+
+            <select
+              value={filterFace}
+              onChange={e => setFilterFace(e.target.value as 'ALL' | 'ENROLLED' | 'UNENROLLED')}
+              className="col-span-2 sm:col-span-1 w-full sm:w-auto bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
+            >
+              <option value="ALL">Khuôn mặt: Tất cả</option>
+              <option value="ENROLLED">Khuôn mặt: Đã cài đặt</option>
+              <option value="UNENROLLED">Khuôn mặt: Chưa cài</option>
             </select>
           </div>
 
@@ -692,6 +708,21 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                     <span>QR</span>
                   </button>
                   <button
+                    type="button"
+                    onClick={() => setFaceModalStaff(staff)}
+                    className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors ${
+                      isStaffFaceEnabled(staff)
+                        ? 'bg-sky-950/70 hover:bg-sky-600 text-sky-300 hover:text-white border-sky-600/60'
+                        : isStaffFaceEnrolled(staff)
+                        ? 'bg-amber-950/60 hover:bg-amber-700 text-amber-300 hover:text-white border-amber-700/60'
+                        : 'bg-slate-800 hover:bg-sky-700 text-slate-300 hover:text-white border-slate-700'
+                    }`}
+                    title="Cài đặt chấm công khuôn mặt & đồng bộ"
+                  >
+                    <ScanFace className="w-3.5 h-3.5" />
+                    <span>{isStaffFaceEnrolled(staff) ? 'Khuôn mặt ✓' : 'Cài khuôn mặt'}</span>
+                  </button>
+                  <button
                     onClick={() => { setSelectedStaff(staff); setShowOtModal(true); }}
                     className="flex-1 py-1.5 px-2 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-cyan-300 font-semibold cursor-pointer transition-colors whitespace-nowrap"
                   >
@@ -888,6 +919,21 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
                           >
                             <QrCode className="w-3 h-3" />
                             <span>QR</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFaceModalStaff(staff)}
+                            title="Cài đặt chấm công khuôn mặt & đồng bộ"
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                              isStaffFaceEnabled(staff)
+                                ? 'bg-sky-950/70 hover:bg-sky-600 text-sky-300 hover:text-white border-sky-600/60'
+                                : isStaffFaceEnrolled(staff)
+                                ? 'bg-amber-950/60 hover:bg-amber-700 text-amber-300 hover:text-white border-amber-700/60'
+                                : 'bg-slate-800 hover:bg-sky-700 text-slate-300 hover:text-white border-slate-700'
+                            }`}
+                          >
+                            <ScanFace className="w-3 h-3" />
+                            <span>{isStaffFaceEnrolled(staff) ? 'Khuôn mặt ✓' : 'Cài khuôn mặt'}</span>
                           </button>
                           <button
                             onClick={() => { setSelectedStaff(staff); setShowOtModal(true); }}
@@ -1219,6 +1265,13 @@ export const MultiAutoStaff: React.FC<MultiAutoStaffProps> = ({
           />
         );
       })()}
+      {faceModalStaff && (
+        <EmployeeFaceSettingsModal
+          staff={data.find(st => st.employeeId === faceModalStaff.employeeId) || faceModalStaff}
+          onClose={() => setFaceModalStaff(null)}
+          onSave={handleUpdateSingleStaff}
+        />
+      )}
     </div>
   );
 };

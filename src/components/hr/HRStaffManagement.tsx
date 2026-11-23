@@ -3,13 +3,15 @@ import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus, StaffL
 import { 
   Users, Search, Filter, Phone, Building, Clock, 
   AlertTriangle, CheckCircle2, LayoutGrid, Table, Trash2, X,
-  QrCode, ShieldCheck, ShieldOff, Lock, Unlock, CreditCard, Printer
+  QrCode, ShieldCheck, ShieldOff, Lock, Unlock, CreditCard, Printer, ScanFace
 } from 'lucide-react';
 import { isStaffQrEnabled, generateStaffQrToken, getStaffQrToken } from '../../lib/staffQr';
+import { isStaffFaceEnrolled, isStaffFaceEnabled } from '../../lib/faceRecognition';
 import { resolveStaffLockType, syncStaffLockToMatrices } from '../../lib/matrixTimekeeping';
 import { EmployeeQRModal } from '../common/EmployeeQRModal';
 import { EmployeeIdCardModal, printEmployeeIdCard } from '../common/EmployeeIdCard';
 import { EmployeeLockModal } from '../common/EmployeeLockModal';
+import { EmployeeFaceSettingsModal } from '../common/EmployeeFaceSettingsModal';
 
 interface HRStaffManagementProps {
   multiStaff: StaffRecord[];
@@ -44,12 +46,14 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
   const [filterDept, setFilterDept] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [filterQr, setFilterQr] = useState<'ALL' | 'ENABLED' | 'DISABLED'>('ALL');
+  const [filterFace, setFilterFace] = useState<'ALL' | 'ENROLLED' | 'UNENROLLED'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'CARDS' | 'TABLE'>('CARDS');
   const [confirmDeleteStaff, setConfirmDeleteStaff] = useState<(StaffRecord & { dept?: string }) | null>(null);
   const [qrModalStaff, setQrModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
   const [idCardModalStaff, setIdCardModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
   const [lockModalStaff, setLockModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
+  const [faceModalStaff, setFaceModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
   const [deleteToast, setDeleteToast] = useState<string | null>(null);
 
   const handleConfirmDelete = () => {
@@ -123,7 +127,9 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
     const matchStatus = filterStatus === 'ALL' || s.attendance === filterStatus;
     const qrOn = isStaffQrEnabled(s);
     const matchQr = filterQr === 'ALL' || (filterQr === 'ENABLED' ? qrOn : !qrOn);
-    return matchDept && matchSearch && matchStatus && matchQr;
+    const faceOn = isStaffFaceEnrolled(s);
+    const matchFace = filterFace === 'ALL' || (filterFace === 'ENROLLED' ? faceOn : !faceOn);
+    return matchDept && matchSearch && matchStatus && matchQr && matchFace;
   });
 
   const handleApplyStaffLock = (
@@ -298,11 +304,21 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
             <select
               value={filterQr}
               onChange={e => setFilterQr(e.target.value as 'ALL' | 'ENABLED' | 'DISABLED')}
-              className="col-span-2 sm:col-span-1 w-full sm:w-auto bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
+              className="w-full sm:w-auto bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
             >
               <option value="ALL">Quyền QR: Tất cả</option>
               <option value="ENABLED">QR: Đang cấp quyền</option>
               <option value="DISABLED">QR: Đã khóa quyền</option>
+            </select>
+
+            <select
+              value={filterFace}
+              onChange={e => setFilterFace(e.target.value as 'ALL' | 'ENROLLED' | 'UNENROLLED')}
+              className="w-full sm:w-auto bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300"
+            >
+              <option value="ALL">Khuôn mặt: Tất cả</option>
+              <option value="ENROLLED">Khuôn mặt: Đã cài đặt</option>
+              <option value="UNENROLLED">Khuôn mặt: Chưa cài</option>
             </select>
           </div>
         </div>
@@ -638,6 +654,22 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                         <QrCode className="w-3.5 h-3.5" />
                         <span>QR</span>
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setFaceModalStaff(s)}
+                        title="Cài đặt chấm công khuôn mặt & đồng bộ"
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer ${
+                          isStaffFaceEnabled(s)
+                            ? 'bg-sky-950/70 hover:bg-sky-600 text-sky-300 hover:text-white border-sky-600/60'
+                            : isStaffFaceEnrolled(s)
+                            ? 'bg-amber-950/60 hover:bg-amber-700 text-amber-300 hover:text-white border-amber-700/60'
+                            : 'bg-slate-800 hover:bg-sky-700 text-slate-300 hover:text-white border-slate-700'
+                        }`}
+                      >
+                        <ScanFace className="w-3.5 h-3.5" />
+                        <span>{isStaffFaceEnrolled(s) ? 'Khuôn mặt ✓' : 'Cài khuôn mặt'}</span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -798,6 +830,21 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                           >
                             <QrCode className="w-3.5 h-3.5" />
                             <span>QR</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFaceModalStaff(s)}
+                            title="Cài đặt chấm công khuôn mặt & đồng bộ"
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                              isStaffFaceEnabled(s)
+                                ? 'bg-sky-950/70 hover:bg-sky-600 text-sky-300 hover:text-white border-sky-600/60'
+                                : isStaffFaceEnrolled(s)
+                                ? 'bg-amber-950/60 hover:bg-amber-700 text-amber-300 hover:text-white border-amber-700/60'
+                                : 'bg-slate-800 hover:bg-sky-700 text-slate-300 hover:text-white border-slate-700'
+                            }`}
+                          >
+                            <ScanFace className="w-3.5 h-3.5" />
+                            <span>{isStaffFaceEnrolled(s) ? 'Khuôn mặt ✓' : 'Cài khuôn mặt'}</span>
                           </button>
                         </div>
                       </td>
@@ -1013,6 +1060,23 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
           />
         );
       })()}
+      {faceModalStaff && (
+        <EmployeeFaceSettingsModal
+          staff={
+            allStaff.find(st => st.employeeId === faceModalStaff.employeeId) || faceModalStaff
+          }
+          onClose={() => setFaceModalStaff(null)}
+          onSave={(updated) => {
+            handleUpdateSingleStaff({ ...updated, deptKey: faceModalStaff.deptKey });
+            setDeleteToast(
+              updated.faceDescriptor?.length
+                ? `Đã cài đặt và đồng bộ khuôn mặt cho ${updated.fullName} (${updated.employeeId}).`
+                : `Đã cập nhật trạng thái khuôn mặt cho ${updated.fullName}.`
+            );
+            window.setTimeout(() => setDeleteToast(null), 4000);
+          }}
+        />
+      )}
     </div>
   );
 };

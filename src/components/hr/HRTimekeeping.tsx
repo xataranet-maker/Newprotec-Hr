@@ -37,6 +37,7 @@ import {
   Eye,
   Printer,
   QrCode,
+  ScanFace,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -46,8 +47,14 @@ import {
   calculateMatrixDayHoursFromTimes,
   updateEmployeeMatrixDayEntry,
   getQrPunchStorageKey,
+  getFacePunchStorageKey,
 } from '../../lib/matrixTimekeeping';
-import { loadQrPunchMap, saveQrPunchMap } from '../../lib/attendanceQr';
+import {
+  loadQrPunchMap,
+  saveQrPunchMap,
+  loadFacePunchMap,
+  saveFacePunchMap,
+} from '../../lib/attendanceQr';
 import {
   AbnormalAttendanceHistorySection,
   AbnormalAttendanceModal,
@@ -96,10 +103,14 @@ export interface ComparisonRow {
   bcStatus: string;
   hasBcWork: boolean;
 
-  // MÁY QUẸT THẺ / CHẤM CÔNG QR (3 cột)
-  compareSource?: 'MQT' | 'QR';
+  // MÁY QUẸT THẺ / CHẤM CÔNG QR / KHUÔN MẶT (3 cột)
+  compareSource?: 'MQT' | 'QR' | 'FACE';
   rawInTime: string;
   rawOutTime: string;
+  qrInTime?: string;
+  qrOutTime?: string;
+  faceInTime?: string;
+  faceOutTime?: string;
   mqtInTime: string; // After applying rule
   mqtOutTime: string; // After applying rule
   mqtOtHours: number; // Calculated OT
@@ -506,7 +517,7 @@ export function buildComparisonRowForEmployeeDay(params: {
   bcEntry?: MatrixDayTimeEntry;
   holidayMap?: Record<number, boolean>;
   swipeRecord?: MachineSwipeRecord;
-  compareSource?: 'MQT' | 'QR';
+  compareSource?: 'MQT' | 'QR' | 'FACE';
 }): ComparisonRow {
   const {
     staff,
@@ -518,8 +529,9 @@ export function buildComparisonRowForEmployeeDay(params: {
     swipeRecord,
     compareSource = 'MQT',
   } = params;
+  const isFaceMode = compareSource === 'FACE';
   const isQrMode = compareSource === 'QR';
-  const srcShort = isQrMode ? 'QR' : 'MQT';
+  const srcShort = isFaceMode ? 'Khuôn mặt' : isQrMode ? 'QR' : 'MQT';
 
   const dateObj = new Date(selectedYear, selectedMonth - 1, day);
   const dayOfWeekNum = dateObj.getDay();
@@ -577,7 +589,9 @@ export function buildComparisonRowForEmployeeDay(params: {
   // 3. COMPARE & ANALYZE DISCREPANCIES
   let discrepancyType: DiscrepancyType = 'MATCH';
   let discrepancyLabel = 'Khớp chuẩn';
-  let discrepancyDetail = isQrMode
+  let discrepancyDetail = isFaceMode
+    ? 'Dữ liệu chấm công khuôn mặt khớp 100% với bảng chấm công thường.'
+    : isQrMode
     ? 'Dữ liệu quét QR khớp 100% với bảng chấm công thường.'
     : 'Dữ liệu quẹt thẻ khớp 100% với bảng chấm công.';
   let lateMinutes = 0;
@@ -600,12 +614,21 @@ export function buildComparisonRowForEmployeeDay(params: {
         : 'Nghỉ theo lịch phân công.';
     } else {
       discrepancyType = 'UNSCHEDULED_SWIPE';
-      if (isQrMode && !isSunday && !isHoliday && !isResigned && !isRegimeLeave) {
+      if (isFaceMode && !isSunday && !isHoliday && !isRegimeLeave && !isResigned) {
+        discrepancyLabel = 'Có Khuôn mặt · Chưa có BC';
+        discrepancyDetail = `Đã chấm công khuôn mặt (${mqtInTime || '--'} - ${mqtOutTime || '--'}), bảng chấm công thường (BC) chưa nhập giờ.`;
+      } else if (isQrMode && !isSunday && !isHoliday && !isResigned && !isRegimeLeave) {
         discrepancyLabel = 'Có QR · Chưa có BC';
         discrepancyDetail = `Đã quét QR (${mqtInTime || '--'} - ${mqtOutTime || '--'}), bảng chấm công thường (BC) chưa nhập giờ.`;
       } else {
-        discrepancyLabel = isQrMode ? 'Quét QR ngoài lịch' : 'Quẹt ngoài lịch';
-        discrepancyDetail = isQrMode
+        discrepancyLabel = isFaceMode
+          ? 'Khuôn mặt ngoài lịch'
+          : isQrMode
+          ? 'Quét QR ngoài lịch'
+          : 'Quẹt ngoài lịch';
+        discrepancyDetail = isFaceMode
+          ? `Có chấm công khuôn mặt ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'} (Bảng công thường chưa có giờ)`
+          : isQrMode
           ? `Có quét QR ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'} (Bảng công thường chưa có giờ)`
           : `Có quẹt thẻ ngày nghỉ/ngoài lịch: Vào ${mqtInTime || '--'} - Ra ${mqtOutTime || '--'}`;
       }
@@ -614,20 +637,30 @@ export function buildComparisonRowForEmployeeDay(params: {
     // Bảng công có ca làm việc cần chấm công
     if (!rawInTime && !rawOutTime) {
       discrepancyType = 'MISSING_BOTH';
-      discrepancyLabel = isQrMode ? 'Chưa quét QR' : 'Chưa quẹt thẻ';
-      discrepancyDetail = isQrMode
+      discrepancyLabel = isFaceMode
+        ? 'Chưa quét mặt'
+        : isQrMode
+        ? 'Chưa quét QR'
+        : 'Chưa quẹt thẻ';
+      discrepancyDetail = isFaceMode
+        ? `Chưa chấm công khuôn mặt giờ vào và giờ ra (Bảng chấm công thường: ${bcInTime || '08:00'} - ${bcOutTime || '20:00'}).`
+        : isQrMode
         ? `Chưa quét QR giờ vào và giờ ra (Bảng chấm công thường: ${bcInTime || '08:00'} - ${bcOutTime || '20:00'}).`
         : `Máy quẹt thẻ chưa ghi nhận giờ vào và giờ ra (BC yêu cầu: ${bcInTime || '08:00'} - ${bcOutTime || '20:00'}).`;
     } else if (!rawInTime && rawOutTime) {
       discrepancyType = 'MISSING_IN';
       discrepancyLabel = 'Thiếu giờ vào';
-      discrepancyDetail = isQrMode
+      discrepancyDetail = isFaceMode
+        ? `Thiếu giờ vào bằng Khuôn mặt (Bảng chấm công thường ghi nhận vào lúc ${bcInTime || (effectiveShift === 'NIGHT' ? '20:00' : '08:00')}).`
+        : isQrMode
         ? `Thiếu giờ vào bằng QR (Bảng chấm công thường ghi nhận vào lúc ${bcInTime || (effectiveShift === 'NIGHT' ? '20:00' : '08:00')}).`
         : `Thiếu giờ vào trên máy quẹt thẻ (Bảng công ghi nhận vào lúc ${bcInTime || (effectiveShift === 'NIGHT' ? '20:00' : '08:00')}).`;
     } else if (rawInTime && !rawOutTime) {
       discrepancyType = 'MISSING_OUT';
       discrepancyLabel = 'Thiếu giờ ra';
-      discrepancyDetail = isQrMode
+      discrepancyDetail = isFaceMode
+        ? `Thiếu giờ ra bằng Khuôn mặt (Bảng chấm công thường ghi nhận ra lúc ${bcOutTime || (effectiveShift === 'NIGHT' ? '08:00' : '20:00')}).`
+        : isQrMode
         ? `Thiếu giờ ra bằng QR (Bảng chấm công thường ghi nhận ra lúc ${bcOutTime || (effectiveShift === 'NIGHT' ? '08:00' : '20:00')}).`
         : `Thiếu giờ ra trên máy quẹt thẻ (Bảng công ghi nhận ra lúc ${bcOutTime || (effectiveShift === 'NIGHT' ? '08:00' : '20:00')}).`;
     } else {
@@ -677,11 +710,13 @@ export function buildComparisonRowForEmployeeDay(params: {
       } else if (Math.abs(otDifference) >= 0.2) {
         discrepancyType = 'OT_MISMATCH';
         discrepancyLabel = 'Lệch tăng ca';
-        discrepancyDetail = `Lệch tăng ca: Bảng công ${bcOtHours}h vs ${isQrMode ? 'Quét QR' : 'Máy quẹt'} ${mqtOtHours}h (Chênh ${otDifference > 0 ? '+' : ''}${otDifference}h).`;
+        discrepancyDetail = `Lệch tăng ca: Bảng công ${bcOtHours}h vs ${isFaceMode ? 'Khuôn mặt' : isQrMode ? 'Quét QR' : 'Máy quẹt'} ${mqtOtHours}h (Chênh ${otDifference > 0 ? '+' : ''}${otDifference}h).`;
       } else {
         discrepancyType = 'MATCH';
         discrepancyLabel = 'Khớp chuẩn';
-        discrepancyDetail = isQrMode
+        discrepancyDetail = isFaceMode
+          ? 'Dữ liệu chấm công khuôn mặt khớp 100% với bảng chấm công thường.'
+          : isQrMode
           ? 'Dữ liệu quét QR khớp 100% với bảng chấm công thường.'
           : 'Dữ liệu quẹt thẻ khớp 100% với bảng chấm công.';
       }
@@ -1235,6 +1270,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
   const [filterDiscrepancy, setFilterDiscrepancy] = useState<string>('ALL');
   const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
   const qrStorageKey = getQrPunchStorageKey(selectedYear, selectedMonth);
+  const faceStorageKey = getFacePunchStorageKey(selectedYear, selectedMonth);
   const [swipeRecords, setSwipeRecords] = useState<Record<string, MachineSwipeRecord>>(() => {
     try {
       const saved = localStorage.getItem(swipeStorageKey);
@@ -1247,12 +1283,17 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
   const [qrPunchRecords, setQrPunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
     loadQrPunchMap(selectedYear, selectedMonth)
   );
+  const [facePunchRecords, setFacePunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
+    loadFacePunchMap(selectedYear, selectedMonth)
+  );
   const hasManualPunchSourceRef = useRef(false);
-  const [punchSource, setPunchSource] = useState<'MQT' | 'QR'>(() => {
+  const [punchSource, setPunchSource] = useState<'MQT' | 'QR' | 'FACE'>(() => {
     try {
       const savedSwipes = localStorage.getItem(getMachineSwipeStorageKey(now.getFullYear(), now.getMonth() + 1));
       const swipeCount = savedSwipes ? Object.keys(JSON.parse(savedSwipes) || {}).length : 0;
       const qrCount = Object.keys(loadQrPunchMap(now.getFullYear(), now.getMonth() + 1)).length;
+      const faceCount = Object.keys(loadFacePunchMap(now.getFullYear(), now.getMonth() + 1)).length;
+      if (faceCount > 0 && swipeCount === 0 && qrCount === 0) return 'FACE';
       if (qrCount > 0 && swipeCount === 0) return 'QR';
     } catch {
       // ignore
@@ -1262,8 +1303,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
 
-  // Modal manual edit swipe (MQT / QR)
+  // Modal manual edit swipe (MQT / QR / FACE)
   const [editingRow, setEditingRow] = useState<ComparisonRow | null>(null);
+  const [editingSourceOverride, setEditingSourceOverride] = useState<'MQT' | 'QR' | 'FACE' | null>(null);
   const [editInTime, setEditInTime] = useState('');
   const [editOutTime, setEditOutTime] = useState('');
   const [editNote, setEditNote] = useState('');
@@ -1290,7 +1332,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     setTimeout(() => setToastMsg(null), 3500);
   };
 
-  // Reload swipe & QR punch records when year/month changes
+  // Reload swipe, QR & Face punch records when year/month changes
   useEffect(() => {
     let nextSwipes: Record<string, MachineSwipeRecord> = {};
     try {
@@ -1300,16 +1342,23 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       nextSwipes = {};
     }
     const nextQr = loadQrPunchMap(selectedYear, selectedMonth);
+    const nextFace = loadFacePunchMap(selectedYear, selectedMonth);
     setSwipeRecords(nextSwipes);
     setQrPunchRecords(nextQr);
+    setFacePunchRecords(nextFace);
     if (!hasManualPunchSourceRef.current) {
-      if (Object.keys(nextQr).length > 0 && Object.keys(nextSwipes).length === 0) {
+      const sCnt = Object.keys(nextSwipes).length;
+      const qCnt = Object.keys(nextQr).length;
+      const fCnt = Object.keys(nextFace).length;
+      if (fCnt > 0 && sCnt === 0 && qCnt === 0) {
+        setPunchSource('FACE');
+      } else if (qCnt > 0 && sCnt === 0) {
         setPunchSource('QR');
-      } else if (Object.keys(nextSwipes).length > 0 && Object.keys(nextQr).length === 0) {
+      } else if (sCnt > 0 && qCnt === 0 && fCnt === 0) {
         setPunchSource('MQT');
       }
     }
-  }, [swipeStorageKey, qrStorageKey, selectedYear, selectedMonth]);
+  }, [swipeStorageKey, qrStorageKey, faceStorageKey, selectedYear, selectedMonth]);
 
   // Persist machine swipe records
   const saveSwipes = (next: Record<string, MachineSwipeRecord>) => {
@@ -1326,6 +1375,12 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
   const saveQrPunches = (next: Record<string, MachineSwipeRecord>) => {
     setQrPunchRecords(next);
     saveQrPunchMap(selectedYear, selectedMonth, next, 'MULTI');
+  };
+
+  // Persist Face punch records
+  const saveFacePunches = (next: Record<string, MachineSwipeRecord>) => {
+    setFacePunchRecords(next);
+    saveFacePunchMap(selectedYear, selectedMonth, next, 'MULTI');
   };
 
   // Days in month
@@ -1356,10 +1411,16 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
         nextSwipes = {};
       }
       const nextQr = loadQrPunchMap(selectedYear, selectedMonth);
+      const nextFace = loadFacePunchMap(selectedYear, selectedMonth);
       setSwipeRecords(nextSwipes);
       setQrPunchRecords(nextQr);
-      if (!hasManualPunchSourceRef.current && Object.keys(nextQr).length > 0 && Object.keys(nextSwipes).length === 0) {
-        setPunchSource('QR');
+      setFacePunchRecords(nextFace);
+      if (!hasManualPunchSourceRef.current) {
+        if (Object.keys(nextFace).length > 0 && Object.keys(nextSwipes).length === 0 && Object.keys(nextQr).length === 0) {
+          setPunchSource('FACE');
+        } else if (Object.keys(nextQr).length > 0 && Object.keys(nextSwipes).length === 0) {
+          setPunchSource('QR');
+        }
       }
     };
     window.addEventListener(MATRIX_UPDATED_EVENT, handleUpdate);
@@ -1368,12 +1429,17 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       window.removeEventListener(MATRIX_UPDATED_EVENT, handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
-  }, [swipeStorageKey, qrStorageKey, selectedYear, selectedMonth]);
+  }, [swipeStorageKey, qrStorageKey, faceStorageKey, selectedYear, selectedMonth]);
 
   // --- BUILD COMPARISON MATRIX ROWS ---
   const allComparisonRows = useMemo<ComparisonRow[]>(() => {
     const rows: ComparisonRow[] = [];
-    const activePunchMap = punchSource === 'QR' ? qrPunchRecords : swipeRecords;
+    const activePunchMap =
+      punchSource === 'FACE'
+        ? facePunchRecords
+        : punchSource === 'QR'
+        ? qrPunchRecords
+        : swipeRecords;
 
     allStaff.forEach((staff) => {
       // Get Matrix Timekeeping Data for this employee for selectedMonth/Year
@@ -1391,25 +1457,42 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       for (let day = 1; day <= daysInMonth; day++) {
         const swipeKey = `${staff.employeeId.trim().toLowerCase()}_${day}`;
         const swipeRec = activePunchMap[swipeKey];
+        const qrRec = qrPunchRecords[swipeKey];
+        const faceRec = facePunchRecords[swipeKey];
         const bcEntry = daysMap[day];
 
-        rows.push(
-          buildComparisonRowForEmployeeDay({
-            staff,
-            day,
-            selectedYear,
-            selectedMonth,
-            bcEntry,
-            holidayMap,
-            swipeRecord: swipeRec,
-            compareSource: punchSource,
-          })
-        );
+        const built = buildComparisonRowForEmployeeDay({
+          staff,
+          day,
+          selectedYear,
+          selectedMonth,
+          bcEntry,
+          holidayMap,
+          swipeRecord: swipeRec,
+          compareSource: punchSource,
+        });
+        rows.push({
+          ...built,
+          qrInTime: (qrRec?.rawInTime || '').trim(),
+          qrOutTime: (qrRec?.rawOutTime || '').trim(),
+          faceInTime: (faceRec?.rawInTime || '').trim(),
+          faceOutTime: (faceRec?.rawOutTime || '').trim(),
+        });
       }
     });
 
     return rows;
-  }, [allStaff, daysInMonth, selectedYear, selectedMonth, swipeRecords, qrPunchRecords, punchSource, matrixVersion]);
+  }, [
+    allStaff,
+    daysInMonth,
+    selectedYear,
+    selectedMonth,
+    swipeRecords,
+    qrPunchRecords,
+    facePunchRecords,
+    punchSource,
+    matrixVersion,
+  ]);
 
   // --- FILTERED ROWS ---
   const filteredRows = useMemo(() => {
@@ -1757,8 +1840,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
   // --- ACTIONS: EXPORT REPORT ---
   const handleExportReport = () => {
     const wb = XLSX.utils.book_new();
+    const isFace = punchSource === 'FACE';
     const isQr = punchSource === 'QR';
-    const srcName = isQr ? 'Quét QR' : 'Máy Quẹt';
+    const srcName = isFace ? 'Khuôn Mặt' : isQr ? 'Quét QR' : 'Máy Quẹt';
     const headers = [
       'STT',
       'Họ và Tên',
@@ -1775,10 +1859,13 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       `Giờ Vào (${srcName})`,
       `Giờ Ra (${srcName})`,
       `Tăng Ca (${srcName})`,
+      // CỘT QR & KHUÔN MẶT BÊN CẠNH NHAU
+      'Cột QR (Vào - Ra)',
+      'Cột Khuôn Mặt (Vào - Ra)',
       // KẾT QUẢ ĐỐI SOÁT
       'Trạng Thái Đối Soát',
       'Chi Tiết Sai Lệch',
-      isQr ? 'Giờ Quét QR Gốc (Vào - Ra)' : 'Giờ Quẹt Gốc (Vào - Ra)',
+      isFace ? 'Giờ Khuôn Mặt Gốc (Vào - Ra)' : isQr ? 'Giờ Quét QR Gốc (Vào - Ra)' : 'Giờ Quẹt Gốc (Vào - Ra)',
     ];
 
     const data = filteredRows.map((r, idx) => [
@@ -1796,10 +1883,14 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       r.mqtInTime || '—',
       r.mqtOutTime || '—',
       r.mqtOtHours > 0 ? `${r.mqtOtHours}h` : '0h',
+      r.qrInTime || r.qrOutTime ? `${r.qrInTime || '--'} - ${r.qrOutTime || '--'}` : '—',
+      r.faceInTime || r.faceOutTime ? `${r.faceInTime || '--'} - ${r.faceOutTime || '--'}` : '—',
       r.discrepancyLabel,
       r.discrepancyDetail,
       r.rawInTime || r.rawOutTime
         ? `${r.rawInTime || '--'} - ${r.rawOutTime || '--'}`
+        : isFace
+        ? 'Chưa quét mặt'
         : isQr
         ? 'Chưa quét QR'
         : 'Chưa quẹt thẻ',
@@ -1820,6 +1911,8 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       '',
       '',
       `${summaryStats.totalMqtOt}h`,
+      '',
+      '',
       `Khớp: ${summaryStats.matchCount} | Thiếu vào: ${summaryStats.missingInCount} | Thiếu ra: ${summaryStats.missingOutCount}`,
       `Lệch TC: ${summaryStats.otMismatchCount} | Đi muộn/sớm: ${summaryStats.lateEarlyCount}`,
       '',
@@ -1828,7 +1921,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     const ws = XLSX.utils.aoa_to_sheet([
       [
         `BÁO CÁO ĐỐI SOÁT DỮ LIỆU CÔNG - BẢNG CHẤM CÔNG VS ${
-          isQr ? 'CHẤM CÔNG QR' : 'MÁY QUẸT THẺ'
+          isFace ? 'CHẤM CÔNG KHUÔN MẶT' : isQr ? 'CHẤM CÔNG QR' : 'MÁY QUẸT THẺ'
         }`,
       ],
       [`Tháng ${selectedMonth}/${selectedYear} · Đơn vị: Newprotec Vina · Tỷ lệ khớp: ${summaryStats.matchRate}%`],
@@ -1839,7 +1932,10 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     ]);
 
     XLSX.utils.book_append_sheet(wb, ws, `Doi_Soat_T${selectedMonth}_${selectedYear}`);
-    XLSX.writeFile(wb, `Bao_Cao_Doi_Soat_Cong_${isQr ? 'QR_' : ''}T${selectedMonth}_${selectedYear}.xlsx`);
+    XLSX.writeFile(
+      wb,
+      `Bao_Cao_Doi_Soat_Cong_${isFace ? 'KhuonMat_' : isQr ? 'QR_' : ''}T${selectedMonth}_${selectedYear}.xlsx`
+    );
     showToast('Đã xuất file Excel báo cáo đối soát công thành công!');
   };
 
@@ -1848,8 +1944,10 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
     e.preventDefault();
     if (!editingRow) return;
 
+    const targetSource = editingSourceOverride || punchSource;
     const key = `${editingRow.staff.employeeId.trim().toLowerCase()}_${editingRow.day}`;
-    const isQr = punchSource === 'QR';
+    const isFace = targetSource === 'FACE';
+    const isQr = targetSource === 'QR';
     const nextRecord: MachineSwipeRecord = {
       id: key,
       employeeId: editingRow.staff.employeeId,
@@ -1858,18 +1956,29 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       date: editingRow.dateStr,
       rawInTime: normalizeTimeString(editInTime),
       rawOutTime: normalizeTimeString(editOutTime),
-      note: editNote.trim() || (isQr ? 'Cập nhật giờ QR bởi HC-NS' : 'Cập nhật thủ công bởi HC-NS'),
+      note:
+        editNote.trim() ||
+        (isFace
+          ? 'Cập nhật giờ Khuôn mặt bởi HC-NS'
+          : isQr
+          ? 'Cập nhật giờ QR bởi HC-NS'
+          : 'Cập nhật thủ công bởi HC-NS'),
     };
 
-    if (isQr) {
+    if (isFace) {
+      saveFacePunches({ ...facePunchRecords, [key]: nextRecord });
+    } else if (isQr) {
       saveQrPunches({ ...qrPunchRecords, [key]: nextRecord });
     } else {
       saveSwipes({ ...swipeRecords, [key]: nextRecord });
     }
 
     setEditingRow(null);
+    setEditingSourceOverride(null);
     showToast(
-      `Đã cập nhật giờ ${isQr ? 'chấm công QR' : 'quẹt thẻ'} ngày ${editingRow.dateStr} cho ${editingRow.staff.fullName}!`
+      `Đã cập nhật giờ ${
+        isFace ? 'chấm công khuôn mặt' : isQr ? 'chấm công QR' : 'quẹt thẻ'
+      } ngày ${editingRow.dateStr} cho ${editingRow.staff.fullName}!`
     );
   };
 
@@ -1973,8 +2082,14 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
 
     if (applyFixToMachine) {
       const key = `${requestModalRow.staff.employeeId.trim().toLowerCase()}_${requestModalRow.day}`;
-      const isQr = (requestModalRow.compareSource || punchSource) === 'QR';
-      const existingRecord = isQr ? qrPunchRecords[key] : swipeRecords[key];
+      const effectiveSrc = requestModalRow.compareSource || punchSource;
+      const isFace = effectiveSrc === 'FACE';
+      const isQr = effectiveSrc === 'QR';
+      const existingRecord = isFace
+        ? facePunchRecords[key]
+        : isQr
+        ? qrPunchRecords[key]
+        : swipeRecords[key];
       const nextIn =
         normalizeTimeString(confirmedInTime) ||
         existingRecord?.rawInTime ||
@@ -1996,7 +2111,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
         rawOutTime: nextOut,
         note: `Xác nhận NPT-FM-008: ${request.reason}`,
       };
-      if (isQr) {
+      if (isFace) {
+        saveFacePunches({ ...facePunchRecords, [key]: updatedRec });
+      } else if (isQr) {
         saveQrPunches({ ...qrPunchRecords, [key]: updatedRec });
       } else {
         saveSwipes({ ...swipeRecords, [key]: updatedRec });
@@ -2023,7 +2140,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             <div>
               <h2 className="text-sm sm:text-lg font-bold text-white flex flex-wrap items-center justify-center sm:justify-start gap-2 uppercase tracking-wide">
                 <span>
-                  {punchSource === 'QR'
+                  {punchSource === 'FACE'
+                    ? 'Dữ Liệu Công & Đối Soát Chấm Công Khuôn Mặt'
+                    : punchSource === 'QR'
                     ? 'Dữ Liệu Công & Đối Soát Chấm Công QR'
                     : 'Dữ Liệu Công & Đối Soát Máy Quẹt Thẻ'}
                 </span>
@@ -2035,9 +2154,11 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-slate-400 mt-1 sm:mt-0.5 text-center sm:text-left">
-                {punchSource === 'QR'
+                {punchSource === 'FACE'
+                  ? 'Đang đối chiếu giờ vào, giờ ra, tăng ca giữa Bảng chấm công thường & Chấm công Khuôn mặt.'
+                  : punchSource === 'QR'
                   ? 'Đang đối chiếu 6 cột giờ vào, giờ ra, tăng ca giữa Bảng chấm công thường & Chấm công bằng Mã QR.'
-                  : 'Tự động đối chiếu 6 cột giờ vào, giờ ra, tăng ca giữa Bảng chấm công & File máy quẹt thẻ. Có thể chuyển sang QR để đối chiếu chấm công QR.'}
+                  : 'Tự động đối chiếu giữa Bảng chấm công, Máy quẹt thẻ, Chấm công QR và Chấm công Khuôn mặt.'}
               </p>
             </div>
           </div>
@@ -2279,6 +2400,20 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
           >
             Quét QR: {Object.keys(qrPunchRecords).length} lượt
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              hasManualPunchSourceRef.current = true;
+              setPunchSource('FACE');
+            }}
+            className={`px-2.5 py-1 rounded-full border font-bold cursor-pointer transition-colors ${
+              punchSource === 'FACE'
+                ? 'bg-sky-500/25 text-sky-200 border-sky-500/60'
+                : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+            }`}
+          >
+            Khuôn mặt: {Object.keys(facePunchRecords).length} lượt
+          </button>
         </div>
       </div>
 
@@ -2356,7 +2491,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
 
         <div className="bg-purple-950/25 border border-purple-700/50 p-3 rounded-xl">
           <div className="text-[10px] text-purple-300 uppercase font-semibold flex items-center justify-between">
-            <span>Tăng Ca BC vs {punchSource === 'QR' ? 'QR' : 'MQT'}</span>
+            <span>
+              Tăng Ca BC vs {punchSource === 'FACE' ? 'Khuôn mặt' : punchSource === 'QR' ? 'QR' : 'MQT'}
+            </span>
             <Timer className="w-3.5 h-3.5 text-purple-400" />
           </div>
           <div className="text-xl font-bold font-mono text-purple-300 mt-1">
@@ -2374,7 +2511,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       {/* Filter Toolbar */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
         <div className="flex flex-wrap items-center gap-2">
-          {/* Source Mode Switcher: Quẹt thẻ vs QR */}
+          {/* Source Mode Switcher: Quẹt thẻ vs QR vs Khuôn mặt */}
           <div className="inline-flex items-center p-0.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs">
             <button
               type="button"
@@ -2404,6 +2541,21 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             >
               <QrCode className="w-3.5 h-3.5" />
               <span>Chấm công QR</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                hasManualPunchSourceRef.current = true;
+                setPunchSource('FACE');
+              }}
+              className={`px-2.5 py-1 rounded-md font-bold inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                punchSource === 'FACE'
+                  ? 'bg-sky-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <ScanFace className="w-3.5 h-3.5" />
+              <span>Khuôn mặt</span>
             </button>
           </div>
 
@@ -2462,7 +2614,11 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             <option value="MISSING_IN">❌ Thiếu giờ vào</option>
             <option value="MISSING_OUT">❌ Thiếu giờ ra</option>
             <option value="MISSING_BOTH">
-              {punchSource === 'QR' ? '⛔ Chưa quét QR cả ca' : '⛔ Chưa quẹt thẻ cả ca'}
+              {punchSource === 'FACE'
+                ? '⛔ Chưa quét mặt cả ca'
+                : punchSource === 'QR'
+                ? '⛔ Chưa quét QR cả ca'
+                : '⛔ Chưa quẹt thẻ cả ca'}
             </option>
             <option value="LATE_EARLY">⏱️ Đi muộn / Về sớm</option>
             <option value="OT_MISMATCH">⚡ Lệch giờ tăng ca</option>
@@ -2523,18 +2679,22 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                   1. BẢNG CHẤM CÔNG (LỊCH PHÂN CÔNG)
                 </th>
 
-                {/* HEADER NHÓM 2: MÁY QUẸT THẺ HOẶC CHẤM CÔNG QR (Lựa chọn Quẹt thẻ / QR) */}
+                {/* HEADER NHÓM 2: MÁY QUẸT THẺ HOẶC CHẤM CÔNG QR HOẶC KHUÔN MẶT */}
                 <th
                   colSpan={3}
                   className={`py-1.5 px-2 text-center border-r border-slate-800 font-bold border-b ${
-                    punchSource === 'QR'
+                    punchSource === 'FACE'
+                      ? 'bg-sky-950/45 text-sky-300 border-sky-800/40'
+                      : punchSource === 'QR'
                       ? 'bg-emerald-950/45 text-emerald-300 border-emerald-800/40'
                       : 'bg-blue-950/40 text-blue-300 border-blue-800/40'
                   }`}
                 >
                   <div className="inline-flex items-center justify-center gap-2 flex-wrap">
                     <span>
-                      {punchSource === 'QR'
+                      {punchSource === 'FACE'
+                        ? '2. CHẤM CÔNG KHUÔN MẶT'
+                        : punchSource === 'QR'
                         ? '2. CHẤM CÔNG BẰNG MÃ QR'
                         : '2. MÁY QUẸT THẺ (DỮ LIỆU ĐÃ QUY CHUẨN)'}
                     </span>
@@ -2567,8 +2727,30 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                       >
                         QR
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          hasManualPunchSourceRef.current = true;
+                          setPunchSource('FACE');
+                        }}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-colors cursor-pointer ${
+                          punchSource === 'FACE'
+                            ? 'bg-sky-600 text-white shadow-xs'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Khuôn mặt
+                      </button>
                     </div>
                   </div>
+                </th>
+
+                {/* HEADER NHÓM 2B: CỘT QR & KHUÔN MẶT BÊN CẠNH NHAU ĐỂ TIỆN THAO TÁC */}
+                <th
+                  colSpan={2}
+                  className="py-1.5 px-2 text-center border-r border-slate-800 bg-sky-950/35 text-sky-300 font-bold border-b border-sky-800/40"
+                >
+                  THAO TÁC NHANH QR &amp; KHUÔN MẶT
                 </th>
 
                 {/* HEADER NHÓM 3: ĐỐI SOÁT & PHÂN TÍCH */}
@@ -2576,7 +2758,9 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                   colSpan={3}
                   className="py-1.5 px-2 text-center bg-cyan-950/40 text-cyan-300 font-bold border-b border-cyan-800/40"
                 >
-                  {punchSource === 'QR'
+                  {punchSource === 'FACE'
+                    ? '3. ĐỐI SOÁT KHUÔN MẶT VS CHẤM CÔNG THƯỜNG'
+                    : punchSource === 'QR'
                     ? '3. ĐỐI SOÁT CHẤM CÔNG QR VS CHẤM CÔNG THƯỜNG'
                     : '3. TỰ ĐỘNG SO SÁNH & PHÂN TÍCH SAI LỆCH'}
                 </th>
@@ -2594,33 +2778,59 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                   Tăng Ca (BC)
                 </th>
 
-                {/* 3 Cột Máy Quẹt Thẻ hoặc Chấm Công QR */}
+                {/* 3 Cột Máy Quẹt Thẻ / QR / Khuôn mặt */}
                 <th
                   className={`py-2 px-3 text-center border-r border-slate-800 min-w-[140px] ${
-                    punchSource === 'QR'
+                    punchSource === 'FACE'
+                      ? 'bg-sky-950/20 text-sky-300'
+                      : punchSource === 'QR'
                       ? 'bg-emerald-950/20 text-emerald-300'
                       : 'bg-blue-950/20 text-blue-300'
                   }`}
                 >
-                  {punchSource === 'QR' ? 'Giờ Vào (QR)' : 'Giờ Vào (MQT)'}
+                  {punchSource === 'FACE'
+                    ? 'Giờ Vào (Khuôn mặt)'
+                    : punchSource === 'QR'
+                    ? 'Giờ Vào (QR)'
+                    : 'Giờ Vào (MQT)'}
                 </th>
                 <th
                   className={`py-2 px-3 text-center border-r border-slate-800 min-w-[140px] ${
-                    punchSource === 'QR'
+                    punchSource === 'FACE'
+                      ? 'bg-sky-950/20 text-sky-300'
+                      : punchSource === 'QR'
                       ? 'bg-emerald-950/20 text-emerald-300'
                       : 'bg-blue-950/20 text-blue-300'
                   }`}
                 >
-                  {punchSource === 'QR' ? 'Giờ Ra (QR)' : 'Giờ Ra (MQT)'}
+                  {punchSource === 'FACE'
+                    ? 'Giờ Ra (Khuôn mặt)'
+                    : punchSource === 'QR'
+                    ? 'Giờ Ra (QR)'
+                    : 'Giờ Ra (MQT)'}
                 </th>
                 <th
                   className={`py-2 px-3 text-center border-r border-slate-800 font-bold min-w-[95px] ${
-                    punchSource === 'QR'
+                    punchSource === 'FACE'
+                      ? 'bg-sky-950/25 text-sky-200'
+                      : punchSource === 'QR'
                       ? 'bg-emerald-950/25 text-emerald-200'
                       : 'bg-blue-950/20 text-cyan-300'
                   }`}
                 >
-                  {punchSource === 'QR' ? 'Tăng Ca (QR)' : 'Tăng Ca (MQT)'}
+                  {punchSource === 'FACE'
+                    ? 'Tăng Ca (Mặt)'
+                    : punchSource === 'QR'
+                    ? 'Tăng Ca (QR)'
+                    : 'Tăng Ca (MQT)'}
+                </th>
+
+                {/* 2 Cột QR & Khuôn Mặt cạnh nhau */}
+                <th className="py-2 px-3 text-center border-r border-slate-800 bg-emerald-950/20 text-emerald-300 min-w-[145px]">
+                  Cột QR (Vào / Ra)
+                </th>
+                <th className="py-2 px-3 text-center border-r border-slate-800 bg-sky-950/20 text-sky-300 min-w-[155px]">
+                  Khuôn Mặt (Vào / Ra)
                 </th>
 
                 {/* Phân tích */}
@@ -2640,7 +2850,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
             <tbody className="divide-y divide-slate-800/70 text-slate-200">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="py-12 text-center text-slate-500">
+                  <td colSpan={17} className="py-12 text-center text-slate-500">
                     Không có dòng dữ liệu nào phù hợp với bộ lọc hiện tại.
                   </td>
                 </tr>
@@ -2839,9 +3049,63 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                         )}
                       </td>
 
-                      {/* --- CỘT 6: TĂNG CA (MÁY QUẸT THẺ) --- */}
+                      {/* --- CỘT 6: TĂNG CA (MÁY QUẸT THẺ / QR / KHUÔN MẶT) --- */}
                       <td className="py-2 px-2 text-center font-mono border-r border-slate-800 bg-blue-950/10 font-bold text-cyan-300">
                         {row.mqtOtHours > 0 ? `${row.mqtOtHours}h` : '0h'}
+                      </td>
+
+                      {/* --- CỘT QR NHANH (BÊN CẠNH KHUÔN MẶT) --- */}
+                      <td
+                        onClick={() => {
+                          setEditingSourceOverride('QR');
+                          setEditingRow(row);
+                          setEditInTime(row.qrInTime || '');
+                          setEditOutTime(row.qrOutTime || '');
+                          const qRec = qrPunchRecords[`${row.staff.employeeId.trim().toLowerCase()}_${row.day}`];
+                          setEditNote(qRec?.note || '');
+                        }}
+                        className="py-2 px-2.5 text-center font-mono border-r border-slate-800 bg-emerald-950/10 hover:bg-emerald-900/25 cursor-pointer transition-colors whitespace-nowrap"
+                        title="Nhấn để chỉnh sửa giờ Chấm Công QR ngày này"
+                      >
+                        {row.qrInTime || row.qrOutTime ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-950/70 border border-emerald-700/50 text-emerald-200 text-[11px] font-bold">
+                            <QrCode className="w-3 h-3 text-emerald-400 shrink-0" />
+                            <span>
+                              {row.qrInTime || '--:--'} - {row.qrOutTime || '--:--'}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 hover:text-emerald-300">
+                            — + QR
+                          </span>
+                        )}
+                      </td>
+
+                      {/* --- CỘT KHUÔN MẶT NHANH (BÊN CẠNH CỘT QR) --- */}
+                      <td
+                        onClick={() => {
+                          setEditingSourceOverride('FACE');
+                          setEditingRow(row);
+                          setEditInTime(row.faceInTime || '');
+                          setEditOutTime(row.faceOutTime || '');
+                          const fRec = facePunchRecords[`${row.staff.employeeId.trim().toLowerCase()}_${row.day}`];
+                          setEditNote(fRec?.note || '');
+                        }}
+                        className="py-2 px-2.5 text-center font-mono border-r border-slate-800 bg-sky-950/10 hover:bg-sky-900/25 cursor-pointer transition-colors whitespace-nowrap"
+                        title="Nhấn để chỉnh sửa giờ Chấm Công Khuôn Mặt ngày này"
+                      >
+                        {row.faceInTime || row.faceOutTime ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-950/70 border border-sky-600/50 text-sky-200 text-[11px] font-bold">
+                            <ScanFace className="w-3 h-3 text-sky-400 shrink-0" />
+                            <span>
+                              {row.faceInTime || '--:--'} - {row.faceOutTime || '--:--'}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 hover:text-sky-300">
+                            — + Mặt
+                          </span>
+                        )}
                       </td>
 
                       {/* --- KẾT QUẢ ĐỐI SOÁT (STATUS BADGE) --- */}
@@ -2943,24 +3207,31 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                           <button
                             type="button"
                             onClick={() => {
+                              setEditingSourceOverride(null);
                               setEditingRow(row);
                               setEditInTime(row.rawInTime || row.mqtInTime || '');
                               setEditOutTime(row.rawOutTime || row.mqtOutTime || '');
                               setEditNote(row.rawNote || '');
                             }}
                             className={`inline-flex items-center gap-1 px-1.5 py-1 rounded text-[10px] font-semibold cursor-pointer transition-colors ${
-                              punchSource === 'QR'
+                              punchSource === 'FACE'
+                                ? 'bg-sky-950/70 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-700/50'
+                                : punchSource === 'QR'
                                 ? 'bg-emerald-950/70 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-700/50'
                                 : 'bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white'
                             }`}
                             title={
-                              punchSource === 'QR'
+                              punchSource === 'FACE'
+                                ? 'Chỉnh sửa giờ Chấm công Khuôn mặt ngày này'
+                                : punchSource === 'QR'
                                 ? 'Chỉnh sửa giờ Chấm công QR ngày này'
                                 : 'Chỉnh sửa giờ Máy quẹt thẻ ngày này'
                             }
                           >
                             <Edit3 className="w-3 h-3" />
-                            <span>{punchSource === 'QR' ? 'QR' : 'MQT'}</span>
+                            <span>
+                              {punchSource === 'FACE' ? 'Mặt' : punchSource === 'QR' ? 'QR' : 'MQT'}
+                            </span>
                           </button>
 
                           {(isMissingIn || isMissingOut || isMissingBoth || isLateOrEarly || isOtMismatch || row.discrepancyType === 'UNSCHEDULED_SWIPE') && (
@@ -2987,105 +3258,128 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
       {/* LỊCH SỬ TẤT CẢ NHÂN VIÊN ĐÃ XÁC NHẬN GIẢI TRÌNH CÔNG & ĐÃ IN (CHỈ XEM & IN LẠI) */}
       <AbnormalAttendanceHistorySection attendanceRequests={attendanceRequests} />
 
-      {/* MODAL 1: CHỈNH SỬA THỦ CÔNG GIỜ QUẸT THẺ */}
-      {editingRow && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/40 text-blue-400 flex items-center justify-center">
-                  <Edit3 className="w-4 h-4" />
+      {/* MODAL 1: CHỈNH SỬA THỦ CÔNG GIỜ QUẸT THẺ / QR / KHUÔN MẶT */}
+      {editingRow && (() => {
+        const modalSource = editingSourceOverride || punchSource;
+        return (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl relative">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/40 text-blue-400 flex items-center justify-center">
+                    {modalSource === 'FACE' ? (
+                      <ScanFace className="w-4 h-4 text-sky-400" />
+                    ) : modalSource === 'QR' ? (
+                      <QrCode className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <Edit3 className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white uppercase">
+                      {modalSource === 'FACE'
+                        ? 'Cập Nhật Giờ Khuôn Mặt'
+                        : modalSource === 'QR'
+                        ? 'Cập Nhật Giờ Chấm Công QR'
+                        : 'Cập Nhật Giờ Quẹt Thẻ'}
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Ngày {editingRow.dateStr} ({editingRow.dayOfWeek}) · {editingRow.shiftLabel}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white uppercase">
-                    {punchSource === 'QR' ? 'Cập Nhật Giờ Chấm Công QR' : 'Cập Nhật Giờ Quẹt Thẻ'}
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    Ngày {editingRow.dateStr} ({editingRow.dayOfWeek}) · {editingRow.shiftLabel}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingRow(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1 font-mono">
-              <div className="text-slate-300">
-                Nhân viên: <strong className="text-white font-sans">{editingRow.staff.fullName}</strong> ({editingRow.staff.employeeId})
-              </div>
-              <div className="text-slate-400 text-[11px]">
-                Giờ bảng công (BC): <span className="text-amber-300 font-bold">{editingRow.bcInTime || '—'} - {editingRow.bcOutTime || '—'}</span> (Tăng ca: {editingRow.bcOtHours}h)
-              </div>
-            </div>
-
-            <form onSubmit={handleSaveManualEdit} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">
-                    Giờ Vào Thực Tế
-                  </label>
-                  <input
-                    type="time"
-                    value={editInTime}
-                    onChange={(e) => setEditInTime(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 font-mono text-center text-white text-sm focus:border-blue-500 focus:outline-hidden"
-                  />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    Ca ngày &lt; 08:00 sẽ tính 08:00
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">
-                    Giờ Ra Thực Tế
-                  </label>
-                  <input
-                    type="time"
-                    value={editOutTime}
-                    onChange={(e) => setEditOutTime(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 font-mono text-center text-white text-sm focus:border-blue-500 focus:outline-hidden"
-                  />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    Ca ngày &gt; 20:00 sẽ tính 20:00
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">Ghi Chú Bổ Sung</label>
-                <input
-                  type="text"
-                  value={editNote}
-                  onChange={(e) => setEditNote(e.target.value)}
-                  placeholder="Lý do bổ sung (quên quẹt, được tổ trưởng xác nhận...)"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setEditingRow(null)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                  onClick={() => {
+                    setEditingRow(null);
+                    setEditingSourceOverride(null);
+                  }}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg"
                 >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
-                >
-                  {punchSource === 'QR' ? 'Lưu Giờ QR' : 'Lưu Giờ Quẹt'}
+                  <X className="w-4 h-4" />
                 </button>
               </div>
-            </form>
+
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1 font-mono">
+                <div className="text-slate-300">
+                  Nhân viên: <strong className="text-white font-sans">{editingRow.staff.fullName}</strong> ({editingRow.staff.employeeId})
+                </div>
+                <div className="text-slate-400 text-[11px]">
+                  Giờ bảng công (BC): <span className="text-amber-300 font-bold">{editingRow.bcInTime || '—'} - {editingRow.bcOutTime || '—'}</span> (Tăng ca: {editingRow.bcOtHours}h)
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveManualEdit} className="space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">
+                      Giờ Vào Thực Tế
+                    </label>
+                    <input
+                      type="time"
+                      value={editInTime}
+                      onChange={(e) => setEditInTime(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 font-mono text-center text-white text-sm focus:border-blue-500 focus:outline-hidden"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">
+                      Ca ngày &lt; 08:00 sẽ tính 08:00
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">
+                      Giờ Ra Thực Tế
+                    </label>
+                    <input
+                      type="time"
+                      value={editOutTime}
+                      onChange={(e) => setEditOutTime(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 font-mono text-center text-white text-sm focus:border-blue-500 focus:outline-hidden"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-0.5 block">
+                      Ca ngày &gt; 20:00 sẽ tính 20:00
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Ghi Chú Bổ Sung</label>
+                  <input
+                    type="text"
+                    value={editNote}
+                    onChange={(e) => setEditNote(e.target.value)}
+                    placeholder="Lý do bổ sung (quên quẹt, được tổ trưởng xác nhận...)"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingRow(null);
+                      setEditingSourceOverride(null);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer"
+                  >
+                    {modalSource === 'FACE'
+                      ? 'Lưu Giờ Khuôn Mặt'
+                      : modalSource === 'QR'
+                      ? 'Lưu Giờ QR'
+                      : 'Lưu Giờ Quẹt'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL 2: PHIẾU XÁC NHẬN CHẤM CÔNG BẤT THƯỜNG (NPT-FM-008) GỘP TRONG NÚT GIẢI TRÌNH */}
       {requestModalRow && (
@@ -3264,23 +3558,33 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
 
                 <div
                   className={`p-2 rounded-lg border ${
-                    punchSource === 'QR'
+                    punchSource === 'FACE'
+                      ? 'bg-sky-950/20 border-sky-800/30'
+                      : punchSource === 'QR'
                       ? 'bg-emerald-950/20 border-emerald-800/30'
                       : 'bg-blue-950/20 border-blue-800/30'
                   }`}
                 >
                   <div
                     className={`text-[10px] font-sans uppercase font-bold mb-0.5 ${
-                      punchSource === 'QR' ? 'text-emerald-400' : 'text-blue-400'
+                      punchSource === 'FACE'
+                        ? 'text-sky-400'
+                        : punchSource === 'QR'
+                        ? 'text-emerald-400'
+                        : 'text-blue-400'
                     }`}
                   >
-                    {punchSource === 'QR' ? 'Chấm Công QR (Quy Chuẩn)' : 'Máy Quẹt Thẻ (Quy Chuẩn)'}
+                    {punchSource === 'FACE'
+                      ? 'Chấm Công Khuôn Mặt (Quy Chuẩn)'
+                      : punchSource === 'QR'
+                      ? 'Chấm Công QR (Quy Chuẩn)'
+                      : 'Máy Quẹt Thẻ (Quy Chuẩn)'}
                   </div>
                   <div className="text-blue-200 font-bold">
                     {editingBcRow.mqtInTime || '—'} → {editingBcRow.mqtOutTime || '—'}
                   </div>
                   <div className="text-slate-400 text-[10px]">
-                    Tăng ca {punchSource === 'QR' ? 'QR' : 'MQT'}: {editingBcRow.mqtOtHours}h
+                    Tăng ca {punchSource === 'FACE' ? 'Khuôn mặt' : punchSource === 'QR' ? 'QR' : 'MQT'}: {editingBcRow.mqtOtHours}h
                   </div>
                 </div>
               </div>
@@ -3300,8 +3604,13 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
                   <span>
-                    Lấy theo giờ {punchSource === 'QR' ? 'Chấm công QR' : 'Máy quẹt thẻ'} (
-                    {editingBcRow.mqtInTime || bcEditInTime || '--'} →{' '}
+                    Lấy theo giờ{' '}
+                    {punchSource === 'FACE'
+                      ? 'Khuôn mặt'
+                      : punchSource === 'QR'
+                      ? 'Chấm công QR'
+                      : 'Máy quẹt thẻ'}{' '}
+                    ({editingBcRow.mqtInTime || bcEditInTime || '--'} →{' '}
                     {editingBcRow.mqtOutTime || bcEditOutTime || '--'})
                   </span>
                 </button>

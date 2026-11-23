@@ -19,13 +19,19 @@ import {
   MATRIX_UPDATED_EVENT,
   getEmployeeProfileMatrixData,
   getQrPunchStorageKey,
+  getFacePunchStorageKey,
   hasMatrixRealData,
   isDayBeforeJoinDate,
   updateEmployeeMatrixDayEntry,
   calculateMatrixDayHoursFromTimes,
   dispatchMatrixUpdatedEvent,
 } from '../../lib/matrixTimekeeping';
-import { loadQrPunchMap, saveQrPunchMap } from '../../lib/attendanceQr';
+import {
+  loadQrPunchMap,
+  saveQrPunchMap,
+  loadFacePunchMap,
+  saveFacePunchMap,
+} from '../../lib/attendanceQr';
 import {
   SALARY_NUMERIC_FIELDS,
   formatVnd,
@@ -78,6 +84,7 @@ import {
   Check,
   RotateCcw,
   QrCode,
+  ScanFace,
   ShieldCheck,
   ShieldOff,
   ScanLine,
@@ -372,6 +379,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   const normalizedEmpId = empId.trim().toLowerCase();
   const swipeStorageKey = getMachineSwipeStorageKey(selectedYear, selectedMonth);
   const qrStorageKey = getQrPunchStorageKey(selectedYear, selectedMonth);
+  const faceStorageKey = getFacePunchStorageKey(selectedYear, selectedMonth);
 
   const [swipeRecords, setSwipeRecords] = useState<Record<string, MachineSwipeRecord>>(() => {
     try {
@@ -385,10 +393,16 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     loadQrPunchMap(selectedYear, selectedMonth)
   );
 
+  const [facePunchRecords, setFacePunchRecords] = useState<Record<string, MachineSwipeRecord>>(() =>
+    loadFacePunchMap(selectedYear, selectedMonth)
+  );
+
   const hasManualSourceChoiceRef = useRef(false);
-  const [comparisonSource, setComparisonSource] = useState<'MQT' | 'QR'>(() => {
+  const [comparisonSource, setComparisonSource] = useState<'MQT' | 'QR' | 'FACE'>(() => {
     const initialQr = loadQrPunchMap(selectedYear, selectedMonth);
+    const initialFace = loadFacePunchMap(selectedYear, selectedMonth);
     const hasEmpQr = Object.keys(initialQr).some((k) => k.startsWith(`${normalizedEmpId}_`));
+    const hasEmpFace = Object.keys(initialFace).some((k) => k.startsWith(`${normalizedEmpId}_`));
     let hasEmpSwipe = false;
     try {
       const rawSwipes = localStorage.getItem(swipeStorageKey);
@@ -398,7 +412,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       }
     } catch {}
     if (hasEmpQr && !hasEmpSwipe) return 'QR';
+    if (hasEmpFace && !hasEmpSwipe && !hasEmpQr) return 'FACE';
     if (Object.keys(initialQr).length > 0 && Object.keys(swipeRecords).length === 0) return 'QR';
+    if (Object.keys(initialFace).length > 0 && Object.keys(swipeRecords).length === 0 && Object.keys(initialQr).length === 0) {
+      return 'FACE';
+    }
     return 'MQT';
   });
 
@@ -413,19 +431,27 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       nextSwipes = {};
     }
     const nextQr = loadQrPunchMap(selectedYear, selectedMonth);
+    const nextFace = loadFacePunchMap(selectedYear, selectedMonth);
     setSwipeRecords(nextSwipes);
     setQrPunchRecords(nextQr);
+    setFacePunchRecords(nextFace);
 
     if (!hasManualSourceChoiceRef.current) {
       const hasEmpQr = Object.keys(nextQr).some((k) => k.startsWith(`${normalizedEmpId}_`));
+      const hasEmpFace = Object.keys(nextFace).some((k) => k.startsWith(`${normalizedEmpId}_`));
       const hasEmpSwipe = Object.keys(nextSwipes).some((k) => k.startsWith(`${normalizedEmpId}_`));
       if ((hasEmpQr && !hasEmpSwipe) || (Object.keys(nextQr).length > 0 && Object.keys(nextSwipes).length === 0)) {
         setComparisonSource('QR');
-      } else if (hasEmpSwipe && !hasEmpQr) {
+      } else if (
+        (hasEmpFace && !hasEmpSwipe && !hasEmpQr) ||
+        (Object.keys(nextFace).length > 0 && Object.keys(nextSwipes).length === 0 && Object.keys(nextQr).length === 0)
+      ) {
+        setComparisonSource('FACE');
+      } else if (hasEmpSwipe && !hasEmpQr && !hasEmpFace) {
         setComparisonSource('MQT');
       }
     }
-  }, [swipeStorageKey, qrStorageKey, matrixRefreshTick, selectedYear, selectedMonth, normalizedEmpId]);
+  }, [swipeStorageKey, qrStorageKey, faceStorageKey, matrixRefreshTick, selectedYear, selectedMonth, normalizedEmpId]);
 
   // Build day-by-day rows + 7 KPI aggregates
   const { dayRows, stats } = useMemo(() => {
@@ -530,6 +556,10 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
       const qrInTime = hideAsBeforeJoin || isResigned ? '' : (qrRec?.rawInTime || '').trim();
       const qrOutTime = hideAsBeforeJoin || isResigned ? '' : (qrRec?.rawOutTime || '').trim();
 
+      const faceRec = facePunchRecords[`${normalizedEmpId}_${day}`];
+      const faceInTime = hideAsBeforeJoin || isResigned ? '' : (faceRec?.rawInTime || '').trim();
+      const faceOutTime = hideAsBeforeJoin || isResigned ? '' : (faceRec?.rawOutTime || '').trim();
+
       return {
         day,
         dateIso,
@@ -540,6 +570,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         outTime: hideAsBeforeJoin || isResigned ? '' : entry?.outTime || '--:--',
         qrInTime,
         qrOutTime,
+        faceInTime,
+        faceOutTime,
         regularHours: reg,
         totalHrs: Math.round(totalHrs * 10) / 10,
         totalOtDayRow: Math.round(totalOtDayRow * 10) / 10,
@@ -575,7 +607,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         sumOt,
       },
     };
-  }, [daysInMonth, selectedYear, selectedMonth, empMatrixDays, holidayMap, staffInfo?.shift, qrPunchRecords, normalizedEmpId]);
+  }, [daysInMonth, selectedYear, selectedMonth, empMatrixDays, holidayMap, staffInfo?.shift, qrPunchRecords, facePunchRecords, normalizedEmpId]);
 
   // Filtered employee records across HR modules
   const myTimekeeping = timekeepingRecords.filter((t) => t.employeeId === empId);
@@ -686,9 +718,19 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     saveQrPunchMap(selectedYear, selectedMonth, next, empDept);
   };
 
-  // Day-by-day comparison rows between Bảng Chấm Công (BC) and Máy Quẹt Thẻ (MQT) or Chấm Công QR (QR)
+  const saveFacePunches = (next: Record<string, MachineSwipeRecord>) => {
+    setFacePunchRecords(next);
+    saveFacePunchMap(selectedYear, selectedMonth, next, empDept);
+  };
+
+  // Day-by-day comparison rows between Bảng Chấm Công (BC) and MQT / QR / Khuôn Mặt
   const comparisonRows = useMemo<ComparisonRow[]>(() => {
-    const activeMap = comparisonSource === 'QR' ? qrPunchRecords : swipeRecords;
+    const activeMap =
+      comparisonSource === 'QR'
+        ? qrPunchRecords
+        : comparisonSource === 'FACE'
+        ? facePunchRecords
+        : swipeRecords;
     const rows: ComparisonRow[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
       const swipeKey = `${resolvedStaff.employeeId.trim().toLowerCase()}_${day}`;
@@ -717,6 +759,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
     holidayMap,
     swipeRecords,
     qrPunchRecords,
+    facePunchRecords,
     comparisonSource,
   ]);
 
@@ -1348,6 +1391,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                         <th className="py-2.5 px-3 text-center">GIỜ VÀO (BC)</th>
                         <th className="py-2.5 px-3 text-center">GIỜ RA (BC)</th>
                         <th className="py-2.5 px-3 text-center text-cyan-300">QUÉT QR (VÀO - RA)</th>
+                        <th className="py-2.5 px-3 text-center text-sky-300">KHUÔN MẶT (VÀO - RA)</th>
                         <th className="py-2.5 px-3 text-center text-emerald-400">GIỜ CÔNG</th>
                         <th className="py-2.5 px-3 text-center text-amber-400">TC NGÀY</th>
                         <th className="py-2.5 px-3 text-center text-purple-300">TC ĐÊM</th>
@@ -1396,6 +1440,27 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                                 <QrCode className="w-3 h-3 text-cyan-400 shrink-0" />
                                 <span>
                                   {row.qrInTime || '--:--'} / {row.qrOutTime || '--:--'}
+                                </span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-600">--:--</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            {row.faceInTime || row.faceOutTime ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  hasManualSourceChoiceRef.current = true;
+                                  setComparisonSource('FACE');
+                                  setActiveTab('confirm');
+                                }}
+                                title="Xem đối chiếu Chấm công Khuôn mặt vs Chấm công thường"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-950/70 hover:bg-sky-900/80 border border-sky-500/40 text-sky-200 text-[10px] font-mono font-bold cursor-pointer transition-colors"
+                              >
+                                <ScanFace className="w-3 h-3 text-sky-400 shrink-0" />
+                                <span>
+                                  {row.faceInTime || '--:--'} / {row.faceOutTime || '--:--'}
                                 </span>
                               </button>
                             ) : (
@@ -1524,8 +1589,20 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                       </h3>
                       <p className="text-[11px] text-slate-400 mt-0.5">
                         Đối chiếu giữa <strong className="text-amber-300">Chấm công thường (BC)</strong> và{' '}
-                        <strong className={comparisonSource === 'QR' ? 'text-cyan-300' : 'text-blue-300'}>
-                          {comparisonSource === 'QR' ? 'Chấm công Quét QR' : 'Máy quẹt thẻ (MQT)'}
+                        <strong
+                          className={
+                            comparisonSource === 'QR'
+                              ? 'text-cyan-300'
+                              : comparisonSource === 'FACE'
+                              ? 'text-sky-300'
+                              : 'text-blue-300'
+                          }
+                        >
+                          {comparisonSource === 'QR'
+                            ? 'Chấm công Quét QR'
+                            : comparisonSource === 'FACE'
+                            ? 'Chấm công Khuôn Mặt'
+                            : 'Máy quẹt thẻ (MQT)'}
                         </strong>
                         : chỉ xuất hiện những ngày thiếu giờ vào/ra hoặc sai lệch dữ liệu.
                       </p>
@@ -1563,6 +1640,21 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                         <QrCode className="w-3 h-3" />
                         <span>QR</span>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          hasManualSourceChoiceRef.current = true;
+                          setComparisonSource('FACE');
+                        }}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer whitespace-nowrap ${
+                          comparisonSource === 'FACE'
+                            ? 'bg-sky-600 text-white shadow'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <ScanFace className="w-3 h-3" />
+                        <span>Khuôn mặt</span>
+                      </button>
                     </div>
                     <span className="text-[11px] text-slate-400">
                       Nhân viên: <strong className="text-white">{resolvedStaff.fullName}</strong> ({resolvedStaff.employeeId})
@@ -1580,8 +1672,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     </h4>
                     <p className="text-xs text-slate-300 max-w-lg mx-auto">
                       Không có ngày nào thiếu giờ vào/ra hoặc sai lệch dữ liệu giữa Bảng chấm công và{' '}
-                      {comparisonSource === 'QR' ? 'Chấm công Quét QR' : 'Máy quẹt thẻ'}.
-                      Bạn có thể yên tâm bấm nút &quot;Xác Nhận Đủ Công&quot; phía trên.
+                      {comparisonSource === 'QR'
+                        ? 'Chấm công Quét QR'
+                        : comparisonSource === 'FACE'
+                        ? 'Chấm công Khuôn Mặt'
+                        : 'Máy quẹt thẻ'}
+                      . Bạn có thể yên tâm bấm nút &quot;Xác Nhận Đủ Công&quot; phía trên.
                     </p>
                   </div>
                 ) : (
@@ -1609,6 +1705,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                             className={`py-1.5 px-3 text-center border-r border-slate-800 font-bold border-b whitespace-nowrap ${
                               comparisonSource === 'QR'
                                 ? 'bg-cyan-950/35 text-cyan-300 border-cyan-800/40'
+                                : comparisonSource === 'FACE'
+                                ? 'bg-sky-950/35 text-sky-300 border-sky-800/40'
                                 : 'bg-blue-950/35 text-blue-300 border-blue-800/40'
                             }`}
                           >
@@ -1616,6 +1714,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                               <span>
                                 {comparisonSource === 'QR'
                                   ? '2. CHẤM CÔNG QUÉT QR'
+                                  : comparisonSource === 'FACE'
+                                  ? '2. CHẤM CÔNG KHUÔN MẶT'
                                   : '2. MÁY QUẸT THẺ (MQT)'}
                               </span>
                               <span className="inline-flex items-center p-0.5 rounded bg-slate-950/80 border border-slate-700/80">
@@ -1647,6 +1747,20 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                                 >
                                   QR
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    hasManualSourceChoiceRef.current = true;
+                                    setComparisonSource('FACE');
+                                  }}
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold transition-colors cursor-pointer ${
+                                    comparisonSource === 'FACE'
+                                      ? 'bg-sky-600 text-white'
+                                      : 'text-slate-400 hover:text-white'
+                                  }`}
+                                >
+                                  Khuôn mặt
+                                </button>
                               </span>
                             </div>
                           </th>
@@ -1670,18 +1784,42 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                           <th className="py-2 px-3 text-center border-r border-slate-800 bg-amber-950/15 text-amber-400 font-bold min-w-[95px] whitespace-nowrap">
                             Tăng Ca (BC)
                           </th>
-                          <th className={`py-2 px-3 text-center border-r border-slate-800 min-w-[145px] whitespace-nowrap ${
-                            comparisonSource === 'QR' ? 'bg-cyan-950/15 text-cyan-300' : 'bg-blue-950/15 text-blue-300'
-                          }`}>
-                            {comparisonSource === 'QR' ? 'Giờ Vào (QR)' : 'Giờ Vào (MQT)'}
+                          <th
+                            className={`py-2 px-3 text-center border-r border-slate-800 min-w-[145px] whitespace-nowrap ${
+                              comparisonSource === 'QR'
+                                ? 'bg-cyan-950/15 text-cyan-300'
+                                : comparisonSource === 'FACE'
+                                ? 'bg-sky-950/15 text-sky-300'
+                                : 'bg-blue-950/15 text-blue-300'
+                            }`}
+                          >
+                            {comparisonSource === 'QR'
+                              ? 'Giờ Vào (QR)'
+                              : comparisonSource === 'FACE'
+                              ? 'Giờ Vào (Khuôn Mặt)'
+                              : 'Giờ Vào (MQT)'}
                           </th>
-                          <th className={`py-2 px-3 text-center border-r border-slate-800 min-w-[145px] whitespace-nowrap ${
-                            comparisonSource === 'QR' ? 'bg-cyan-950/15 text-cyan-300' : 'bg-blue-950/15 text-blue-300'
-                          }`}>
-                            {comparisonSource === 'QR' ? 'Giờ Ra (QR)' : 'Giờ Ra (MQT)'}
+                          <th
+                            className={`py-2 px-3 text-center border-r border-slate-800 min-w-[145px] whitespace-nowrap ${
+                              comparisonSource === 'QR'
+                                ? 'bg-cyan-950/15 text-cyan-300'
+                                : comparisonSource === 'FACE'
+                                ? 'bg-sky-950/15 text-sky-300'
+                                : 'bg-blue-950/15 text-blue-300'
+                            }`}
+                          >
+                            {comparisonSource === 'QR'
+                              ? 'Giờ Ra (QR)'
+                              : comparisonSource === 'FACE'
+                              ? 'Giờ Ra (Khuôn Mặt)'
+                              : 'Giờ Ra (MQT)'}
                           </th>
                           <th className="py-2 px-3 text-center border-r border-slate-800 bg-blue-950/15 text-cyan-300 font-bold min-w-[100px] whitespace-nowrap">
-                            {comparisonSource === 'QR' ? 'Tăng Ca (QR)' : 'Tăng Ca (MQT)'}
+                            {comparisonSource === 'QR'
+                              ? 'Tăng Ca (QR)'
+                              : comparisonSource === 'FACE'
+                              ? 'Tăng Ca (Khuôn Mặt)'
+                              : 'Tăng Ca (MQT)'}
                           </th>
                         </tr>
                       </thead>
@@ -1789,12 +1927,16 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                                   </span>
                                 ) : (
                                   <span className="px-2 py-0.5 rounded bg-rose-950/80 text-rose-300 border border-rose-500/40 text-[10px] font-sans font-bold">
-                                    {comparisonSource === 'QR' ? 'Chưa quét QR vào' : 'Chưa quẹt vào'}
+                                    {comparisonSource === 'QR'
+                                      ? 'Chưa quét QR vào'
+                                      : comparisonSource === 'FACE'
+                                      ? 'Chưa chấm khuôn mặt vào'
+                                      : 'Chưa quẹt vào'}
                                   </span>
                                 )}
                               </td>
 
-                              {/* 8. Giờ Ra (MQT / QR) */}
+                              {/* 8. Giờ Ra (MQT / QR / FACE) */}
                               <td className="py-2.5 px-3 text-center font-mono border-r border-slate-800/60 bg-blue-950/5 whitespace-nowrap">
                                 {row.mqtOutTime ? (
                                   <span className="inline-flex items-center gap-1">
@@ -1813,7 +1955,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                                   </span>
                                 ) : (
                                   <span className="px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-500/40 text-[10px] font-sans font-bold">
-                                    {comparisonSource === 'QR' ? 'Chưa quét QR ra' : 'Chưa quẹt ra'}
+                                    {comparisonSource === 'QR'
+                                      ? 'Chưa quét QR ra'
+                                      : comparisonSource === 'FACE'
+                                      ? 'Chưa chấm khuôn mặt ra'
+                                      : 'Chưa quẹt ra'}
                                   </span>
                                 )}
                               </td>
@@ -2152,6 +2298,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                             <span className="font-bold">
                               {comparisonSource === 'QR'
                                 ? 'Lấy theo giờ Quét QR: '
+                                : comparisonSource === 'FACE'
+                                ? 'Lấy theo giờ Khuôn Mặt: '
                                 : 'Lấy theo giờ máy quẹt thẻ: '}
                             </span>
                             <span className="font-mono">{editingBcDay.mqtInTime || '--:--'} - {editingBcDay.mqtOutTime || '--:--'}</span>
@@ -2309,7 +2457,12 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                     onRequestCorrection(request);
                     if (applyFixToMachine && explainingRow) {
                       const key = `${resolvedStaff.employeeId.trim().toLowerCase()}_${explainingRow.day}`;
-                      const targetMap = comparisonSource === 'QR' ? qrPunchRecords : swipeRecords;
+                      const targetMap =
+                        comparisonSource === 'QR'
+                          ? qrPunchRecords
+                          : comparisonSource === 'FACE'
+                          ? facePunchRecords
+                          : swipeRecords;
                       const existingSwipe = targetMap[key];
                       const nextIn =
                         normalizeTimeString(confirmedInTime) ||
@@ -2337,6 +2490,8 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                       };
                       if (comparisonSource === 'QR') {
                         saveQrPunches(nextMap);
+                      } else if (comparisonSource === 'FACE') {
+                        saveFacePunches(nextMap);
                       } else {
                         saveSwipes(nextMap);
                       }

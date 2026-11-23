@@ -68,6 +68,10 @@ export const STAFF_BACKUP_HEADERS = [
   'annualLeaveQuota',
   'qrAccessEnabled',
   'qrAccessToken',
+  'faceAccessEnabled',
+  'facePhotoUrl',
+  'faceUpdatedAt',
+  'faceDescriptor',
   'note',
 ] as const;
 
@@ -178,6 +182,7 @@ function decodeExcelCellValue(val: any, fieldKey?: string): any {
     'recipients',
     'attendancesummary',
     'salaryconfig',
+    'facedescriptor',
   ]);
   const trimmed = val.trim();
   if (
@@ -365,6 +370,14 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
       Number.isFinite(rawQuota) && rawQuota >= 0 ? rawQuota : undefined;
     const qrAccessEnabled = parseBooleanOptional(norm['qraccessenabled']);
     const qrAccessToken = String(pickField(norm, 'qraccesstoken') || '').trim() || undefined;
+    const faceAccessEnabled = parseBooleanOptional(norm['faceaccessenabled']);
+    const facePhotoUrl = String(pickField(norm, 'facephotourl') || '').trim() || undefined;
+    const faceUpdatedAt = String(pickField(norm, 'faceupdatedat') || '').trim() || undefined;
+    const rawFaceDescriptor = pickField(norm, 'facedescriptor');
+    const faceDescriptor =
+      Array.isArray(rawFaceDescriptor) && rawFaceDescriptor.every((n) => typeof n === 'number')
+        ? (rawFaceDescriptor as number[])
+        : undefined;
     const badgeIssued = parseBooleanOptional(norm['badgeissued']);
     const badgeIssuedAt = String(pickField(norm, 'badgeissuedat') || '').trim() || undefined;
     const badgeIssuedBy = String(pickField(norm, 'badgeissuedby') || '').trim() || undefined;
@@ -390,6 +403,10 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
       ...(annualLeaveQuota !== undefined ? { annualLeaveQuota } : {}),
       ...(qrAccessEnabled !== undefined ? { qrAccessEnabled } : {}),
       ...(qrAccessToken ? { qrAccessToken } : {}),
+      ...(faceAccessEnabled !== undefined ? { faceAccessEnabled } : {}),
+      ...(faceDescriptor ? { faceDescriptor } : {}),
+      ...(facePhotoUrl ? { facePhotoUrl } : {}),
+      ...(faceUpdatedAt ? { faceUpdatedAt } : {}),
       ...(badgeIssued !== undefined ? { badgeIssued } : {}),
       ...(badgeIssuedAt ? { badgeIssuedAt } : {}),
       ...(badgeIssuedBy ? { badgeIssuedBy } : {}),
@@ -430,6 +447,10 @@ function buildStaffExportRows(allStaff: StaffRecord[]): Record<string, any>[] {
       annualLeaveQuota: s.annualLeaveQuota === undefined ? '' : s.annualLeaveQuota,
       qrAccessEnabled: s.qrAccessEnabled === undefined ? '' : s.qrAccessEnabled,
       qrAccessToken: s.qrAccessToken || '',
+      faceAccessEnabled: s.faceAccessEnabled === undefined ? '' : s.faceAccessEnabled,
+      facePhotoUrl: s.facePhotoUrl || '',
+      faceUpdatedAt: s.faceUpdatedAt || '',
+      faceDescriptor: Array.isArray(s.faceDescriptor) ? s.faceDescriptor : '',
       badgeIssued: s.badgeIssued === undefined ? '' : s.badgeIssued,
       badgeIssuedAt: s.badgeIssuedAt || '',
       badgeIssuedBy: s.badgeIssuedBy || '',

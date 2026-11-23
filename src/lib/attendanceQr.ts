@@ -3,6 +3,7 @@ import {
   calculateMatrixDayHoursFromTimes,
   dispatchMatrixUpdatedEvent,
   getEmployeeProfileMatrixData,
+  getFacePunchStorageKey,
   getQrPunchStorageKey,
 } from './matrixTimekeeping';
 import { parseStaffQrPayload } from './staffQr';
@@ -115,6 +116,38 @@ export function saveQrPunchMap(
   }
 }
 
+export function loadFacePunchMap(
+  year: number,
+  month: number
+): Record<string, MachineSwipeRecord> {
+  try {
+    const raw = localStorage.getItem(getFacePunchStorageKey(year, month));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return parsed as Record<string, MachineSwipeRecord>;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+export function saveFacePunchMap(
+  year: number,
+  month: number,
+  nextMap: Record<string, MachineSwipeRecord>,
+  department = 'MULTI'
+): void {
+  try {
+    localStorage.setItem(getFacePunchStorageKey(year, month), JSON.stringify(nextMap));
+    dispatchMatrixUpdatedEvent(department || 'MULTI', year, month);
+  } catch (e) {
+    console.error('Save Face punch map error', e);
+  }
+}
+
 function parseHhMmMins(t?: string): number | null {
   if (!t) return null;
   const m = t.trim().match(/^(\d{1,2}):(\d{2})$/);
@@ -144,7 +177,8 @@ export function getDateMatrixPunchState(
   staff: StaffRecord,
   year: number,
   month: number,
-  day: number
+  day: number,
+  source: 'QR' | 'FACE' = 'QR'
 ): DayPunchState {
   const { days, holidays, sourceDepartment } = getEmployeeProfileMatrixData(
     staff.employeeId,
@@ -155,12 +189,12 @@ export function getDateMatrixPunchState(
   );
 
   const entry = days[day];
-  const qrMap = loadQrPunchMap(year, month);
-  const qrKey = `${staff.employeeId.trim().toLowerCase()}_${day}`;
-  const qrRecord = qrMap[qrKey];
+  const punchMap = source === 'FACE' ? loadFacePunchMap(year, month) : loadQrPunchMap(year, month);
+  const punchKey = `${staff.employeeId.trim().toLowerCase()}_${day}`;
+  const punchRecord = punchMap[punchKey];
 
-  const existingInTime = (qrRecord?.rawInTime || '').trim();
-  const existingOutTime = (qrRecord?.rawOutTime || '').trim();
+  const existingInTime = (punchRecord?.rawInTime || '').trim();
+  const existingOutTime = (punchRecord?.rawOutTime || '').trim();
   const existingShift: 'DAY' | 'NIGHT' =
     entry?.shift || (staff.shift === 'NIGHT' ? 'NIGHT' : 'DAY');
   const isSunday = new Date(year, month - 1, day).getDay() === 0;
@@ -210,10 +244,11 @@ export function recordEmployeeAttendancePunch(params: {
   outTime?: string;
   shift?: 'DAY' | 'NIGHT';
   note?: string;
-  method?: 'QR' | 'MANUAL';
+  method?: 'QR' | 'FACE' | 'MANUAL';
 }): AttendancePunchResult {
-  const { staff, year, month, day, mode } = params;
-  const state = getDateMatrixPunchState(staff, year, month, day);
+  const { staff, year, month, day, mode, method = 'QR' } = params;
+  const targetSource: 'QR' | 'FACE' = method === 'FACE' ? 'FACE' : 'QR';
+  const state = getDateMatrixPunchState(staff, year, month, day, targetSource);
   const nowHhMm = formatCurrentHhMm();
 
   let nextInTime = state.existingInTime;
@@ -289,14 +324,19 @@ export function recordEmployeeAttendancePunch(params: {
   }
 
   const deptDisplay = staff.department?.trim().toUpperCase() || state.sourceDepartment || 'MULTI';
-  const qrMap = loadQrPunchMap(year, month);
-  const qrKey = `${staff.employeeId.trim().toLowerCase()}_${day}`;
-  const note = params.note?.trim() || `Quét QR chấm công lúc ${formatCurrentHhMm()}`;
+  const punchKey = `${staff.employeeId.trim().toLowerCase()}_${day}`;
+  const isFace = method === 'FACE';
+  const existingMap = isFace ? loadFacePunchMap(year, month) : loadQrPunchMap(year, month);
+  const note =
+    params.note?.trim() ||
+    (isFace
+      ? `Chấm công khuôn mặt lúc ${formatCurrentHhMm()}`
+      : `Quét QR chấm công lúc ${formatCurrentHhMm()}`);
 
-  const nextQrMap: Record<string, MachineSwipeRecord> = {
-    ...qrMap,
-    [qrKey]: {
-      id: qrKey,
+  const nextMap: Record<string, MachineSwipeRecord> = {
+    ...existingMap,
+    [punchKey]: {
+      id: punchKey,
       employeeId: staff.employeeId,
       fullName: staff.fullName,
       department: deptDisplay,
@@ -307,7 +347,11 @@ export function recordEmployeeAttendancePunch(params: {
     },
   };
 
-  saveQrPunchMap(year, month, nextQrMap, deptDisplay);
+  if (isFace) {
+    saveFacePunchMap(year, month, nextMap, deptDisplay);
+  } else {
+    saveQrPunchMap(year, month, nextMap, deptDisplay);
+  }
 
   return {
     ok: true,
@@ -322,5 +366,37 @@ export function recordEmployeeAttendancePunch(params: {
     regularHours,
     totalOtHours,
   };
+}
+
+export function recordEmployeeFacePunch(params: {
+  staff: StaffRecord;
+  allStaff: StaffRecord[];
+  year?: number;
+  month?: number;
+  day?: number;
+  mode?: 'AUTO' | 'IN' | 'OUT';
+  note?: string;
+}): AttendancePunchResult {
+  const now = new Date();
+  const year = params.year ?? now.getFullYear();
+  const month = params.month ?? now.getMonth() + 1;
+  const day = params.day ?? now.getDate();
+  const currentState = getDateMatrixPunchState(params.staff, year, month, day, 'FACE');
+  const resolvedMode: 'IN' | 'OUT' =
+    params.mode === 'IN' || params.mode === 'OUT'
+      ? params.mode
+      : currentState.suggestedMode;
+
+  return recordEmployeeAttendancePunch({
+    staff: params.staff,
+    allStaff: params.allStaff,
+    year,
+    month,
+    day,
+    mode: resolvedMode,
+    shift: currentState.existingShift,
+    note: params.note,
+    method: 'FACE',
+  });
 }
 

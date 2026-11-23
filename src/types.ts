@@ -219,6 +219,10 @@ export interface StaffRecord {
   annualLeaveQuota?: number;
   qrAccessEnabled?: boolean;
   qrAccessToken?: string;
+  faceAccessEnabled?: boolean;
+  faceDescriptor?: number[];
+  facePhotoUrl?: string;
+  faceUpdatedAt?: string;
   badgeIssued?: boolean;
   badgeIssuedAt?: string;
   badgeIssuedBy?: string;

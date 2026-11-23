@@ -51,7 +51,7 @@ export interface AbnormalAttendanceSourceContext {
   discrepancyType: string;
   discrepancyLabel: string;
   discrepancyDetail: string;
-  sourceMode?: 'MQT' | 'QR';
+  sourceMode?: 'MQT' | 'QR' | 'FACE';
 }
 
 function formatDateDisplayVN(dateVal?: string): string {
@@ -1022,17 +1022,25 @@ export const AbnormalAttendanceModal: React.FC<AbnormalAttendanceModalProps> = (
                       </div>
                       <div
                         className={`p-2 rounded-lg border ${
-                          sourceContext.sourceMode === 'QR'
+                          sourceContext.sourceMode === 'FACE'
+                            ? 'bg-sky-950/25 border-sky-700/40'
+                            : sourceContext.sourceMode === 'QR'
                             ? 'bg-emerald-950/25 border-emerald-700/40'
                             : 'bg-rose-950/25 border-rose-700/40'
                         }`}
                       >
                         <div
                           className={`text-[10px] font-sans font-bold uppercase mb-0.5 ${
-                            sourceContext.sourceMode === 'QR' ? 'text-emerald-300' : 'text-rose-300'
+                            sourceContext.sourceMode === 'FACE'
+                              ? 'text-sky-300'
+                              : sourceContext.sourceMode === 'QR'
+                              ? 'text-emerald-300'
+                              : 'text-rose-300'
                           }`}
                         >
-                          {sourceContext.sourceMode === 'QR'
+                          {sourceContext.sourceMode === 'FACE'
+                            ? 'Chấm Công Khuôn Mặt'
+                            : sourceContext.sourceMode === 'QR'
                             ? 'Chấm Công Bằng QR'
                             : 'Máy Quẹt Thẻ (MQT)'}
                         </div>
@@ -1205,7 +1213,12 @@ export const AbnormalAttendanceModal: React.FC<AbnormalAttendanceModalProps> = (
                   <div className="space-y-0.5">
                     <div className="font-bold text-emerald-300">
                       Xác nhận sửa &amp; cập nhật giờ vào/ra vào Dữ liệu{' '}
-                      {sourceContext?.sourceMode === 'QR' ? 'Chấm Công QR' : 'Máy Quẹt Thẻ'} ngay
+                      {sourceContext?.sourceMode === 'FACE'
+                        ? 'Khuôn Mặt'
+                        : sourceContext?.sourceMode === 'QR'
+                        ? 'Chấm Công QR'
+                        : 'Máy Quẹt Thẻ'}{' '}
+                      ngay
                     </div>
                     <div className="text-[11px] text-slate-400">
                       {checkInChecked && !checkOutChecked

@@ -894,6 +894,7 @@ export default function App() {
         <AttendanceQRKiosk
           isStandaloneAccount={true}
           onLogout={() => setCurrentUser(null)}
+          allStaff={allStaff}
         />
       );
     }
@@ -1000,6 +1001,7 @@ export default function App() {
         return (
           <AttendanceQRKiosk
             isStandaloneAccount={false}
+            allStaff={allStaff}
           />
         );
       case 'home_announcements':
