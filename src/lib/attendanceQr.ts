@@ -265,6 +265,17 @@ export function recordEmployeeAttendancePunch(params: {
     nextOutTime = (params.outTime ?? '').trim();
   }
 
+  if (mode === 'IN' && nextInTime && !state.existingOutTime) {
+    nextOutTime = '';
+  }
+  if (mode !== 'BOTH' && nextInTime && nextOutTime && nextInTime === nextOutTime) {
+    if (mode === 'IN') {
+      nextOutTime = '';
+    } else {
+      nextInTime = '';
+    }
+  }
+
   if (!nextInTime && !nextOutTime) {
     return {
       ok: false,
