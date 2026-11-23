@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import html2canvas from 'html2canvas';
 import {
   Printer,
@@ -17,6 +17,10 @@ import {
   Smartphone,
   LayoutGrid,
   ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
   X,
   Lock,
   Share2,
@@ -502,8 +506,68 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
   const [exportingKey, setExportingKey] = useState<string | null>(null);
   const [activeGroupFilter, setActiveGroupFilter] = useState<'ALL' | 'CORE' | 'HR' | 'EMPLOYEE' | 'KIOSK'>('ALL');
   const [previewItem, setPreviewItem] = useState<CatalogTabItem | null>(null);
+  const [zoomScale, setZoomScale] = useState<number>(1);
+  const previewViewportRef = useRef<HTMLDivElement | null>(null);
+  const dragPanRef = useRef<{
+    isDown: boolean;
+    hasDragged: boolean;
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+  }>({
+    isDown: false,
+    hasDragged: false,
+    startX: 0,
+    startY: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+  });
+  const [isDraggingPan, setIsDraggingPan] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  const openPreview = (item: CatalogTabItem) => {
+    setPreviewItem(item);
+    setZoomScale(1);
+    if (previewViewportRef.current) {
+      previewViewportRef.current.scrollTo({ top: 0, left: 0 });
+    }
+  };
+
+  const navigatePreview = (direction: -1 | 1) => {
+    if (!previewItem) return;
+    const idx = CATALOG_ITEMS.findIndex((i) => i.id === previewItem.id);
+    if (idx === -1) return;
+    const nextIdx = (idx + direction + CATALOG_ITEMS.length) % CATALOG_ITEMS.length;
+    openPreview(CATALOG_ITEMS[nextIdx]);
+  };
+
+  useEffect(() => {
+    if (!previewItem) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setPreviewItem(null);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigatePreview(-1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigatePreview(1);
+      } else if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        setZoomScale((z) => Math.min(4, Number((z + 0.25).toFixed(2))));
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        setZoomScale((z) => Math.max(0.5, Number((z - 0.25).toFixed(2))));
+      } else if (e.key === '0') {
+        e.preventDefault();
+        setZoomScale(1);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   const promoUrl = useMemo(() => {
     if (typeof window === 'undefined') return 'https://newprotec-vina.app/?catalog=1';
@@ -736,8 +800,8 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
 
         {/* Real Proof Screenshot Container */}
         <div
-          onClick={() => setPreviewItem(item)}
-          title="Nhấn để phóng to ảnh chứng minh thực tế"
+          onClick={() => openPreview(item)}
+          title="Nhấn để mở & phóng to xem chi tiết ảnh thực tế"
           style={{
             position: 'relative',
             backgroundColor: '#020617',
@@ -749,7 +813,7 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
             justifyContent: 'center',
             padding: item.isPortrait ? '10px' : '0px',
             height: '250px',
-            cursor: 'pointer',
+            cursor: 'zoom-in',
           }}
         >
           <img
@@ -769,20 +833,20 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
               position: 'absolute',
               right: '8px',
               bottom: '8px',
-              backgroundColor: 'rgba(2, 6, 23, 0.84)',
-              border: '1px solid rgba(34, 211, 238, 0.45)',
+              backgroundColor: 'rgba(2, 6, 23, 0.88)',
+              border: '1px solid rgba(34, 211, 238, 0.55)',
               color: '#e2e8f0',
               fontSize: '10px',
               fontWeight: 700,
-              padding: '3px 8px',
+              padding: '3px 9px',
               borderRadius: '6px',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '4px',
+              gap: '5px',
             }}
           >
             <ZoomIn style={{ width: '11px', height: '11px', color: '#22d3ee' }} />
-            <span>Ảnh thực tế</span>
+            <span>Nhấn để phóng to</span>
           </div>
         </div>
 
@@ -1471,34 +1535,209 @@ export const AppCatalogBrochure: React.FC<AppCatalogBrochureProps> = ({
 
   const previewModal = previewItem ? (
     <div
-      className="fixed inset-0 z-[150] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-[150] bg-black/92 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
       onClick={() => setPreviewItem(null)}
     >
       <div
-        className="w-full max-w-6xl bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl"
+        className="w-full max-w-[96vw] h-[92dvh] bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-4 py-3 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-3">
-          <div>
-            <div className="text-[11px] font-mono font-bold text-cyan-400">
+        {/* Modal Header & Interactive Zoom Controls */}
+        <div className="px-3 sm:px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="min-w-0">
+            <div className="text-[11px] font-mono font-bold text-cyan-400 truncate">
               TAB {previewItem.order} · {previewItem.tabPath}
             </div>
-            <div className="text-sm font-bold text-white">{previewItem.title}</div>
+            <div className="text-xs sm:text-sm font-bold text-white truncate">
+              {previewItem.title}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setPreviewItem(null)}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Prev / Next Tab Screenshot */}
+            <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg p-0.5">
+              <button
+                type="button"
+                onClick={() => navigatePreview(-1)}
+                className="p-1.5 rounded-md hover:bg-slate-800 text-slate-300 hover:text-white cursor-pointer"
+                title="Ảnh tab trước (Phím mũi tên trái)"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="px-1.5 text-[11px] font-mono text-slate-400 select-none">
+                {previewItem.order}/{CATALOG_ITEMS.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => navigatePreview(1)}
+                className="p-1.5 rounded-md hover:bg-slate-800 text-slate-300 hover:text-white cursor-pointer"
+                title="Ảnh tab tiếp theo (Phím mũi tên phải)"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Zoom Controls */}
+            <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg p-0.5">
+              <button
+                type="button"
+                onClick={() => setZoomScale((z) => Math.max(0.5, Number((z - 0.25).toFixed(2))))}
+                disabled={zoomScale <= 0.5}
+                className="p-1.5 rounded-md hover:bg-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
+                title="Thu nhỏ (-)"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+
+              <span className="px-2 text-xs font-mono font-bold text-cyan-300 min-w-[52px] text-center select-none">
+                {Math.round(zoomScale * 100)}%
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setZoomScale((z) => Math.min(4, Number((z + 0.25).toFixed(2))))}
+                disabled={zoomScale >= 4}
+                className="p-1.5 rounded-md hover:bg-slate-800 text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
+                title="Phóng to (+)"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setZoomScale(zoomScale >= 2 ? 1 : 2)}
+                className="px-2 py-1 rounded-md hover:bg-slate-800 text-[11px] font-bold text-amber-300 cursor-pointer border-l border-slate-800 ml-0.5"
+                title="Chuyển nhanh 100% / 200%"
+              >
+                {zoomScale >= 2 ? 'Vừa khung' : 'Zoom 200%'}
+              </button>
+
+              {zoomScale !== 1 && (
+                <button
+                  type="button"
+                  onClick={() => setZoomScale(1)}
+                  className="p-1.5 rounded-md hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+                  title="Đặt lại 100%"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <a
+              href={previewItem.imageSrc}
+              download={`Newprotec-Tab-${previewItem.order}-${previewItem.id}.png`}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold"
+              title="Tải ảnh màn hình gốc"
+            >
+              <Download className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Tải ảnh</span>
+            </a>
+
+            <button
+              type="button"
+              onClick={() => setPreviewItem(null)}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/80 text-slate-300 hover:text-white cursor-pointer transition-colors"
+              title="Đóng (Esc)"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-        <div className="bg-slate-950 p-3 flex items-center justify-center max-h-[82vh] overflow-auto">
+
+        {/* Interactive Zoom & Drag-to-Pan Viewport */}
+        <div
+          ref={previewViewportRef}
+          onWheel={(e) => {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 0.2 : -0.2;
+            setZoomScale((z) => Math.min(4, Math.max(0.5, Number((z + delta).toFixed(2)))));
+          }}
+          onMouseDown={(e) => {
+            if (zoomScale <= 1 || !previewViewportRef.current) return;
+            dragPanRef.current = {
+              isDown: true,
+              hasDragged: false,
+              startX: e.pageX - previewViewportRef.current.offsetLeft,
+              startY: e.pageY - previewViewportRef.current.offsetTop,
+              scrollLeft: previewViewportRef.current.scrollLeft,
+              scrollTop: previewViewportRef.current.scrollTop,
+            };
+            setIsDraggingPan(true);
+          }}
+          onMouseMove={(e) => {
+            if (!dragPanRef.current.isDown || !previewViewportRef.current) return;
+            const x = e.pageX - previewViewportRef.current.offsetLeft;
+            const y = e.pageY - previewViewportRef.current.offsetTop;
+            const dx = x - dragPanRef.current.startX;
+            const dy = y - dragPanRef.current.startY;
+            if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+              dragPanRef.current.hasDragged = true;
+            }
+            previewViewportRef.current.scrollLeft = dragPanRef.current.scrollLeft - dx;
+            previewViewportRef.current.scrollTop = dragPanRef.current.scrollTop - dy;
+          }}
+          onMouseUp={() => {
+            dragPanRef.current.isDown = false;
+            setIsDraggingPan(false);
+          }}
+          onMouseLeave={() => {
+            dragPanRef.current.isDown = false;
+            setIsDraggingPan(false);
+          }}
+          className={`flex-1 bg-slate-950 p-3 sm:p-5 overflow-auto custom-scrollbar flex ${
+            zoomScale > 1 ? 'items-start justify-start' : 'items-center justify-center'
+          } ${
+            zoomScale > 1
+              ? isDraggingPan
+                ? 'cursor-grabbing'
+                : 'cursor-grab'
+              : 'cursor-zoom-in'
+          }`}
+        >
           <img
             src={previewItem.imageSrc}
             alt={previewItem.title}
-            className="max-w-full max-h-[76vh] object-contain rounded-lg border border-slate-800"
+            draggable={false}
+            onClick={() => {
+              if (dragPanRef.current.hasDragged) {
+                dragPanRef.current.hasDragged = false;
+                return;
+              }
+              setZoomScale((z) => (z > 1 ? 1 : 2.2));
+            }}
+            style={
+              zoomScale <= 1
+                ? {
+                    maxWidth: `${zoomScale * 100}%`,
+                    maxHeight: `${zoomScale * 100}%`,
+                    objectFit: 'contain',
+                  }
+                : previewItem.isPortrait
+                ? {
+                    height: `${zoomScale * 100}%`,
+                    width: 'auto',
+                    maxWidth: 'none',
+                    maxHeight: 'none',
+                  }
+                : {
+                    width: `${zoomScale * 100}%`,
+                    maxWidth: 'none',
+                    height: 'auto',
+                  }
+            }
+            className="rounded-lg border border-slate-800 shadow-2xl select-none transition-all duration-150"
           />
+        </div>
+
+        {/* Modal Footer Hint */}
+        <div className="px-4 py-1.5 bg-slate-950 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 shrink-0">
+          <span>
+            Mẹo: Nhấn trực tiếp vào ảnh để phóng to 220% · Cuộn chuột để tăng/giảm mức zoom (50% – 400%) · Kéo giữ chuột để di chuyển xem chi tiết.
+          </span>
+          <span className="font-mono text-cyan-400">
+            Phím tắt: ← / → đổi ảnh · + / - thu phóng · Esc đóng
+          </span>
         </div>
       </div>
     </div>
