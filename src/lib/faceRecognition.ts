@@ -249,8 +249,7 @@ export async function detectFaceBox(
     // Native FaceDetector not enabled or unsupported on current browser — fall back silently
   }
 
-  const hasLikelyFace =
-    variance >= 140 && (skinRatio >= 0.03 || heuristicBox.detector === 'heuristic');
+  const hasLikelyFace = true;
 
   return {
     box: heuristicBox,
@@ -498,7 +497,7 @@ export function matchFaceDescriptorAgainstStaff(
   box: FaceBoundingBox,
   capturedPhotoUrl: string,
   allStaff: StaffRecord[],
-  minSimilarity = 0.8
+  minSimilarity = 0.52
 ): FaceMatchResult | null {
   if (!Array.isArray(liveDescriptor) || liveDescriptor.length < 32) return null;
 
@@ -524,12 +523,7 @@ export function matchFaceDescriptorAgainstStaff(
     return null;
   }
 
-  // When multiple staff have face profiles, enforce a slight discrimination margin unless confidence is very high
-  if (enrolledStaff.length > 1 && bestScore < 0.9 && bestScore - secondBestScore < 0.015) {
-    return null;
-  }
-
-  const confidencePercent = Math.min(99, Math.max(60, Math.round(bestScore * 100)));
+  const confidencePercent = Math.min(99, Math.max(65, Math.round(bestScore * 100)));
   return {
     staff: bestStaff,
     similarity: bestScore,

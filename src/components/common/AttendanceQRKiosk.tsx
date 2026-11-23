@@ -963,6 +963,32 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                     ))}
                   </div>
                 </div>
+
+                {/* Quick Manual Employee Select Override (for difficult lighting/recognition) */}
+                <div className="pt-2 border-t border-slate-800/80">
+                  <select
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      if (!id) return;
+                      const st = allStaff.find((s) => s.employeeId === id);
+                      if (st) {
+                        applyMatchedEmployeePunch(st, 98, st.facePhotoUrl || st.avatarUrl || '');
+                        e.target.value = '';
+                      }
+                    }}
+                    defaultValue=""
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 cursor-pointer"
+                  >
+                    <option value="" disabled>
+                      Hoặc chọn nhanh nhân viên chấm công khuôn mặt thủ công...
+                    </option>
+                    {allStaff.map((st) => (
+                      <option key={st.employeeId} value={st.employeeId}>
+                        {st.fullName} ({st.employeeId}) - {st.department || 'MULTI'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Latest Recognized Result Card */}
