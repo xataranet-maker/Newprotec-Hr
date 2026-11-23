@@ -7,6 +7,12 @@
   --font-times: 'Times New Roman', 'Tinos', Times, serif;
 }
 
+input[type="date"],
+input[type="time"],
+input[type="month"] {
+  color-scheme: dark;
+}
+
 /* Custom Scrollbar */
 .custom-scrollbar {
   scrollbar-width: thin;

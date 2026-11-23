@@ -202,14 +202,34 @@ function formatDisplayDate(isoDate?: string): string {
   return isoDate;
 }
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function getLocalTodayIso(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function addDaysToIso(isoDate: string, offsetDays: number): string {
+  if (!ISO_DATE_RE.test(isoDate)) return isoDate;
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + offsetDays));
+  const ry = dt.getUTCFullYear();
+  const rm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const rd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${ry}-${rm}-${rd}`;
+}
+
 function calcCalendarDaysInclusive(fromIso: string, toIso: string): number {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromIso) || !/^\d{4}-\d{2}-\d{2}$/.test(toIso)) return 1;
+  if (!ISO_DATE_RE.test(fromIso) || !ISO_DATE_RE.test(toIso)) return 1;
   const [fy, fm, fd] = fromIso.split('-').map(Number);
   const [ty, tm, td] = toIso.split('-').map(Number);
-  const start = new Date(fy, fm - 1, fd).getTime();
-  const end = new Date(ty, tm - 1, td).getTime();
+  const start = Date.UTC(fy, fm - 1, fd);
+  const end = Date.UTC(ty, tm - 1, td);
   if (end < start) return 1;
-  return Math.floor((end - start) / 86400000) + 1;
+  return Math.round((end - start) / 86400000) + 1;
 }
 
 function escapeHtml(val?: string | number): string {
@@ -766,7 +786,7 @@ export const LeaveRegistrationWorkbench: React.FC<LeaveRegistrationWorkbenchProp
   createdByLabel = 'HC & NS',
   compact = false,
 }) => {
-  const todayIso = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const todayIso = useMemo(() => getLocalTodayIso(), []);
   const previewTopRef = useRef<HTMLDivElement>(null);
 
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>(
@@ -912,6 +932,8 @@ export const LeaveRegistrationWorkbench: React.FC<LeaveRegistrationWorkbenchProp
     }
   };
 
+  const isSingleDayLeaveType = leaveType === 'Nghỉ nửa phép' || leaveType === 'Về sớm';
+
   const handleSelectLeaveType = (nextType: LeaveRegistrationType) => {
     setLeaveType(nextType);
     setViewingHistoryRecord(null);
@@ -925,7 +947,9 @@ export const LeaveRegistrationWorkbench: React.FC<LeaveRegistrationWorkbenchProp
         setToTime(activeEmployee?.shift === 'NIGHT' ? '03:00' : '15:00');
       }
     } else {
-      setDays(calcCalendarDaysInclusive(fromDate, toDate));
+      const validTo = ISO_DATE_RE.test(toDate) && toDate >= fromDate ? toDate : fromDate;
+      setToDate(validTo);
+      setDays(calcCalendarDaysInclusive(fromDate, validTo));
       setFromTime(activeEmployee?.shift === 'NIGHT' ? '20:00' : '08:00');
       setToTime(activeEmployee?.shift === 'NIGHT' ? '05:00' : '17:00');
     }
@@ -934,31 +958,65 @@ export const LeaveRegistrationWorkbench: React.FC<LeaveRegistrationWorkbenchProp
   const handleFromDateChange = (val: string) => {
     setFromDate(val);
     setViewingHistoryRecord(null);
-    let nextTo = toDate;
-    if (!nextTo || nextTo < val || leaveType === 'Nghỉ nửa phép' || leaveType === 'Về sớm') {
-      nextTo = val;
+    if (!ISO_DATE_RE.test(val)) return;
+
+    if (isSingleDayLeaveType) {
       setToDate(val);
+      if (!manualDaysEdited) setDays(0.5);
+      return;
     }
-    if (!manualDaysEdited) {
-      if (leaveType === 'Nghỉ nửa phép' || leaveType === 'Về sớm') {
-        setDays(0.5);
-      } else {
-        setDays(calcCalendarDaysInclusive(val, nextTo));
+
+    if (ISO_DATE_RE.test(toDate)) {
+      if (toDate < val) {
+        setToDate(val);
+        if (!manualDaysEdited) setDays(1);
+      } else if (!manualDaysEdited) {
+        setDays(calcCalendarDaysInclusive(val, toDate));
       }
     }
   };
 
   const handleToDateChange = (val: string) => {
-    const safeTo = val < fromDate ? fromDate : val;
-    setToDate(safeTo);
+    setToDate(val);
     setViewingHistoryRecord(null);
-    if (!manualDaysEdited) {
-      if (leaveType === 'Nghỉ nửa phép' || leaveType === 'Về sớm') {
-        setDays(0.5);
-      } else {
-        setDays(calcCalendarDaysInclusive(fromDate, safeTo));
-      }
+    if (!ISO_DATE_RE.test(val) || !ISO_DATE_RE.test(fromDate)) return;
+
+    if (isSingleDayLeaveType) {
+      return;
     }
+
+    if (val >= fromDate) {
+      setManualDaysEdited(false);
+      setDays(calcCalendarDaysInclusive(fromDate, val));
+    }
+  };
+
+  const handleNormalizeDateRangeOnBlur = () => {
+    const safeFrom = ISO_DATE_RE.test(fromDate) ? fromDate : todayIso;
+    if (safeFrom !== fromDate) setFromDate(safeFrom);
+
+    if (isSingleDayLeaveType) {
+      if (toDate !== safeFrom) setToDate(safeFrom);
+      return;
+    }
+
+    if (!ISO_DATE_RE.test(toDate) || toDate < safeFrom) {
+      setToDate(safeFrom);
+      if (!manualDaysEdited) setDays(1);
+    } else if (!manualDaysEdited) {
+      setDays(calcCalendarDaysInclusive(safeFrom, toDate));
+    }
+  };
+
+  const handleApplyQuickDuration = (numDays: number) => {
+    if (isSingleDayLeaveType) return;
+    const baseFrom = ISO_DATE_RE.test(fromDate) ? fromDate : todayIso;
+    if (!ISO_DATE_RE.test(fromDate)) setFromDate(baseFrom);
+    const nextTo = addDaysToIso(baseFrom, Math.max(0, numDays - 1));
+    setToDate(nextTo);
+    setManualDaysEdited(false);
+    setDays(numDays);
+    setViewingHistoryRecord(null);
   };
 
   const handleResetForm = () => {
@@ -1015,6 +1073,19 @@ export const LeaveRegistrationWorkbench: React.FC<LeaveRegistrationWorkbenchProp
       showFeedback('error', 'Vui lòng chọn nhân viên trước khi lưu & in đơn xin phép.');
       return;
     }
+    if (!ISO_DATE_RE.test(fromDate)) {
+      showFeedback('error', 'Vui lòng chọn Từ Ngày hợp lệ.');
+      return;
+    }
+    const effectiveToDate = isSingleDayLeaveType ? fromDate : toDate || fromDate;
+    if (!ISO_DATE_RE.test(effectiveToDate)) {
+      showFeedback('error', 'Vui lòng chọn Đến Ngày hợp lệ.');
+      return;
+    }
+    if (effectiveToDate < fromDate) {
+      showFeedback('error', 'Ngày kết thúc (Đến Ngày) không được nhỏ hơn Từ Ngày.');
+      return;
+    }
     if (!reason.trim()) {
       showFeedback('error', 'Vui lòng nhập lý do xin nghỉ.');
       return;
@@ -1028,10 +1099,10 @@ export const LeaveRegistrationWorkbench: React.FC<LeaveRegistrationWorkbenchProp
       position: activeEmployee.position || 'Nhân viên',
       leaveType,
       fromDate,
-      toDate: toDate || fromDate,
+      toDate: effectiveToDate,
       fromTime,
       toTime,
-      days: Number(days) > 0 ? Number(days) : 1,
+      days: Number(days) > 0 ? Number(days) : calcCalendarDaysInclusive(fromDate, effectiveToDate),
       reason: reason.trim(),
       status: 'REGISTERED',
       createdAt: new Date().toLocaleString('vi-VN'),
@@ -1213,8 +1284,17 @@ export const LeaveRegistrationWorkbench: React.FC<LeaveRegistrationWorkbenchProp
 
           {/* 3. THỜI GIAN DỰ KIẾN NGHỈ */}
           <div className="bg-[#050b18] border border-slate-800 rounded-xl p-3.5 space-y-3">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-cyan-400">
-              3. THỜI GIAN DỰ KIẾN NGHỈ:
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-cyan-400">
+                3. THỜI GIAN DỰ KIẾN NGHỈ:
+              </div>
+              {ISO_DATE_RE.test(fromDate) && ISO_DATE_RE.test(toDate) && toDate >= fromDate && (
+                <span className="text-[11px] font-mono text-emerald-300 bg-emerald-950/60 border border-emerald-500/35 px-2 py-0.5 rounded">
+                  {fromDate === toDate
+                    ? `${formatDisplayDate(fromDate)} (${days} ngày)`
+                    : `${formatDisplayDate(fromDate)} → ${formatDisplayDate(toDate)} (${days} ngày)`}
+                </span>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1224,22 +1304,65 @@ export const LeaveRegistrationWorkbench: React.FC<LeaveRegistrationWorkbenchProp
                   type="date"
                   value={fromDate}
                   onChange={(e) => handleFromDateChange(e.target.value)}
+                  onBlur={handleNormalizeDateRangeOnBlur}
                   className="w-full bg-[#081020] border border-slate-700 focus:border-cyan-400 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none"
                   required
                 />
               </div>
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Đến Ngày:</label>
+                <label className="block text-[11px] text-slate-400 mb-1">
+                  Đến Ngày:{' '}
+                  {isSingleDayLeaveType && (
+                    <span className="text-[10px] text-amber-400">(Trong ngày)</span>
+                  )}
+                </label>
                 <input
                   type="date"
-                  value={toDate}
-                  min={fromDate}
+                  value={isSingleDayLeaveType ? fromDate : toDate}
+                  disabled={isSingleDayLeaveType}
                   onChange={(e) => handleToDateChange(e.target.value)}
-                  className="w-full bg-[#081020] border border-slate-700 focus:border-cyan-400 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none"
+                  onBlur={handleNormalizeDateRangeOnBlur}
+                  className={`w-full bg-[#081020] border rounded-lg px-3 py-2 text-xs text-white font-mono outline-none ${
+                    isSingleDayLeaveType
+                      ? 'border-slate-800 text-slate-500 cursor-not-allowed opacity-70'
+                      : ISO_DATE_RE.test(toDate) && ISO_DATE_RE.test(fromDate) && toDate < fromDate
+                      ? 'border-rose-500 focus:border-rose-400'
+                      : 'border-slate-700 focus:border-cyan-400'
+                  }`}
                   required
                 />
               </div>
             </div>
+
+            {!isSingleDayLeaveType ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] text-slate-400 mr-1">Chọn nhanh số ngày:</span>
+                {[1, 2, 3, 5, 6, 7].map((dCount) => {
+                  const isMatch =
+                    ISO_DATE_RE.test(fromDate) &&
+                    ISO_DATE_RE.test(toDate) &&
+                    addDaysToIso(fromDate, dCount - 1) === toDate;
+                  return (
+                    <button
+                      key={dCount}
+                      type="button"
+                      onClick={() => handleApplyQuickDuration(dCount)}
+                      className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors cursor-pointer ${
+                        isMatch
+                          ? 'bg-cyan-600/30 border-cyan-400 text-cyan-200'
+                          : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300'
+                      }`}
+                    >
+                      {dCount} ngày
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-[11px] text-amber-300/90 bg-amber-950/30 border border-amber-500/25 rounded-lg px-2.5 py-1.5">
+                Loại &ldquo;{leaveType}&rdquo; áp dụng trong 1 ngày. Hãy chọn &ldquo;Nghỉ phép&rdquo;, &ldquo;Nghỉ việc riêng&rdquo;, &ldquo;Nghỉ cưới&rdquo; hoặc &ldquo;Nghỉ ốm&rdquo; để đăng ký nhiều ngày liên tiếp.
+              </div>
+            )}
 
             <div className="grid grid-cols-3 gap-2.5">
               <div>
@@ -1279,8 +1402,18 @@ export const LeaveRegistrationWorkbench: React.FC<LeaveRegistrationWorkbenchProp
                   step={0.5}
                   value={days}
                   onChange={(e) => {
+                    const nextDays = Number(e.target.value);
                     setManualDaysEdited(true);
-                    setDays(Number(e.target.value));
+                    setDays(nextDays);
+                    if (
+                      !isSingleDayLeaveType &&
+                      Number.isInteger(nextDays) &&
+                      nextDays >= 1 &&
+                      ISO_DATE_RE.test(fromDate) &&
+                      (!ISO_DATE_RE.test(toDate) || toDate === fromDate)
+                    ) {
+                      setToDate(addDaysToIso(fromDate, nextDays - 1));
+                    }
                     setViewingHistoryRecord(null);
                   }}
                   className="w-full bg-[#081020] border border-amber-500/60 focus:border-amber-400 rounded-lg px-2.5 py-2 text-xs text-amber-300 font-bold font-mono text-center outline-none"
