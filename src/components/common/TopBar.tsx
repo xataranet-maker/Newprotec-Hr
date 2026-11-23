@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserAccount } from '../../types';
 import { 
   Menu, Cloud, RefreshCw, LogOut, 
-  Clock, Shield, ChevronLeft, ChevronRight, QrCode
+  Clock, Shield, Lock, ChevronLeft, ChevronRight, QrCode
 } from 'lucide-react';
 
 interface TopBarProps {
@@ -146,13 +146,23 @@ export const TopBar: React.FC<TopBarProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={() => window.location.reload()}
-          className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/50 text-red-400 hover:text-red-300 border border-red-900/30 transition-colors cursor-pointer ml-1"
-          title="Đăng xuất"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
+        {currentUser?.role === 'qrcode' ? (
+          <div
+            className="px-2.5 py-1.5 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 text-[11px] font-semibold flex items-center gap-1.5 ml-1"
+            title="Trạm QRCODE đang được bảo vệ — Sử dụng nút QR Đăng Nhập / Thoát để Quản trị viên quét mở khóa"
+          >
+            <Lock className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Đã khóa trạm QR</span>
+          </div>
+        ) : (
+          <button
+            onClick={() => window.location.reload()}
+            className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/50 text-red-400 hover:text-red-300 border border-red-900/30 transition-colors cursor-pointer ml-1"
+            title="Đăng xuất"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        )}
       </div>
     </header>
   );

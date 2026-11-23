@@ -32,6 +32,7 @@ export const translations: Record<Language, Record<string, string>> = {
     'KIỂM SOÁT CỔNG': 'KIỂM SOÁT CỔNG',
     'KIỂM SOÁT RA / VÀO': 'KIỂM SOÁT RA / VÀO',
     'CATALOG ỨNG DỤNG': 'CATALOG ỨNG DỤNG',
+    'QUÉT ĐĂNG NHẬP': 'QUÉT ĐĂNG NHẬP',
   },
   ko: {
     'HOME': '홈',
@@ -64,6 +65,7 @@ export const translations: Record<Language, Record<string, string>> = {
     'KIỂM SOÁT CỔNG': '출입문 통제',
     'KIỂM SOÁT RA / VÀO': '출입 기록 현황',
     'CATALOG ỨNG DỤNG': '시스템 카탈로그',
+    'QUÉT ĐĂNG NHẬP': 'QR 로그인 스캔',
   },
   en: {
     'HOME': 'HOME',
@@ -96,5 +98,6 @@ export const translations: Record<Language, Record<string, string>> = {
     'KIỂM SOÁT CỔNG': 'GATE CONTROL',
     'KIỂM SOÁT RA / VÀO': 'IN / OUT LOG',
     'CATALOG ỨNG DỤNG': 'SYSTEM CATALOG',
+    'QUÉT ĐĂNG NHẬP': 'SCAN QR LOGIN',
   },
 };

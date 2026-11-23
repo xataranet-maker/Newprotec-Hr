@@ -72,6 +72,10 @@ export const STAFF_BACKUP_HEADERS = [
   'facePhotoUrl',
   'faceUpdatedAt',
   'faceDescriptor',
+  'badgeIssued',
+  'badgeIssuedAt',
+  'badgeIssuedBy',
+  'securityPin',
   'note',
 ] as const;
 
@@ -381,6 +385,7 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
     const badgeIssued = parseBooleanOptional(norm['badgeissued']);
     const badgeIssuedAt = String(pickField(norm, 'badgeissuedat') || '').trim() || undefined;
     const badgeIssuedBy = String(pickField(norm, 'badgeissuedby') || '').trim() || undefined;
+    const securityPin = String(pickField(norm, 'securitypin', 'mã bảo mật', 'ma bao mat') || '').trim() || undefined;
     const note = String(pickField(norm, 'note', 'ghi chú') || '').trim() || undefined;
 
     const staffItem: StaffRecord = {
@@ -410,6 +415,7 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
       ...(badgeIssued !== undefined ? { badgeIssued } : {}),
       ...(badgeIssuedAt ? { badgeIssuedAt } : {}),
       ...(badgeIssuedBy ? { badgeIssuedBy } : {}),
+      ...(securityPin ? { securityPin } : {}),
       ...(note ? { note } : {}),
     };
 
@@ -454,6 +460,7 @@ function buildStaffExportRows(allStaff: StaffRecord[]): Record<string, any>[] {
       badgeIssued: s.badgeIssued === undefined ? '' : s.badgeIssued,
       badgeIssuedAt: s.badgeIssuedAt || '',
       badgeIssuedBy: s.badgeIssuedBy || '',
+      securityPin: s.securityPin || '123',
       note: s.note || '',
     };
   });

@@ -99,6 +99,22 @@
         "completedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["model", "code", "lotNo"]
+    },
+    "QrLoginSession": {
+      "title": "QrLoginSession",
+      "description": "Cross-device Zalo-style QR authentication session for kiosk exit/admin login",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "CONSUMED", "EXPIRED"] },
+        "targetAction": { "type": "string", "enum": ["LOGIN_ADMIN", "LOGOUT_TO_LOGIN"] },
+        "deviceLabel": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "expiresAt": { "type": "number" },
+        "approvedBy": { "type": "object" },
+        "approvedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["sessionId", "status", "createdAt", "expiresAt"]
     }
   },
   "firestore": {
@@ -125,6 +141,10 @@
     "/production_history/{historyId}": {
       "schema": "ProductionHistory",
       "description": "Completed manufacturing logs"
+    },
+    "/qr_login_sessions/{sessionId}": {
+      "schema": "QrLoginSession",
+      "description": "Short-lived remote QR login approval sessions"
     }
   }
 }

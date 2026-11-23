@@ -24,6 +24,7 @@ import {
   CalendarPlus,
   Wallet,
   QrCode,
+  ScanLine,
 } from 'lucide-react';
 
 export const ribbonData: RibbonTab[] = [
@@ -39,6 +40,7 @@ export const ribbonData: RibbonTab[] = [
           { id: 'dashboard_home', label: 'BÁO CÁO TỔNG HỢP', icon: LayoutDashboard, isLarge: true, color: 'text-blue-500' },
           { id: 'personal_profile', label: 'HỒ SƠ CÁ NHÂN', icon: UserCheck, isLarge: true, color: 'text-cyan-500' },
           { id: 'qr_attendance_kiosk', label: 'MÃ QR CHẤM CÔNG', icon: QrCode, isLarge: true, color: 'text-emerald-400' },
+          { id: 'admin_qr_login_scanner', label: 'QUÉT ĐĂNG NHẬP', icon: ScanLine, isLarge: true, color: 'text-cyan-400', allowedRoles: ['admin'] },
           { id: 'catalog_brochure', label: 'CATALOG ỨNG DỤNG', icon: FileText, isLarge: true, color: 'text-amber-400' },
           { id: 'home_announcements', label: 'THÔNG BÁO', icon: Megaphone, isLarge: true, color: 'text-red-500' },
         ],

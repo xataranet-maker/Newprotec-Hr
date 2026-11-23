@@ -226,6 +226,7 @@ export interface StaffRecord {
   badgeIssued?: boolean;
   badgeIssuedAt?: string;
   badgeIssuedBy?: string;
+  securityPin?: string;
 }
 
 export interface SecurityGateLogRecord {
@@ -380,6 +381,7 @@ export interface RibbonItem {
   icon: any; 
   isLarge?: boolean;
   color?: string;
+  allowedRoles?: UserRole[];
 }
 
 export interface RibbonGroup {

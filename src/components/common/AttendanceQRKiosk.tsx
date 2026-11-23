@@ -9,7 +9,7 @@ import {
   Maximize2,
   Minimize2,
   ScanLine,
-  LogOut,
+  ShieldCheck,
   CheckCircle2,
   ScanFace,
   Camera,
@@ -18,8 +18,9 @@ import {
   Upload,
   Users,
   AlertCircle,
+  Moon,
 } from 'lucide-react';
-import { MachineSwipeRecord, StaffRecord } from '../../types';
+import { MachineSwipeRecord, StaffRecord, UserAccount } from '../../types';
 import {
   ATTENDANCE_QR_PAYLOAD,
   AttendancePunchResult,
@@ -35,10 +36,16 @@ import {
 } from '../../lib/faceRecognition';
 import { MATRIX_UPDATED_EVENT } from '../../lib/matrixTimekeeping';
 import { getDefaultAvatarForEmployee } from '../../lib/avatarUtils';
+import { KioskCircuitScreensaver } from './KioskCircuitScreensaver';
+import { KioskRemoteLoginModal } from './KioskRemoteLoginModal';
+import { QrLoginTargetAction } from '../../lib/qrLogin';
+
+const KIOSK_IDLE_TIMEOUT_MS = 60_000; // 1 phút không có nhận diện người chấm công
 
 interface AttendanceQRKioskProps {
   isStandaloneAccount?: boolean;
   onLogout?: () => void;
+  onRemoteLogin?: (adminUser: UserAccount) => void;
   allStaff?: StaffRecord[];
 }
 
@@ -56,12 +63,16 @@ interface RecognizedBannerState {
 export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
   isStandaloneAccount = false,
   onLogout,
+  onRemoteLogin,
   allStaff = [],
 }) => {
   const [kioskMode, setKioskMode] = useState<KioskMode>('QR');
   const [now, setNow] = useState<Date>(() => new Date());
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isIdleScreensaver, setIsIdleScreensaver] = useState(false);
+  const [idleSecondsLeft, setIdleSecondsLeft] = useState<number>(60);
+  const [showRemoteLoginModal, setShowRemoteLoginModal] = useState(false);
 
   // Face terminal states
   const [faceCameraActive, setFaceCameraActive] = useState(false);
@@ -85,6 +96,24 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cooldownMapRef = useRef<Map<string, number>>(new Map());
   const isAnalyzingRef = useRef(false);
+  const lastActivityAtRef = useRef<number>(Date.now());
+
+  const markKioskActivity = useCallback((wakeIfSleeping = false) => {
+    lastActivityAtRef.current = Date.now();
+    setIdleSecondsLeft(60);
+    if (wakeIfSleeping) {
+      setIsIdleScreensaver(false);
+    }
+  }, []);
+
+  const handleDismissScreensaver = useCallback((targetMode?: KioskMode) => {
+    if (targetMode) {
+      setKioskMode(targetMode);
+    }
+    lastActivityAtRef.current = Date.now();
+    setIdleSecondsLeft(60);
+    setIsIdleScreensaver(false);
+  }, []);
 
   const enrolledFaceStaff = useMemo(
     () => allStaff.filter((s) => isStaffFaceEnabled(s)),
@@ -110,19 +139,53 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
 
   useEffect(() => {
     refreshTodayFacePunches();
-    const handler = () => refreshTodayFacePunches();
+    const handler = (ev: Event) => {
+      refreshTodayFacePunches();
+      if (ev instanceof StorageEvent) {
+        if (
+          ev.key &&
+          (ev.key.startsWith('app_timekeeping_qr_punches_') ||
+            ev.key.startsWith('app_timekeeping_face_punches_'))
+        ) {
+          markKioskActivity(true);
+        }
+      } else {
+        markKioskActivity(true);
+      }
+    };
     window.addEventListener(MATRIX_UPDATED_EVENT, handler);
     window.addEventListener('storage', handler);
     return () => {
       window.removeEventListener(MATRIX_UPDATED_EVENT, handler);
       window.removeEventListener('storage', handler);
     };
-  }, [refreshTodayFacePunches]);
+  }, [refreshTodayFacePunches, markKioskActivity]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    const timer = window.setInterval(() => {
+      setNow(new Date());
+      if (!isIdleScreensaver) {
+        const elapsed = Date.now() - lastActivityAtRef.current;
+        const remaining = Math.max(0, Math.ceil((KIOSK_IDLE_TIMEOUT_MS - elapsed) / 1000));
+        setIdleSecondsLeft(remaining);
+        if (elapsed >= KIOSK_IDLE_TIMEOUT_MS) {
+          setIsIdleScreensaver(true);
+        }
+      }
+    }, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [isIdleScreensaver]);
+
+  useEffect(() => {
+    if (isIdleScreensaver) return;
+    const onUserInteract = () => markKioskActivity(false);
+    window.addEventListener('keydown', onUserInteract);
+    window.addEventListener('touchstart', onUserInteract, { passive: true });
+    return () => {
+      window.removeEventListener('keydown', onUserInteract);
+      window.removeEventListener('touchstart', onUserInteract);
+    };
+  }, [isIdleScreensaver, markKioskActivity]);
 
   useEffect(() => {
     QRCode.toDataURL(ATTENDANCE_QR_PAYLOAD, {
@@ -200,9 +263,9 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
     [facingMode, stopFaceCamera, enrolledFaceStaff.length]
   );
 
-  // Stop camera automatically when switching back to QR tab or unmounting
+  // Stop camera automatically when switching back to QR tab, entering screensaver, or unmounting
   useEffect(() => {
-    if (kioskMode === 'FACE') {
+    if (kioskMode === 'FACE' && !isIdleScreensaver) {
       startFaceCamera(facingMode);
     } else {
       stopFaceCamera();
@@ -210,7 +273,7 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
     return () => {
       stopFaceCamera();
     };
-  }, [kioskMode, facingMode, startFaceCamera, stopFaceCamera]);
+  }, [kioskMode, facingMode, isIdleScreensaver, startFaceCamera, stopFaceCamera]);
 
   const applyMatchedEmployeePunch = useCallback(
     (
@@ -251,14 +314,15 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
           } ${result.mode === 'IN' ? result.inTime : result.outTime})`
         );
         refreshTodayFacePunches();
+        markKioskActivity(true);
       }
     },
-    [allStaff, facePunchMode, refreshTodayFacePunches]
+    [allStaff, facePunchMode, refreshTodayFacePunches, markKioskActivity]
   );
 
   // Live face tracking & matching loop
   useEffect(() => {
-    if (kioskMode !== 'FACE' || !faceCameraActive) return;
+    if (kioskMode !== 'FACE' || !faceCameraActive || isIdleScreensaver) return;
 
     const timer = window.setInterval(async () => {
       if (isAnalyzingRef.current) return;
@@ -301,12 +365,19 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
         });
 
         if (match) {
+          markKioskActivity(false);
           applyMatchedEmployeePunch(
             match.staff,
             match.confidencePercent,
             match.capturedPhotoUrl || match.staff.facePhotoUrl || ''
           );
         } else {
+          const hasRealPerson =
+            extraction.box.detector === 'native' ||
+            (extraction.box.detector === 'heuristic' && extraction.box.confidence >= 0.55);
+          if (hasRealPerson) {
+            markKioskActivity(false);
+          }
           setFaceScanHint(
             enrolledFaceStaff.length > 0
               ? 'Đã phát hiện khuôn mặt — Đang đối chiếu với danh sách nhân viên...'
@@ -322,8 +393,10 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
   }, [
     kioskMode,
     faceCameraActive,
+    isIdleScreensaver,
     enrolledFaceStaff,
     applyMatchedEmployeePunch,
+    markKioskActivity,
   ]);
 
   const handleFacePhotoUploadCheck = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -523,7 +596,33 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
     : '';
 
   return (
-    <div className="min-h-full bg-[#020617] text-slate-100 p-4 sm:p-6 flex flex-col items-center justify-center relative overflow-hidden">
+    <div
+      onPointerDown={() => {
+        if (!isIdleScreensaver) markKioskActivity(false);
+      }}
+      className="min-h-full bg-[#020617] text-slate-100 p-4 sm:p-6 flex flex-col items-center justify-center relative overflow-hidden"
+    >
+      {isIdleScreensaver && (
+        <KioskCircuitScreensaver
+          now={now}
+          activeMode={kioskMode}
+          onDismiss={handleDismissScreensaver}
+        />
+      )}
+      <KioskRemoteLoginModal
+        isOpen={showRemoteLoginModal}
+        onClose={() => setShowRemoteLoginModal(false)}
+        onApproved={(adminUser: UserAccount, action: QrLoginTargetAction) => {
+          setShowRemoteLoginModal(false);
+          if (action === 'LOGOUT_TO_LOGIN') {
+            onLogout?.();
+          } else if (onRemoteLogin) {
+            onRemoteLogin(adminUser);
+          } else {
+            onLogout?.();
+          }
+        }}
+      />
       {/* Subtle radial glow backdrop */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.12),transparent_55%)]" />
 
@@ -618,6 +717,19 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
 
             <button
               type="button"
+              onClick={() => setIsIdleScreensaver(true)}
+              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-cyan-500/40 text-cyan-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+              title="Chuyển sang màn hình nghỉ ngay (Tự động bật sau 60 giây không có người chấm công)"
+            >
+              <Moon className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Màn hình nghỉ</span>
+              <span className="text-[10px] font-mono text-cyan-300/90 tabular-nums">
+                ({idleSecondsLeft}s)
+              </span>
+            </button>
+
+            <button
+              type="button"
               onClick={toggleFullscreen}
               className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
               title={isFullscreen ? 'Thu nhỏ màn hình' : 'Phóng to toàn màn hình'}
@@ -632,15 +744,15 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
               </span>
             </button>
 
-            {isStandaloneAccount && onLogout && (
+            {(isStandaloneAccount || onRemoteLogin || onLogout) && (
               <button
                 type="button"
-                onClick={onLogout}
-                className="px-3 py-1.5 rounded-lg bg-rose-950/70 hover:bg-rose-900 border border-rose-700/60 text-rose-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
-                title="Đăng xuất tài khoản QRCODE"
+                onClick={() => setShowRemoteLoginModal(true)}
+                className="px-3 py-1.5 rounded-lg bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+                title="Hiển thị mã QR để Quản trị viên quét đăng nhập hoặc thoát trạm QRCODE"
               >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Đăng xuất</span>
+                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+                <span>QR Đăng Nhập / Thoát</span>
               </button>
             )}
           </div>

@@ -165,6 +165,16 @@ export async function ensureSchema(): Promise<TursoConnectionInfo> {
         created_at TEXT NOT NULL
       )`,
       `CREATE INDEX IF NOT EXISTS idx_factory_state_updated_at ON factory_state_slices(updated_at)`,
+      `CREATE TABLE IF NOT EXISTS qr_login_sessions (
+        session_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        target_action TEXT,
+        device_label TEXT,
+        created_at TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        approved_by_json TEXT,
+        approved_at TEXT
+      )`,
     ],
     'write'
   );
@@ -287,4 +297,146 @@ export async function pushFactoryState(
     slicesCount: entries.length,
     updatedAt: nowIso,
   };
+}
+
+export async function createQrLoginSessionDb(params: {
+  sessionId: string;
+  deviceLabel?: string;
+  expiresAt: number;
+  createdAt?: string;
+}) {
+  await ensureSchema();
+  const { client } = getTursoClient();
+  const createdAt = params.createdAt || new Date().toISOString();
+  const cleanId = String(params.sessionId || '').trim().slice(0, 128);
+  if (!/^[a-zA-Z0-9_-]+$/.test(cleanId)) {
+    throw new Error('Invalid sessionId format');
+  }
+  const cleanLabel = String(params.deviceLabel || 'Trạm QR Chấm Công').slice(0, 128);
+  const expiresAt = Number(params.expiresAt) || Date.now() + 180_000;
+
+  await client.execute({
+    sql: `INSERT INTO qr_login_sessions (session_id, status, device_label, created_at, expires_at)
+          VALUES (?, 'PENDING', ?, ?, ?)
+          ON CONFLICT(session_id) DO UPDATE SET
+            status = 'PENDING',
+            target_action = NULL,
+            device_label = excluded.device_label,
+            created_at = excluded.created_at,
+            expires_at = excluded.expires_at,
+            approved_by_json = NULL,
+            approved_at = NULL`,
+    args: [cleanId, cleanLabel, createdAt, expiresAt],
+  });
+
+  return {
+    sessionId: cleanId,
+    status: 'PENDING',
+    deviceLabel: cleanLabel,
+    createdAt,
+    expiresAt,
+  };
+}
+
+export async function getQrLoginSessionDb(sessionId: string) {
+  await ensureSchema();
+  const { client } = getTursoClient();
+  const cleanId = String(sessionId || '').trim().slice(0, 128);
+  if (!cleanId) return null;
+
+  const res = await client.execute({
+    sql: `SELECT session_id, status, target_action, device_label, created_at, expires_at, approved_by_json, approved_at
+          FROM qr_login_sessions WHERE session_id = ? LIMIT 1`,
+    args: [cleanId],
+  });
+
+  const row = res.rows[0];
+  if (!row) return null;
+
+  let approvedBy = undefined;
+  if (row.approved_by_json) {
+    try {
+      approvedBy = JSON.parse(String(row.approved_by_json));
+    } catch {
+      approvedBy = undefined;
+    }
+  }
+
+  return {
+    sessionId: String(row.session_id),
+    status: String(row.status),
+    targetAction: row.target_action ? String(row.target_action) : undefined,
+    deviceLabel: row.device_label ? String(row.device_label) : undefined,
+    createdAt: String(row.created_at),
+    expiresAt: Number(row.expires_at),
+    approvedBy,
+    approvedAt: row.approved_at ? String(row.approved_at) : undefined,
+  };
+}
+
+export async function approveQrLoginSessionDb(params: {
+  sessionId: string;
+  targetAction: 'LOGIN_ADMIN' | 'LOGOUT_TO_LOGIN';
+  approvedBy: {
+    username: string;
+    fullName: string;
+    role: string;
+    employeeId?: string;
+    department?: string;
+  };
+}) {
+  await ensureSchema();
+  const { client } = getTursoClient();
+  const cleanId = String(params.sessionId || '').trim().slice(0, 128);
+  if (!/^[a-zA-Z0-9_-]+$/.test(cleanId)) {
+    throw new Error('Invalid sessionId');
+  }
+  const existing = await getQrLoginSessionDb(cleanId);
+  if (!existing) {
+    throw new Error('Không tìm thấy phiên QR hoặc mã QR đã hết hạn.');
+  }
+  if (existing.status === 'CONSUMED') {
+    throw new Error('Mã QR này đã được sử dụng.');
+  }
+  if (Date.now() > existing.expiresAt) {
+    throw new Error('Mã QR đã hết hạn. Vui lòng tạo lại mã mới trên thiết bị chấm công.');
+  }
+  if (params.approvedBy?.role !== 'admin') {
+    throw new Error('Chỉ tài khoản Quản trị viên mới có quyền xác nhận đăng nhập.');
+  }
+
+  const approvedAt = new Date().toISOString();
+  const sanitizedUser = {
+    username: String(params.approvedBy.username).slice(0, 64),
+    fullName: String(params.approvedBy.fullName).slice(0, 128),
+    role: 'admin',
+    ...(params.approvedBy.employeeId ? { employeeId: String(params.approvedBy.employeeId).slice(0, 32) } : {}),
+    ...(params.approvedBy.department ? { department: String(params.approvedBy.department).slice(0, 64) } : {}),
+  };
+
+  await client.execute({
+    sql: `UPDATE qr_login_sessions
+          SET status = 'APPROVED', target_action = ?, approved_by_json = ?, approved_at = ?
+          WHERE session_id = ?`,
+    args: [params.targetAction, JSON.stringify(sanitizedUser), approvedAt, cleanId],
+  });
+
+  return {
+    ...existing,
+    status: 'APPROVED',
+    targetAction: params.targetAction,
+    approvedBy: sanitizedUser,
+    approvedAt,
+  };
+}
+
+export async function consumeQrLoginSessionDb(sessionId: string) {
+  await ensureSchema();
+  const { client } = getTursoClient();
+  const cleanId = String(sessionId || '').trim().slice(0, 128);
+  if (!cleanId) return;
+  await client.execute({
+    sql: `UPDATE qr_login_sessions SET status = 'CONSUMED' WHERE session_id = ?`,
+    args: [cleanId],
+  });
 }

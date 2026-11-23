@@ -120,3 +120,81 @@ input[type="month"] {
   }
 }
 
+/* Kiosk Electronic Circuit Board Screensaver Animations */
+@keyframes pcbTraceFlow {
+  0% {
+    stroke-dashoffset: 1000;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes pcbTraceFlowReverse {
+  0% {
+    stroke-dashoffset: -1000;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes pcbNodePulse {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.22);
+  }
+}
+
+@keyframes pcbCoreGlow {
+  0%, 100% {
+    box-shadow: 0 0 36px rgba(34, 211, 238, 0.35), 0 0 80px rgba(16, 185, 129, 0.22), inset 0 0 24px rgba(34, 211, 238, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(34, 211, 238, 0.6), 0 0 120px rgba(16, 185, 129, 0.38), inset 0 0 38px rgba(56, 189, 248, 0.35);
+  }
+}
+
+@keyframes pcbSpinSlow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-pcb-flow {
+  stroke-dasharray: 95 220;
+  animation: pcbTraceFlow 4.2s linear infinite;
+}
+
+.animate-pcb-flow-fast {
+  stroke-dasharray: 70 180;
+  animation: pcbTraceFlow 2.8s linear infinite;
+}
+
+.animate-pcb-flow-reverse {
+  stroke-dasharray: 85 210;
+  animation: pcbTraceFlowReverse 3.6s linear infinite;
+}
+
+.animate-pcb-core-glow {
+  animation: pcbCoreGlow 3.2s ease-in-out infinite;
+}
+
+.animate-pcb-spin-slow {
+  animation: pcbSpinSlow 18s linear infinite;
+}
+
+.animate-pcb-node-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pcbNodePulse 2.4s ease-in-out infinite;
+}
+
+

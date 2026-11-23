@@ -16,6 +16,7 @@ import {
   QrCode,
   Loader2,
   User,
+  Key,
 } from 'lucide-react';
 
 export function formatStaffDeptLabel(dept?: string): string {
@@ -646,6 +647,9 @@ export const EmployeeIdCardModal: React.FC<EmployeeIdCardModalProps> = ({
           </div>
         )}
 
+        {/* Security PIN Management Section */}
+        <SecurityPinManager staff={staff} onUpdateStaff={onUpdateStaff} />
+
         <div className="grid grid-cols-2 gap-2 pt-1">
           <button
             type="button"
@@ -686,3 +690,92 @@ export const EmployeeIdCardModal: React.FC<EmployeeIdCardModalProps> = ({
     </div>
   );
 };
+
+const SecurityPinManager: React.FC<{ staff: StaffRecord; onUpdateStaff?: (updated: StaffRecord) => void }> = ({
+  staff,
+  onUpdateStaff,
+}) => {
+  const [pinValue, setPinValue] = useState(staff.securityPin || '123');
+  const [isEditingPin, setIsEditingPin] = useState(false);
+  const [pinMsg, setPinMsg] = useState('');
+
+  const currentPin = staff.securityPin || '123';
+
+  return (
+    <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+          <Key className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Mã bảo mật quét QR (PIN)</span>
+        </span>
+        <span className="text-[11px] font-mono font-bold text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-700/50">
+          {currentPin}
+        </span>
+      </div>
+      <div className="text-[11px] text-slate-400">
+        Dùng để xác thực khi quét mã QR trên thẻ nhân viên. Mặc định lần đầu là <strong className="text-white">123</strong>.
+      </div>
+      {isEditingPin ? (
+        <div className="space-y-2 pt-1">
+          <input
+            type="text"
+            value={pinValue}
+            onChange={(e) => setPinValue(e.target.value)}
+            placeholder="Nhập mã PIN mới (VD: 4567)"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const cleanPin = pinValue.trim();
+                if (!cleanPin) {
+                  setPinMsg('Mã PIN không được để trống.');
+                  return;
+                }
+                if (onUpdateStaff) {
+                  onUpdateStaff({ ...staff, securityPin: cleanPin });
+                  setPinMsg('Đã lưu mã bảo mật mới!');
+                  setIsEditingPin(false);
+                }
+              }}
+              className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold cursor-pointer"
+            >
+              Lưu
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPinValue(currentPin);
+                setIsEditingPin(false);
+                setPinMsg('');
+              }}
+              className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer"
+            >
+              Hủy
+            </button>
+          </div>
+          {pinMsg && <div className="text-[10px] text-cyan-400">{pinMsg}</div>}
+        </div>
+      ) : (
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-[10px] text-cyan-400">{pinMsg || ''}</span>
+          {onUpdateStaff && (
+            <button
+              type="button"
+              onClick={() => {
+                setPinValue(currentPin);
+                setIsEditingPin(true);
+                setPinMsg('');
+              }}
+              className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer underline"
+            >
+              Đổi mã bảo mật
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+

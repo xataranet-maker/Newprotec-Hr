@@ -11,9 +11,10 @@ import { DepartmentTimekeepingMatrix } from './components/common/DepartmentTimek
 import { EmployeeProfile } from './components/hr/EmployeeProfile';
 import { AppQRModal } from './components/common/AppQRModal';
 import { AttendanceQRKiosk } from './components/common/AttendanceQRKiosk';
+import { AdminQRLoginScanner } from './components/common/AdminQRLoginScanner';
 import { SecurityGateControl } from './components/security/SecurityGateControl';
 import { AppCatalogBrochure } from './components/common/AppCatalogBrochure';
-import { QrCode, ShieldOff, LogIn, Loader2 } from 'lucide-react';
+import { QrCode, ShieldOff, LogIn, Loader2, Key } from 'lucide-react';
 import {
   parseStaffQrParamsFromUrl,
   setStaffQrParamsInUrl,
@@ -186,6 +187,11 @@ export default function App() {
   const [autoHideMenu, setAutoHideMenu] = useState<boolean>(() => loadFromStorage('app_auto_hide_menu', true));
   const [isMenuPinned, setIsMenuPinned] = useState<boolean>(() => loadFromStorage('app_menu_pinned', false));
   const [language, setLanguage] = useState<Language>(() => loadFromStorage('app_lang', 'vi'));
+  const [verifiedQrPins, setVerifiedQrPins] = useState<Record<string, boolean>>({});
+  const [qrPinInput, setQrPinInput] = useState('');
+  const [qrNewPinInput, setQrNewPinInput] = useState('');
+  const [qrConfirmPinInput, setQrConfirmPinInput] = useState('');
+  const [qrPinError, setQrPinError] = useState('');
 
   // --- PERSISTENT STATES (HOME, MULTI AUTO STAFF/TIMEKEEPING, HC & NS, ADMIN) ---
   const [staffRecords, setStaffRecords] = useState<StaffRecord[]>(() =>
@@ -355,7 +361,15 @@ export default function App() {
             })),
           };
         }
-        return tab;
+        return {
+          ...tab,
+          groups: tab.groups.map((grp) => ({
+            ...grp,
+            items: grp.items.filter(
+              (item) => !item.allowedRoles || (currentUser && item.allowedRoles.includes(currentUser.role))
+            ),
+          })),
+        };
       });
   }, [currentUser]);
 
@@ -812,6 +826,133 @@ export default function App() {
       }
 
       if (isQrAuthorized && matchedQrStaff) {
+        const staffPin = (matchedQrStaff.securityPin || '123').trim();
+        const isDefaultPin = staffPin === '123';
+        const isVerifiedForSession = verifiedQrPins[matchedQrStaff.employeeId];
+
+        if (isDefaultPin || !isVerifiedForSession) {
+          return (
+            <div className="min-h-dvh bg-[#020617] text-slate-100 flex items-center justify-center p-4">
+              <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
+                  <Key className="w-6 h-6" />
+                </div>
+                <div className="text-center space-y-1">
+                  <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+                    {isDefaultPin ? 'Đổi Mã Bảo Mật Lần Đầu' : 'Xác Thực Mã Bảo Mật Quét QR'}
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    {isDefaultPin
+                      ? `Hồ sơ ${matchedQrStaff.fullName} (${matchedQrStaff.employeeId}) đang dùng mã mặc định (123). Vui lòng tạo mã bảo mật riêng.`
+                      : `Nhập mã bảo mật (PIN) cho ${matchedQrStaff.fullName} (${matchedQrStaff.employeeId})`}
+                  </p>
+                </div>
+
+                {isDefaultPin ? (
+                  <div className="space-y-3 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Mã bảo mật mới (PIN)</label>
+                      <input
+                        type="password"
+                        value={qrNewPinInput}
+                        onChange={(e) => setQrNewPinInput(e.target.value)}
+                        placeholder="Nhập mã PIN mới (VD: 4567)"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Xác nhận mã bảo mật mới</label>
+                      <input
+                        type="password"
+                        value={qrConfirmPinInput}
+                        onChange={(e) => setQrConfirmPinInput(e.target.value)}
+                        placeholder="Nhập lại mã PIN mới"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                      />
+                    </div>
+                    {qrPinError && (
+                      <div className="text-xs text-rose-400 bg-rose-950/40 border border-rose-800/60 p-2 rounded-lg text-center">
+                        {qrPinError}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newPin = qrNewPinInput.trim();
+                        const confirmPin = qrConfirmPinInput.trim();
+                        if (!newPin) {
+                          setQrPinError('Vui lòng nhập mã PIN mới.');
+                          return;
+                        }
+                        if (newPin === '123') {
+                          setQrPinError('Mã PIN mới không được trùng với mã mặc định (123).');
+                          return;
+                        }
+                        if (newPin !== confirmPin) {
+                          setQrPinError('Xác nhận mã PIN không khớp.');
+                          return;
+                        }
+                        handleUpdateStaffInfo({ ...matchedQrStaff, securityPin: newPin });
+                        setVerifiedQrPins({ ...verifiedQrPins, [matchedQrStaff.employeeId]: true });
+                        setQrPinError('');
+                      }}
+                      className="w-full py-2.5 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-lg"
+                    >
+                      <Key className="w-4 h-4" />
+                      <span>Lưu Mã Bảo Mật & Truy Cập</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Mã bảo mật (PIN)</label>
+                      <input
+                        type="password"
+                        value={qrPinInput}
+                        onChange={(e) => setQrPinInput(e.target.value)}
+                        placeholder="Nhập mã PIN của bạn"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+                      />
+                    </div>
+                    {qrPinError && (
+                      <div className="text-xs text-rose-400 bg-rose-950/40 border border-rose-800/60 p-2 rounded-lg text-center">
+                        {qrPinError}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const entered = qrPinInput.trim();
+                        if (entered === staffPin) {
+                          setVerifiedQrPins({ ...verifiedQrPins, [matchedQrStaff.employeeId]: true });
+                          setQrPinError('');
+                          setQrPinInput('');
+                        } else {
+                          setQrPinError('Mã bảo mật không chính xác. Vui lòng thử lại.');
+                        }
+                      }}
+                      className="w-full py-2.5 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-lg"
+                    >
+                      <span>Xác Thực & Mở Hồ Sơ</span>
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearStaffQrParamsFromUrl();
+                    setQrRouteParams(null);
+                  }}
+                  className="w-full py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  Quay Về Đăng Nhập
+                </button>
+              </div>
+            </div>
+          );
+        }
+
         const qrUser: UserAccount = {
           username: matchedQrStaff.employeeId,
           fullName: matchedQrStaff.fullName,
@@ -964,6 +1105,7 @@ export default function App() {
         <AttendanceQRKiosk
           isStandaloneAccount={true}
           onLogout={() => setCurrentUser(null)}
+          onRemoteLogin={(adminUser) => handleLogin(adminUser)}
           allStaff={allStaff}
         />
       );
@@ -1071,9 +1213,20 @@ export default function App() {
         return (
           <AttendanceQRKiosk
             isStandaloneAccount={false}
+            onLogout={() => setCurrentUser(null)}
+            onRemoteLogin={(adminUser) => handleLogin(adminUser)}
             allStaff={allStaff}
           />
         );
+      case 'admin_qr_login_scanner':
+        if (currentUser.role !== 'admin') {
+          return (
+            <div className="p-12 text-center text-rose-400 font-bold text-xs uppercase tracking-wider">
+              Chỉ Quản trị viên (Admin) mới có quyền sử dụng tính năng Quét Đăng Nhập.
+            </div>
+          );
+        }
+        return <AdminQRLoginScanner currentUser={currentUser} />;
       case 'home_announcements':
         return (
           <HRAnnouncements
