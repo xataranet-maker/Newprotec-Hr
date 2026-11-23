@@ -13,6 +13,7 @@ interface LoginProps {
   language: Language;
   onLanguageChange: (lang: Language) => void;
   onOpenCatalog?: () => void;
+  onOpenQrcodeGate?: () => void;
 }
 
 export const Login: React.FC<LoginProps> = ({
@@ -23,6 +24,7 @@ export const Login: React.FC<LoginProps> = ({
   language,
   onLanguageChange,
   onOpenCatalog,
+  onOpenQrcodeGate,
 }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -113,66 +115,122 @@ export const Login: React.FC<LoginProps> = ({
     setError('Tài khoản hoặc mật khẩu không chính xác.');
   };
 
+  const actionCount = 1 + (onOpenQrcodeGate ? 1 : 0) + (onOpenCatalog ? 1 : 0);
+  const mobileGridCols =
+    actionCount >= 3 ? 'grid-cols-3' : actionCount === 2 ? 'grid-cols-2' : 'grid-cols-1';
+
   return (
-    <div className="min-h-screen bg-[#020617] flex flex-col justify-between p-4 sm:p-8 select-none text-slate-100">
-      {/* Top Bar Language Selector */}
-      <div className="flex justify-between items-center max-w-5xl mx-auto w-full">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 font-bold">
-            NP
-          </div>
-          <div>
-            <div className="font-bold text-sm tracking-tight text-white">NEWPROTEC VINA</div>
-            <div className="text-[10px] text-cyan-400 font-mono tracking-widest uppercase">
-              SMART MES V2.0
+    <div className="min-h-screen bg-[#020617] flex flex-col justify-between gap-6 p-4 sm:p-8 select-none text-slate-100">
+      {/* Top Bar: Row 1 Brand + Mobile Language, Row 2 Symmetrical Action Cards */}
+      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 max-w-5xl mx-auto w-full">
+        {/* Top Row: Company Logo & Name (left) + Compact Language Switcher (mobile right) */}
+        <div className="flex items-center justify-between gap-2 w-full md:w-auto">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 font-bold shrink-0">
+              NP
+            </div>
+            <div className="whitespace-nowrap">
+              <div className="font-bold text-sm tracking-tight text-white leading-tight">
+                NEWPROTEC VINA
+              </div>
+              <div className="text-[10px] text-cyan-400 font-mono tracking-widest uppercase leading-tight">
+                SMART MES V2.0
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {onOpenCatalog && (
+          <div className="flex md:hidden items-center gap-0.5 bg-slate-900 border border-slate-800 rounded-lg p-1 text-[11px] shrink-0">
+            <Globe className="w-3 h-3 text-slate-400 mx-1 shrink-0" />
             <button
               type="button"
-              onClick={onOpenCatalog}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/50 text-amber-200 text-xs font-bold transition-colors cursor-pointer"
-              title="Xem Catalog giới thiệu ứng dụng không cần đăng nhập"
-            >
-              <FileText className="w-3.5 h-3.5 text-amber-400" />
-              <span>Catalog Ứng Dụng</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setShowQRModal(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 text-xs font-semibold transition-colors cursor-pointer"
-            title="Mở & tải Mã QR của ứng dụng"
-          >
-            <QrCode className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Mã QR App</span>
-          </button>
-
-          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs">
-            <Globe className="w-3.5 h-3.5 text-slate-400 ml-1.5" />
-            <button
               onClick={() => onLanguageChange('vi')}
-              className={`px-2 py-0.5 rounded font-medium transition-colors ${
+              className={`px-1.5 py-0.5 rounded font-medium transition-colors cursor-pointer ${
                 language === 'vi' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
               VI
             </button>
             <button
+              type="button"
               onClick={() => onLanguageChange('ko')}
-              className={`px-2 py-0.5 rounded font-medium transition-colors ${
+              className={`px-1.5 py-0.5 rounded font-medium transition-colors cursor-pointer ${
                 language === 'ko' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
               한국어
             </button>
             <button
+              type="button"
               onClick={() => onLanguageChange('en')}
-              className={`px-2 py-0.5 rounded font-medium transition-colors ${
+              className={`px-1.5 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                language === 'en' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              EN
+            </button>
+          </div>
+        </div>
+
+        {/* Action Cards Row: Equal-width symmetrical grid on mobile, inline flex on desktop */}
+        <div className={`grid ${mobileGridCols} md:flex md:items-center gap-2 w-full md:w-auto`}>
+          {onOpenQrcodeGate && (
+            <button
+              type="button"
+              onClick={onOpenQrcodeGate}
+              className="flex flex-col md:flex-row items-center justify-center gap-1 md:gap-1.5 px-2 md:px-2.5 py-2 md:py-1.5 rounded-xl md:rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/50 text-emerald-200 text-[11px] md:text-xs font-bold leading-tight text-center transition-colors cursor-pointer h-full"
+              title="Mở trang Trạm Chấm Công QRCODE (Admin quét QR để tự động đăng nhập)"
+            >
+              <QrCode className="w-4 h-4 md:w-3.5 md:h-3.5 text-emerald-400 shrink-0" />
+              <span>Trạm QRCODE</span>
+            </button>
+          )}
+
+          {onOpenCatalog && (
+            <button
+              type="button"
+              onClick={onOpenCatalog}
+              className="flex flex-col md:flex-row items-center justify-center gap-1 md:gap-1.5 px-2 md:px-2.5 py-2 md:py-1.5 rounded-xl md:rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/50 text-amber-200 text-[11px] md:text-xs font-bold leading-tight text-center transition-colors cursor-pointer h-full"
+              title="Xem Catalog giới thiệu ứng dụng không cần đăng nhập"
+            >
+              <FileText className="w-4 h-4 md:w-3.5 md:h-3.5 text-amber-400 shrink-0" />
+              <span>Catalog App</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowQRModal(true)}
+            className="flex flex-col md:flex-row items-center justify-center gap-1 md:gap-1.5 px-2 md:px-2.5 py-2 md:py-1.5 rounded-xl md:rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 text-[11px] md:text-xs font-semibold leading-tight text-center transition-colors cursor-pointer h-full"
+            title="Mở & tải Mã QR của ứng dụng"
+          >
+            <QrCode className="w-4 h-4 md:w-3.5 md:h-3.5 text-cyan-400 shrink-0" />
+            <span>Mã QR App</span>
+          </button>
+
+          <div className="hidden md:flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs shrink-0">
+            <Globe className="w-3.5 h-3.5 text-slate-400 ml-1.5" />
+            <button
+              type="button"
+              onClick={() => onLanguageChange('vi')}
+              className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                language === 'vi' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              VI
+            </button>
+            <button
+              type="button"
+              onClick={() => onLanguageChange('ko')}
+              className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
+                language === 'ko' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              한국어
+            </button>
+            <button
+              type="button"
+              onClick={() => onLanguageChange('en')}
+              className={`px-2 py-0.5 rounded font-medium transition-colors cursor-pointer ${
                 language === 'en' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -263,6 +321,18 @@ export const Login: React.FC<LoginProps> = ({
               <ScanLine className="w-4 h-4 text-teal-300" />
               <span>Quét Mã QR Truy Cập Nhanh</span>
             </button>
+
+            {/* Open QRCODE Station via Zalo-style Admin QR Scan */}
+            {onOpenQrcodeGate && (
+              <button
+                type="button"
+                onClick={onOpenQrcodeGate}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/50 text-emerald-200 hover:text-white text-xs font-bold shadow-md shadow-emerald-950/30 transition-all cursor-pointer"
+              >
+                <QrCode className="w-4 h-4 text-emerald-400" />
+                <span>Đăng Nhập Trạm QRCODE (Quét QR Admin)</span>
+              </button>
+            )}
 
             {/* Firebase Google Auth Button */}
             <button

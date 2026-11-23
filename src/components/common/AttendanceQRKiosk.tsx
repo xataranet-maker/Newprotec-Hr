@@ -20,7 +20,7 @@ import {
   AlertCircle,
   Moon,
 } from 'lucide-react';
-import { MachineSwipeRecord, StaffRecord, UserAccount } from '../../types';
+import { MachineSwipeRecord, StaffRecord } from '../../types';
 import {
   ATTENDANCE_QR_PAYLOAD,
   AttendancePunchResult,
@@ -38,14 +38,12 @@ import { MATRIX_UPDATED_EVENT } from '../../lib/matrixTimekeeping';
 import { getDefaultAvatarForEmployee } from '../../lib/avatarUtils';
 import { KioskCircuitScreensaver } from './KioskCircuitScreensaver';
 import { KioskRemoteLoginModal } from './KioskRemoteLoginModal';
-import { QrLoginTargetAction } from '../../lib/qrLogin';
 
 const KIOSK_IDLE_TIMEOUT_MS = 60_000; // 1 phút không có nhận diện người chấm công
 
 interface AttendanceQRKioskProps {
   isStandaloneAccount?: boolean;
   onLogout?: () => void;
-  onRemoteLogin?: (adminUser: UserAccount) => void;
   allStaff?: StaffRecord[];
 }
 
@@ -63,7 +61,6 @@ interface RecognizedBannerState {
 export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
   isStandaloneAccount = false,
   onLogout,
-  onRemoteLogin,
   allStaff = [],
 }) => {
   const [kioskMode, setKioskMode] = useState<KioskMode>('QR');
@@ -612,13 +609,10 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
       <KioskRemoteLoginModal
         isOpen={showRemoteLoginModal}
         onClose={() => setShowRemoteLoginModal(false)}
-        onApproved={(adminUser: UserAccount, action: QrLoginTargetAction) => {
+        intent="LOGOUT_TO_LOGIN"
+        onApproved={(action) => {
           setShowRemoteLoginModal(false);
           if (action === 'LOGOUT_TO_LOGIN') {
-            onLogout?.();
-          } else if (onRemoteLogin) {
-            onRemoteLogin(adminUser);
-          } else {
             onLogout?.();
           }
         }}
@@ -744,15 +738,15 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
               </span>
             </button>
 
-            {(isStandaloneAccount || onRemoteLogin || onLogout) && (
+            {(isStandaloneAccount || onLogout) && (
               <button
                 type="button"
                 onClick={() => setShowRemoteLoginModal(true)}
                 className="px-3 py-1.5 rounded-lg bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
-                title="Hiển thị mã QR để Quản trị viên quét đăng nhập hoặc thoát trạm QRCODE"
+                title="Hiển thị mã QR để Quản trị viên quét thoát khỏi trang QRCODE"
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-                <span>QR Đăng Nhập / Thoát</span>
+                <span>QR Thoát Trạm</span>
               </button>
             )}
           </div>

@@ -376,7 +376,7 @@ export async function getQrLoginSessionDb(sessionId: string) {
 
 export async function approveQrLoginSessionDb(params: {
   sessionId: string;
-  targetAction: 'LOGIN_ADMIN' | 'LOGOUT_TO_LOGIN';
+  targetAction: 'LOGIN_QRCODE' | 'LOGOUT_TO_LOGIN';
   approvedBy: {
     username: string;
     fullName: string;

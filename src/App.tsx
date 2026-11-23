@@ -12,6 +12,12 @@ import { EmployeeProfile } from './components/hr/EmployeeProfile';
 import { AppQRModal } from './components/common/AppQRModal';
 import { AttendanceQRKiosk } from './components/common/AttendanceQRKiosk';
 import { AdminQRLoginScanner } from './components/common/AdminQRLoginScanner';
+import { QrcodeStationLoginGate } from './components/common/QrcodeStationLoginGate';
+import {
+  checkIsQrcodeGateUrl,
+  QRCODE_STATION_ACCOUNT,
+  updateQrcodeGateUrl,
+} from './lib/qrLogin';
 import { SecurityGateControl } from './components/security/SecurityGateControl';
 import { AppCatalogBrochure } from './components/common/AppCatalogBrochure';
 import { QrCode, ShieldOff, LogIn, Loader2, Key } from 'lucide-react';
@@ -177,6 +183,9 @@ export default function App() {
   );
   const [isPublicCatalogOpen, setIsPublicCatalogOpen] = useState<boolean>(() =>
     checkIsPublicCatalogUrl()
+  );
+  const [isQrcodeGateOpen, setIsQrcodeGateOpen] = useState<boolean>(() =>
+    checkIsQrcodeGateUrl()
   );
   const [initialSyncDone, setInitialSyncDone] = useState(false);
   const [viewingProfileStaff, setViewingProfileStaff] = useState<StaffRecord | null>(null);
@@ -1072,26 +1081,54 @@ export default function App() {
       );
     }
 
+    if (isQrcodeGateOpen) {
+      return (
+        <QrcodeStationLoginGate
+          onApprovedQrcodeLogin={() => {
+            updateQrcodeGateUrl(false);
+            setIsQrcodeGateOpen(false);
+            handleLogin(QRCODE_STATION_ACCOUNT);
+          }}
+          onBackToLogin={() => {
+            updateQrcodeGateUrl(false);
+            setIsQrcodeGateOpen(false);
+          }}
+        />
+      );
+    }
+
     return (
       <Login
         users={userAccounts}
         allStaff={allStaff}
         onLogin={(user) => {
           updatePublicCatalogUrl(false);
+          updateQrcodeGateUrl(false);
           setIsPublicCatalogOpen(false);
+          setIsQrcodeGateOpen(false);
           handleLogin(user);
         }}
         onQrQuickAccess={({ employeeId, token }) => {
           updatePublicCatalogUrl(false);
+          updateQrcodeGateUrl(false);
           setIsPublicCatalogOpen(false);
+          setIsQrcodeGateOpen(false);
           setStaffQrParamsInUrl(employeeId, token);
           setQrRouteParams({ employeeId, token });
         }}
         language={language}
         onLanguageChange={setLanguage}
         onOpenCatalog={() => {
+          updateQrcodeGateUrl(false);
+          setIsQrcodeGateOpen(false);
           updatePublicCatalogUrl(true);
           setIsPublicCatalogOpen(true);
+        }}
+        onOpenQrcodeGate={() => {
+          updatePublicCatalogUrl(false);
+          setIsPublicCatalogOpen(false);
+          updateQrcodeGateUrl(true);
+          setIsQrcodeGateOpen(true);
         }}
       />
     );
@@ -1105,7 +1142,6 @@ export default function App() {
         <AttendanceQRKiosk
           isStandaloneAccount={true}
           onLogout={() => setCurrentUser(null)}
-          onRemoteLogin={(adminUser) => handleLogin(adminUser)}
           allStaff={allStaff}
         />
       );
@@ -1214,7 +1250,6 @@ export default function App() {
           <AttendanceQRKiosk
             isStandaloneAccount={false}
             onLogout={() => setCurrentUser(null)}
-            onRemoteLogin={(adminUser) => handleLogin(adminUser)}
             allStaff={allStaff}
           />
         );

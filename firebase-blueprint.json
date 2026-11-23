@@ -107,7 +107,7 @@
       "properties": {
         "sessionId": { "type": "string", "maxLength": 128 },
         "status": { "type": "string", "enum": ["PENDING", "APPROVED", "CONSUMED", "EXPIRED"] },
-        "targetAction": { "type": "string", "enum": ["LOGIN_ADMIN", "LOGOUT_TO_LOGIN"] },
+        "targetAction": { "type": "string", "enum": ["LOGIN_QRCODE", "LOGOUT_TO_LOGIN"] },
         "deviceLabel": { "type": "string", "maxLength": 128 },
         "createdAt": { "type": "string", "maxLength": 64 },
         "expiresAt": { "type": "number" },

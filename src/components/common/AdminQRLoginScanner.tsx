@@ -13,10 +13,15 @@ import {
   Camera,
   CameraOff,
   KeyRound,
+  Sparkles,
+  Link2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { UserAccount } from '../../types';
 import {
   approveRemoteQrLoginSession,
+  getDedicatedQrcodeStationUrl,
   parseAdminQrLoginPayload,
   QrLoginTargetAction,
 } from '../../lib/qrLogin';
@@ -25,6 +30,8 @@ import { playSuccessChime } from '../../lib/attendanceQr';
 interface AdminQRLoginScannerProps {
   currentUser: UserAccount;
 }
+
+type ScannerModeOption = 'AUTO' | QrLoginTargetAction;
 
 export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ currentUser }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -40,14 +47,17 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
   );
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [targetAction, setTargetAction] = useState<QrLoginTargetAction>('LOGIN_ADMIN');
+  const [scanMode, setScanMode] = useState<ScannerModeOption>('AUTO');
   const [manualCode, setManualCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [approvedSummary, setApprovedSummary] = useState<{
     sessionId: string;
     targetAction: QrLoginTargetAction;
     approvedAt: string;
   } | null>(null);
+
+  const dedicatedQrcodeUrl = getDedicatedQrcodeStationUrl();
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -74,12 +84,13 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
         const nowTs = Date.now();
         if (lastInvalidRef.current.text !== rawText || nowTs - lastInvalidRef.current.ts > 2000) {
           lastInvalidRef.current = { text: rawText, ts: nowTs };
-          setScanError(
-            'Mã QR không phải Mã QR Đăng Nhập / Thoát của Trạm QRCODE.'
-          );
+          setScanError('Mã QR không phải Mã QR Đăng Nhập / Thoát Trạm QRCODE.');
         }
         return;
       }
+
+      const resolvedAction: QrLoginTargetAction =
+        scanMode === 'AUTO' ? parsed.intent || 'LOGIN_QRCODE' : scanMode;
 
       processingLockRef.current = true;
       setIsSubmitting(true);
@@ -88,7 +99,7 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
       try {
         const res = await approveRemoteQrLoginSession({
           sessionId: parsed.sessionId,
-          targetAction,
+          targetAction: resolvedAction,
           adminUser: currentUser,
         });
 
@@ -103,14 +114,14 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
         setCameraState('stopped');
         setApprovedSummary({
           sessionId: parsed.sessionId,
-          targetAction,
+          targetAction: resolvedAction,
           approvedAt: new Date().toLocaleTimeString('vi-VN', { hour12: false }),
         });
       } finally {
         setIsSubmitting(false);
       }
     },
-    [approvedSummary, currentUser, stopCamera, targetAction]
+    [approvedSummary, currentUser, scanMode, stopCamera]
   );
 
   const startCamera = useCallback(
@@ -121,7 +132,9 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
 
       if (!navigator.mediaDevices?.getUserMedia) {
         setCameraState('error');
-        setCameraError('Trình duyệt không hỗ trợ camera trực tiếp. Có thể quét từ ảnh hoặc nhập mã phiên.');
+        setCameraError(
+          'Trình duyệt không hỗ trợ camera trực tiếp. Có thể quét từ ảnh hoặc nhập mã phiên.'
+        );
         return;
       }
 
@@ -225,6 +238,16 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
     img.src = dataUrl;
   };
 
+  const handleCopyDedicatedLink = async () => {
+    try {
+      await navigator.clipboard.writeText(dedicatedQrcodeUrl);
+      setCopiedLink(true);
+      window.setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
   const resetScanner = () => {
     processingLockRef.current = false;
     setScanError(null);
@@ -242,15 +265,15 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
             </div>
             <div>
               <h2 className="text-sm sm:text-base font-extrabold text-white uppercase tracking-wide">
-                Quét Mã QR Đăng Nhập Thiết Bị (Zalo-Style)
+                Quét QR Mở / Thoát Trạm QRCODE Chấm Công
               </h2>
               <p className="text-xs text-slate-400">
-                Quản trị viên <strong className="text-cyan-300">{currentUser.fullName}</strong> · Quét mã QR trên màn hình Trạm QRCODE để tự động đăng nhập
+                Admin <strong className="text-cyan-300">{currentUser.fullName}</strong> · Quét mã QR trên thiết bị kia để tự động mở hoặc thoát <strong className="text-emerald-300">tab QRCODE</strong> (không đăng nhập Admin lên thiết bị đó)
               </p>
             </div>
           </div>
 
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold">
             <ShieldCheck className="w-3.5 h-3.5" />
             <span>Quyền Quản Trị Viên</span>
           </div>
@@ -259,49 +282,71 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
         {/* Action Mode Choice */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-2.5">
           <div className="text-xs font-bold uppercase tracking-wider text-slate-300">
-            Hành động sau khi quét mã QR trên thiết bị Trạm QRCODE:
+            Chế độ thực thi sau khi quét mã QR:
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
             <button
               type="button"
-              onClick={() => setTargetAction('LOGIN_ADMIN')}
+              onClick={() => setScanMode('AUTO')}
               className={`p-3 rounded-xl border text-left flex items-start gap-2.5 cursor-pointer transition-all ${
-                targetAction === 'LOGIN_ADMIN'
-                  ? 'bg-cyan-500/15 border-cyan-400 text-white shadow-md'
+                scanMode === 'AUTO'
+                  ? 'bg-emerald-500/15 border-emerald-400 text-white shadow-md'
                   : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
-              <LogIn
+              <Sparkles
                 className={`w-4 h-4 mt-0.5 shrink-0 ${
-                  targetAction === 'LOGIN_ADMIN' ? 'text-cyan-400' : 'text-slate-500'
+                  scanMode === 'AUTO' ? 'text-emerald-400' : 'text-slate-500'
                 }`}
               />
               <div>
-                <div className="text-xs font-bold">Tự động Đăng nhập Quản trị viên</div>
+                <div className="text-xs font-bold">Tự động theo mã QR</div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  Thiết bị có mã QR sẽ tự động đăng nhập vào tài khoản {currentUser.username} (giống Zalo)
+                  Tự nhận biết mở Trạm QRCODE (?qrcode=1) hoặc Thoát Trạm
                 </div>
               </div>
             </button>
 
             <button
               type="button"
-              onClick={() => setTargetAction('LOGOUT_TO_LOGIN')}
+              onClick={() => setScanMode('LOGIN_QRCODE')}
               className={`p-3 rounded-xl border text-left flex items-start gap-2.5 cursor-pointer transition-all ${
-                targetAction === 'LOGOUT_TO_LOGIN'
+                scanMode === 'LOGIN_QRCODE'
+                  ? 'bg-cyan-500/15 border-cyan-400 text-white shadow-md'
+                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <LogIn
+                className={`w-4 h-4 mt-0.5 shrink-0 ${
+                  scanMode === 'LOGIN_QRCODE' ? 'text-cyan-400' : 'text-slate-500'
+                }`}
+              />
+              <div>
+                <div className="text-xs font-bold">Đăng nhập Trạm QRCODE</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  Tự động mở tab QRCODE chấm công trên thiết bị kia (giống Zalo)
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setScanMode('LOGOUT_TO_LOGIN')}
+              className={`p-3 rounded-xl border text-left flex items-start gap-2.5 cursor-pointer transition-all ${
+                scanMode === 'LOGOUT_TO_LOGIN'
                   ? 'bg-amber-500/15 border-amber-400 text-white shadow-md'
                   : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
               <LogOut
                 className={`w-4 h-4 mt-0.5 shrink-0 ${
-                  targetAction === 'LOGOUT_TO_LOGIN' ? 'text-amber-400' : 'text-slate-500'
+                  scanMode === 'LOGOUT_TO_LOGIN' ? 'text-amber-400' : 'text-slate-500'
                 }`}
               />
               <div>
-                <div className="text-xs font-bold">Thoát Trạm QRCODE về Đăng nhập</div>
+                <div className="text-xs font-bold">Thoát Trạm QRCODE</div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  Đăng xuất khỏi trạm chấm công và đưa thiết bị về màn hình Đăng nhập
+                  Thoát khỏi trạm chấm công và đưa thiết bị về màn hình Đăng nhập
                 </div>
               </div>
             </button>
@@ -407,10 +452,10 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
                     <h3 className="text-base font-extrabold text-white">
                       {approvedSummary.targetAction === 'LOGOUT_TO_LOGIN'
                         ? 'Đã Thoát Trạm QRCODE Thành Công!'
-                        : 'Đã Đăng Nhập Tự Động Lên Thiết Bị!'}
+                        : 'Đã Mở Trạm Chấm Công QRCODE Thành Công!'}
                     </h3>
                     <p className="text-xs text-emerald-300">
-                      Thiết bị hiển thị mã QR đã nhận xác thực từ{' '}
+                      Thiết bị kia đã nhận xác thực từ{' '}
                       <strong className="text-white">{currentUser.fullName}</strong> lúc{' '}
                       {approvedSummary.approvedAt}.
                     </p>
@@ -429,9 +474,7 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
               {cameraState !== 'active' && !approvedSummary && (
                 <div className="p-6 text-center space-y-2.5 max-w-xs">
                   <CameraOff className="w-10 h-10 text-slate-500 mx-auto" />
-                  <p className="text-xs text-slate-400">
-                    {cameraError || 'Camera đang tạm tắt.'}
-                  </p>
+                  <p className="text-xs text-slate-400">{cameraError || 'Camera đang tạm tắt.'}</p>
                 </div>
               )}
             </div>
@@ -444,15 +487,38 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
             )}
           </div>
 
-          {/* Right: Manual Session Code + Instructions */}
+          {/* Right: Dedicated QRCODE Station Link + Manual Session Code + Instructions */}
           <div className="lg:col-span-5 space-y-4">
+            <div className="bg-slate-900/90 border border-emerald-500/35 rounded-2xl p-4 space-y-2.5">
+              <div className="text-xs font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                <Link2 className="w-4 h-4" />
+                <span>Đường Link Riêng Cho Trạm QRCODE</span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Mở link này trên máy chấm công tại xưởng để hiện sẵn mã QR chờ Admin quét đăng nhập vào tab QRCODE:
+              </p>
+              <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2">
+                <span className="text-[11px] font-mono text-cyan-300 truncate flex-1">
+                  {dedicatedQrcodeUrl}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyDedicatedLink}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                >
+                  {copiedLink ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedLink ? 'Đã chép' : 'Chép Link'}</span>
+                </button>
+              </div>
+            </div>
+
             <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
                 <KeyRound className="w-4 h-4" />
                 <span>Hoặc Nhập Mã Phiên Thủ Công</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
-                Nếu thiết bị này không có camera, sao chép chuỗi mã phiên bên dưới mã QR trên Trạm QRCODE (dạng <code className="text-cyan-300">qrl_...</code>) và dán vào đây.
+                Nếu thiết bị này không có camera, sao chép chuỗi mã phiên bên dưới mã QR trên màn hình Trạm QRCODE (dạng <code className="text-cyan-300">qrl_...</code>) và dán vào đây.
               </p>
               <div className="flex gap-2">
                 <input
@@ -473,19 +539,16 @@ export const AdminQRLoginScanner: React.FC<AdminQRLoginScannerProps> = ({ curren
               </div>
             </div>
 
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-2.5 text-xs text-slate-300">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-2 text-xs text-slate-300">
               <div className="font-bold text-white uppercase text-[11px] tracking-wider">
-                Quy Trình Đăng Nhập QR Như Zalo
+                Quy Trình Hoạt Động
               </div>
-              <div className="space-y-2 text-[11px] leading-relaxed text-slate-300">
+              <div className="space-y-1.5 text-[11px] leading-relaxed text-slate-300">
                 <p>
-                  1. Trên máy trạm đang mở tài khoản <strong className="text-emerald-300">QRCODE</strong>, không còn nút thoát trực tiếp để tránh người khác thoát nhầm.
+                  1. <strong className="text-emerald-300">Vào Trạm QRCODE:</strong> Trên máy chấm công mở nút <em>Đăng Nhập Trạm QRCODE</em> hoặc link <code className="text-cyan-300">?qrcode=1</code> → Dùng máy Admin quét QR đó để tự động mở tab chấm công QRCODE.
                 </p>
                 <p>
-                  2. Nhấn nút <strong className="text-cyan-300">QR Đăng Nhập / Thoát</strong> trên máy trạm để hiện mã QR phiên tạm thời (hiệu lực 3 phút).
-                </p>
-                <p>
-                  3. Hướng camera của thiết bị Admin vào mã QR đó — máy trạm sẽ tự động đăng nhập Quản trị viên hoặc thoát ngay tức thì.
+                  2. <strong className="text-amber-300">Thoát Trạm QRCODE:</strong> Nhấn nút <em>QR Thoát Trạm</em> trong màn hình chấm công → Dùng máy Admin quét QR để thoát trạm về màn hình đăng nhập.
                 </p>
               </div>
             </div>

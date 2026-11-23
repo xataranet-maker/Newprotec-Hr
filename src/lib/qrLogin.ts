@@ -6,7 +6,66 @@ export const ADMIN_QR_LOGIN_TYPE = 'NP_ADMIN_QR_LOGIN';
 export const QR_LOGIN_COLLECTION = 'qr_login_sessions';
 export const QR_LOGIN_TTL_MS = 180_000; // 3 phút
 
-export type QrLoginTargetAction = 'LOGIN_ADMIN' | 'LOGOUT_TO_LOGIN';
+export type QrLoginTargetAction = 'LOGIN_QRCODE' | 'LOGOUT_TO_LOGIN';
+
+export const QRCODE_STATION_ACCOUNT: UserAccount = {
+  username: 'QRCODE',
+  fullName: 'Trạm QR Chấm Công',
+  role: 'qrcode',
+  employeeId: 'QRCODE',
+  department: 'ALL',
+};
+
+export function checkIsQrcodeGateUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const qrParam = (params.get('qrcode') || '').toLowerCase();
+    const modeParam = (params.get('mode') || '').toLowerCase();
+    const hash = (window.location.hash || '').toLowerCase();
+    return (
+      qrParam === '1' ||
+      qrParam === 'true' ||
+      modeParam === 'qrcode' ||
+      hash === '#qrcode'
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function updateQrcodeGateUrl(open: boolean) {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    if (open) {
+      url.searchParams.set('qrcode', '1');
+      url.searchParams.delete('catalog');
+    } else {
+      url.searchParams.delete('qrcode');
+      if ((url.searchParams.get('mode') || '').toLowerCase() === 'qrcode') {
+        url.searchParams.delete('mode');
+      }
+      if (url.hash.toLowerCase() === '#qrcode') {
+        url.hash = '';
+      }
+    }
+    window.history.replaceState({}, '', url.toString());
+  } catch {
+    // ignore URL errors
+  }
+}
+
+export function getDedicatedQrcodeStationUrl(): string {
+  if (typeof window === 'undefined') return '?qrcode=1';
+  try {
+    const url = new URL(window.location.origin + window.location.pathname);
+    url.searchParams.set('qrcode', '1');
+    return url.toString();
+  } catch {
+    return '?qrcode=1';
+  }
+}
 
 export interface QrLoginSessionDoc {
   sessionId: string;
@@ -29,6 +88,7 @@ export interface ParsedAdminQrLoginPayload {
   valid: boolean;
   sessionId?: string;
   station?: string;
+  intent?: QrLoginTargetAction;
 }
 
 export function generateQrLoginSessionId(): string {
@@ -44,11 +104,16 @@ export function generateQrLoginSessionId(): string {
   return `qrl_${Date.now()}_${hex}`;
 }
 
-export function buildAdminQrLoginPayload(sessionId: string, station = 'QRCODE_KIOSK'): string {
+export function buildAdminQrLoginPayload(
+  sessionId: string,
+  station = 'QRCODE_KIOSK',
+  intent: QrLoginTargetAction = 'LOGIN_QRCODE'
+): string {
   return JSON.stringify({
     type: ADMIN_QR_LOGIN_TYPE,
     sessionId,
     station,
+    intent,
     v: 1,
   });
 }
@@ -63,10 +128,14 @@ export function parseAdminQrLoginPayload(rawText: string): ParsedAdminQrLoginPay
       if (obj?.type === ADMIN_QR_LOGIN_TYPE && typeof obj.sessionId === 'string') {
         const sid = obj.sessionId.trim();
         if (/^[a-zA-Z0-9_-]{8,128}$/.test(sid)) {
+          const rawIntent = obj.intent;
+          const intent: QrLoginTargetAction =
+            rawIntent === 'LOGOUT_TO_LOGIN' ? 'LOGOUT_TO_LOGIN' : 'LOGIN_QRCODE';
           return {
             valid: true,
             sessionId: sid,
             station: typeof obj.station === 'string' ? obj.station : 'QRCODE_KIOSK',
+            intent,
           };
         }
       }

@@ -65,7 +65,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
     if (action === 'APPROVE') {
       const targetAction =
-        body.targetAction === 'LOGOUT_TO_LOGIN' ? 'LOGOUT_TO_LOGIN' : 'LOGIN_ADMIN';
+        body.targetAction === 'LOGOUT_TO_LOGIN' ? 'LOGOUT_TO_LOGIN' : 'LOGIN_QRCODE';
       const approvedBy = (body.approvedBy || {}) as {
         username: string;
         fullName: string;

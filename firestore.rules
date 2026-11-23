@@ -90,7 +90,7 @@ service cloud.firestore {
                  prev.status == 'PENDING' &&
                  data.status == 'APPROVED' &&
                  data.diff(prev).affectedKeys().hasOnly(['status', 'targetAction', 'approvedBy', 'approvedAt']) &&
-                 data.targetAction in ['LOGIN_ADMIN', 'LOGOUT_TO_LOGIN'] &&
+                 data.targetAction in ['LOGIN_QRCODE', 'LOGOUT_TO_LOGIN'] &&
                  data.approvedAt is string && data.approvedAt.size() <= 64 &&
                  isValidQrLoginUserMap(data.approvedBy)
                ) ||

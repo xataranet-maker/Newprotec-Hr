@@ -11,7 +11,6 @@ import {
   Check,
   Smartphone,
 } from 'lucide-react';
-import { UserAccount } from '../../types';
 import {
   buildAdminQrLoginPayload,
   consumeRemoteQrLoginSession,
@@ -27,13 +26,15 @@ import { playSuccessChime } from '../../lib/attendanceQr';
 interface KioskRemoteLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onApproved: (adminUser: UserAccount, action: QrLoginTargetAction) => void;
+  onApproved: (action: QrLoginTargetAction, approvedByName?: string) => void;
+  intent?: QrLoginTargetAction;
 }
 
 export const KioskRemoteLoginModal: React.FC<KioskRemoteLoginModalProps> = ({
   isOpen,
   onClose,
   onApproved,
+  intent = 'LOGOUT_TO_LOGIN',
 }) => {
   const [sessionId, setSessionId] = useState<string>('');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
@@ -49,7 +50,7 @@ export const KioskRemoteLoginModal: React.FC<KioskRemoteLoginModalProps> = ({
     setApprovedInfo(null);
     setSecondsLeft(Math.floor(QR_LOGIN_TTL_MS / 1000));
 
-    const payload = buildAdminQrLoginPayload(newId, 'QRCODE_KIOSK');
+    const payload = buildAdminQrLoginPayload(newId, 'QRCODE_KIOSK', intent);
     try {
       const url = await QRCode.toDataURL(payload, {
         width: 420,
@@ -65,8 +66,11 @@ export const KioskRemoteLoginModal: React.FC<KioskRemoteLoginModalProps> = ({
       setQrDataUrl('');
     }
 
-    await createRemoteQrLoginSession(newId, 'Trạm QR Chấm Công (QRCODE)');
-  }, []);
+    await createRemoteQrLoginSession(
+      newId,
+      intent === 'LOGOUT_TO_LOGIN' ? 'Yêu cầu Thoát Trạm QRCODE' : 'Trạm QR Chấm Công (QRCODE)'
+    );
+  }, [intent]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -77,31 +81,25 @@ export const KioskRemoteLoginModal: React.FC<KioskRemoteLoginModalProps> = ({
     if (!isOpen || !sessionId || status !== 'PENDING') return;
 
     const unsubscribe = subscribeRemoteQrLoginSession(sessionId, (docData) => {
-      if (docData.status === 'APPROVED' && docData.approvedBy) {
+      if (docData.status === 'APPROVED') {
         setStatus('APPROVED');
         setApprovedInfo(docData);
         playSuccessChime();
         consumeRemoteQrLoginSession(sessionId);
 
-        const targetAction: QrLoginTargetAction = docData.targetAction || 'LOGIN_ADMIN';
-        const adminAccount: UserAccount = {
-          username: docData.approvedBy.username,
-          fullName: docData.approvedBy.fullName,
-          role: 'admin',
-          employeeId: docData.approvedBy.employeeId,
-          department: docData.approvedBy.department,
-        };
+        const targetAction: QrLoginTargetAction = docData.targetAction || intent;
+        const approverName = docData.approvedBy?.fullName || docData.approvedBy?.username;
 
         window.setTimeout(() => {
-          onApproved(adminAccount, targetAction);
-        }, 700);
+          onApproved(targetAction, approverName);
+        }, 650);
       }
     });
 
     return () => {
       unsubscribe();
     };
-  }, [isOpen, sessionId, status, onApproved]);
+  }, [isOpen, sessionId, status, onApproved, intent]);
 
   useEffect(() => {
     if (!isOpen || status !== 'PENDING') return;
@@ -149,10 +147,10 @@ export const KioskRemoteLoginModal: React.FC<KioskRemoteLoginModalProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-extrabold text-white uppercase tracking-wide">
-                QR Đăng Nhập / Thoát Trạm
+                QR Thoát Trạm QRCODE
               </h3>
               <p className="text-[11px] text-cyan-300">
-                Xác thực Quản trị viên từ thiết bị khác (như Zalo)
+                Quản trị viên quét từ thiết bị khác để thoát trang chấm công
               </p>
             </div>
           </div>
@@ -172,7 +170,7 @@ export const KioskRemoteLoginModal: React.FC<KioskRemoteLoginModalProps> = ({
             {qrDataUrl ? (
               <img
                 src={qrDataUrl}
-                alt="Mã QR Đăng Nhập Quản Trị"
+                alt="Mã QR Thoát Trạm QRCODE"
                 className={`w-52 h-52 sm:w-56 sm:h-56 object-contain select-none ${
                   status === 'EXPIRED' ? 'opacity-25 blur-[2px]' : ''
                 }`}
@@ -203,22 +201,22 @@ export const KioskRemoteLoginModal: React.FC<KioskRemoteLoginModalProps> = ({
                 <div className="text-sm font-extrabold text-white">Xác Thực Thành Công!</div>
                 <div className="text-xs text-emerald-200">
                   {approvedInfo?.targetAction === 'LOGOUT_TO_LOGIN'
-                    ? 'Đang thoát về màn hình đăng nhập...'
-                    : `Đang đăng nhập: ${approvedInfo?.approvedBy?.fullName || 'Admin'}...`}
+                    ? 'Đang thoát trang QRCODE về màn hình đăng nhập...'
+                    : 'Đã xác nhận giữ nguyên Trạm QRCODE...'}
                 </div>
               </div>
             )}
           </div>
 
           <div className="mt-3 flex items-center gap-2 text-xs">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-950 border border-slate-800 text-cyan-300 font-mono font-bold">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-cyan-300 font-mono font-bold">
               <Clock className="w-3.5 h-3.5" />
               <span>Hiệu lực: {mins}:{secs}</span>
             </span>
             <button
               type="button"
               onClick={initNewSession}
-              className="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
               title="Làm mới mã QR"
             >
               <RefreshCw className="w-3 h-3 text-cyan-400" />
@@ -231,7 +229,7 @@ export const KioskRemoteLoginModal: React.FC<KioskRemoteLoginModalProps> = ({
         <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2 text-xs text-slate-300">
           <div className="font-bold text-cyan-300 flex items-center gap-1.5 uppercase text-[11px]">
             <Smartphone className="w-3.5 h-3.5" />
-            <span>Hướng Dẫn Quản Trị Viên Quét Mở Khóa / Đăng Nhập</span>
+            <span>Hướng Dẫn Quản Trị Viên Quét Thoát Trạm</span>
           </div>
           <ol className="space-y-1.5 list-decimal list-inside text-[11px] leading-relaxed text-slate-300">
             <li>
@@ -241,7 +239,7 @@ export const KioskRemoteLoginModal: React.FC<KioskRemoteLoginModalProps> = ({
               Vào tab <strong className="text-cyan-300">HOME → QUÉT ĐĂNG NHẬP</strong>.
             </li>
             <li>
-              Quét mã QR ở trên để tự động đăng nhập Quản trị viên lên màn hình này hoặc thoát trạm QRCODE.
+              Quét mã QR ở trên để <strong className="text-amber-300">thoát khỏi Trạm QRCODE</strong> về màn hình đăng nhập.
             </li>
           </ol>
 
