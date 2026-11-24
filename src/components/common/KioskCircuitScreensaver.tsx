@@ -441,16 +441,17 @@ export const KioskCircuitScreensaver: React.FC<KioskCircuitScreensaverProps> = (
                 strokeWidth="3"
               />
               <path
-                d="M21 57 V23 L38 46 L55 23 V57"
+                d="M23 57 V23 L57 57 V23"
                 fill="none"
                 stroke="url(#npLogoGrad)"
-                strokeWidth="6.5"
+                strokeWidth="7"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-              <circle cx="60" cy="57" r="4.5" fill="#10b981" />
-              <circle cx="21" cy="23" r="2.8" fill="#67e8f9" />
-              <circle cx="55" cy="23" r="2.8" fill="#67e8f9" />
+              <circle cx="23" cy="57" r="3.2" fill="#10b981" />
+              <circle cx="23" cy="23" r="3.2" fill="#67e8f9" />
+              <circle cx="57" cy="57" r="3.2" fill="#10b981" />
+              <circle cx="57" cy="23" r="3.2" fill="#67e8f9" />
             </svg>
 
             <div className="mt-2 text-xs font-black tracking-[0.22em] text-cyan-300 uppercase">
