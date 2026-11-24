@@ -109,14 +109,14 @@ input[type="month"] {
   }
   body.printing-employee-id-card #employee-id-card-print-root {
     display: flex !important;
-    align-items: center !important;
+    align-items: flex-start !important;
     justify-content: center !important;
     background: #ffffff !important;
     color: #000000 !important;
     width: 100% !important;
-    min-height: 92vh !important;
+    min-height: auto !important;
     margin: 0 !important;
-    padding: 12mm !important;
+    padding: 12mm 0 !important;
   }
 }
 

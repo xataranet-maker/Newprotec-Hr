@@ -45,9 +45,9 @@ function buildInitialsAvatarDataUrl(fullName: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-const COMPANY_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="28" height="28">
+const COMPANY_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="22" height="22">
   <rect width="64" height="64" rx="14" fill="#020617" stroke="#0891b2" stroke-width="3"/>
-  <path d="M18 46 V18 L31 37 L44 18 V46" fill="none" stroke="#22d3ee" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18 46 V18 L46 46 V18" fill="none" stroke="#22d3ee" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="48" cy="46" r="3.5" fill="#22d3ee"/>
 </svg>`;
 
@@ -85,78 +85,82 @@ export async function printEmployeeIdCard(staff: StaffRecord): Promise<void> {
     document.body.appendChild(printRoot);
   }
 
+  // Standard vertical CR80 badge dimensions: 54mm x 85.6mm (1 : 1.585)
   printRoot.innerHTML = `
-    <div style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+    <div style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; display: flex; flex-direction: column; align-items: center; gap: 3.5mm;">
       <div style="
-        width: 310px;
-        border: 2px solid #0e7490;
-        border-radius: 16px;
+        width: 54mm;
+        height: 85.6mm;
+        box-sizing: border-box;
+        border: 0.45mm solid #0e7490;
+        border-radius: 3.2mm;
         background: #ffffff;
         color: #0f172a;
         overflow: hidden;
-        box-shadow: 0 4px 16px rgba(2,6,23,0.12);
+        display: flex;
+        flex-direction: column;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       ">
         <!-- Lanyard punch hole guide -->
-        <div style="display:flex; justify-content:center; padding-top:10px; background:#0f172a;">
-          <div style="width:42px; height:8px; border-radius:999px; background:#ffffff; border:1px solid #475569;"></div>
+        <div style="display:flex; justify-content:center; padding-top:2mm; background:#0f172a; flex-shrink:0;">
+          <div style="width:11mm; height:2mm; border-radius:999px; background:#ffffff; border:0.25mm solid #475569;"></div>
         </div>
 
         <!-- Company Header -->
-        <div style="display:flex; align-items:center; gap:8px; padding:10px 14px 10px; background:#0f172a; color:#ffffff; border-bottom:2px solid #06b6d4;">
-          <div style="width:26px; height:26px; flex-shrink:0; display:flex; align-items:center; justify-content:center;">
+        <div style="display:flex; align-items:center; gap:1.8mm; padding:1.6mm 2.8mm 2mm; background:#0f172a; color:#ffffff; border-bottom:0.5mm solid #06b6d4; flex-shrink:0;">
+          <div style="width:5.6mm; height:5.6mm; flex-shrink:0; display:flex; align-items:center; justify-content:center;">
             ${COMPANY_LOGO_SVG}
           </div>
-          <div style="min-width:0;">
-            <div style="font-size:10px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:#f8fafc; line-height:1.2;">
+          <div style="min-width:0; flex:1;">
+            <div style="font-size:5.8pt; font-weight:800; letter-spacing:0.03em; text-transform:uppercase; color:#f8fafc; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
               CÔNG TY TNHH NEWPROTEC VINA
             </div>
-            <div style="font-size:8px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:#22d3ee; margin-top:1px;">
+            <div style="font-size:4.7pt; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#22d3ee; margin-top:0.4mm; white-space:nowrap;">
               THẺ NHÂN VIÊN · EMPLOYEE ID CARD
             </div>
           </div>
         </div>
 
         <!-- Middle 2 boxes: Left Avatar, Right QR -->
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:14px 14px 10px; align-items:stretch; background:#f8fafc;">
-          <div style="aspect-ratio:3/4; border:1.5px solid #cbd5e1; border-radius:10px; overflow:hidden; background:#0f172a; display:flex; align-items:center; justify-content:center;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:2mm; padding:2.6mm 2.8mm 2.2mm; align-items:stretch; background:#f8fafc; flex-shrink:0;">
+          <div style="height:28mm; border:0.35mm solid #cbd5e1; border-radius:2mm; overflow:hidden; background:#0f172a; display:flex; align-items:center; justify-content:center;">
             <img src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(staff.fullName)}" style="width:100%; height:100%; object-fit:cover; display:block;" />
           </div>
-          <div style="aspect-ratio:3/4; border:1.5px solid #cbd5e1; border-radius:10px; background:#ffffff; padding:6px; display:flex; flex-direction:column; align-items:center; justify-content:center;">
-            ${qrDataUrl ? `<img src="${qrDataUrl}" alt="QR ${escapeHtml(staff.employeeId)}" style="width:100%; height:auto; max-height:108px; object-fit:contain; display:block;" />` : ''}
-            <div style="font-size:7.5px; font-family:monospace; font-weight:700; color:#334155; margin-top:4px; text-align:center;">
+          <div style="height:28mm; border:0.35mm solid #cbd5e1; border-radius:2mm; background:#ffffff; padding:1.4mm; box-sizing:border-box; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+            ${qrDataUrl ? `<img src="${qrDataUrl}" alt="QR ${escapeHtml(staff.employeeId)}" style="width:19.5mm; height:19.5mm; object-fit:contain; display:block;" />` : ''}
+            <div style="font-size:4.8pt; font-family:monospace; font-weight:700; color:#334155; margin-top:1mm; text-align:center; letter-spacing:0.04em;">
               QUÉT MÃ QR
             </div>
           </div>
         </div>
 
-        <!-- Bottom Employee Info -->
-        <div style="padding:10px 14px 12px; background:#ffffff; border-top:1px solid #e2e8f0; text-align:left;">
-          <div style="font-size:15px; font-weight:800; color:#0f172a; text-transform:uppercase; letter-spacing:0.02em; text-align:center; margin-bottom:8px;">
+        <!-- Bottom Employee Info (stretched vertically to keep CR80 balanced proportions) -->
+        <div style="flex:1; padding:2.5mm 3.2mm 2.2mm; background:#ffffff; border-top:0.25mm solid #e2e8f0; display:flex; flex-direction:column; justify-content:center; text-align:left;">
+          <div style="font-size:9.2pt; font-weight:800; color:#0f172a; text-transform:uppercase; letter-spacing:0.02em; text-align:center; line-height:1.2; margin-bottom:2.4mm; word-break:break-word;">
             ${escapeHtml(staff.fullName)}
           </div>
-          <div style="display:flex; justify-content:space-between; font-size:10.5px; padding:3px 0; border-bottom:1px dashed #e2e8f0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:6.6pt; padding:1.3mm 0; border-bottom:0.25mm dashed #e2e8f0;">
             <span style="color:#64748b; font-weight:600;">Mã nhân viên:</span>
             <span style="font-family:monospace; font-weight:800; color:#0e7490;">${escapeHtml(staff.employeeId)}</span>
           </div>
-          <div style="display:flex; justify-content:space-between; font-size:10.5px; padding:3px 0; border-bottom:1px dashed #e2e8f0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:6.6pt; padding:1.3mm 0; border-bottom:0.25mm dashed #e2e8f0;">
             <span style="color:#64748b; font-weight:600;">Bộ phận:</span>
             <span style="font-weight:700; color:#0f172a;">${escapeHtml(deptLabel)}</span>
           </div>
-          <div style="display:flex; justify-content:space-between; font-size:10.5px; padding:3px 0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:6.6pt; padding:1.3mm 0;">
             <span style="color:#64748b; font-weight:600;">Chức vụ:</span>
             <span style="font-weight:700; color:#0f172a;">${escapeHtml(staff.position || 'Nhân viên')}</span>
           </div>
         </div>
 
         <!-- Footer -->
-        <div style="background:#0f172a; color:#67e8f9; font-size:8px; font-family:monospace; font-weight:700; text-align:center; padding:6px 10px; letter-spacing:0.08em; text-transform:uppercase;">
+        <div style="background:#0f172a; color:#67e8f9; font-size:5.2pt; font-family:monospace; font-weight:700; text-align:center; padding:1.7mm 2mm; letter-spacing:0.06em; text-transform:uppercase; flex-shrink:0;">
           ${escapeHtml(issuedBadgeText)}
         </div>
       </div>
-      <div style="font-size:10px; color:#64748b; font-family:monospace;">
-        Cắt theo viền ngoài để lồng vào vỏ thẻ đeo nhân viên (CR80 / Thẻ đứng)
+      <div style="font-size:8pt; color:#64748b; font-family:monospace; text-align:center;">
+        Cắt theo viền ngoài để lồng vào vỏ thẻ đeo nhân viên (CR80 chuẩn: 54 × 85.6 mm)
       </div>
     </div>
   `;
@@ -184,8 +188,9 @@ export async function downloadEmployeeIdCardPng(staff: StaffRecord): Promise<voi
   });
 
   const canvas = document.createElement('canvas');
-  canvas.width = 680;
-  canvas.height = 1040;
+  // Exact CR80 vertical ratio (54 : 85.6)
+  canvas.width = 640;
+  canvas.height = 1014;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
 
@@ -214,21 +219,21 @@ export async function downloadEmployeeIdCardPng(staff: StaffRecord): Promise<voi
   // Small NP Logo
   ctx.fillStyle = '#0891b2';
   ctx.beginPath();
-  ctx.roundRect(42, 62, 54, 54, 12);
+  ctx.roundRect(36, 62, 52, 52, 12);
   ctx.fill();
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 26px sans-serif';
+  ctx.font = 'bold 24px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('NP', 69, 98);
+  ctx.fillText('NP', 62, 97);
 
   // Company Title (small clean typography)
   ctx.textAlign = 'left';
   ctx.fillStyle = '#f8fafc';
-  ctx.font = 'bold 21px sans-serif';
-  ctx.fillText('CÔNG TY TNHH NEWPROTEC VINA', 112, 86);
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillText('CÔNG TY TNHH NEWPROTEC VINA', 102, 86);
   ctx.fillStyle = '#22d3ee';
-  ctx.font = 'bold 15px monospace';
-  ctx.fillText('THẺ NHÂN VIÊN · EMPLOYEE CARD', 112, 114);
+  ctx.font = 'bold 14px monospace';
+  ctx.fillText('THẺ NHÂN VIÊN · EMPLOYEE CARD', 102, 113);
 
   // Divider line
   ctx.fillStyle = '#06b6d4';
@@ -244,10 +249,10 @@ export async function downloadEmployeeIdCardPng(staff: StaffRecord): Promise<voi
       img.src = src;
     });
 
-  const leftX = 42;
-  const boxY = 186;
-  const boxW = 282;
-  const boxH = 376;
+  const leftX = 36;
+  const boxY = 182;
+  const boxW = 268;
+  const boxH = 358;
 
   ctx.fillStyle = '#0f172a';
   ctx.strokeStyle = '#334155';
@@ -285,7 +290,7 @@ export async function downloadEmployeeIdCardPng(staff: StaffRecord): Promise<voi
   }
 
   // Right box: QR
-  const rightX = 356;
+  const rightX = 336;
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
   ctx.roundRect(rightX, boxY, boxW, boxH, 18);
@@ -293,20 +298,20 @@ export async function downloadEmployeeIdCardPng(staff: StaffRecord): Promise<voi
 
   try {
     const qrImg = await loadImage(qrDataUrl);
-    ctx.drawImage(qrImg, rightX + 20, boxY + 52, boxW - 40, boxW - 40);
+    ctx.drawImage(qrImg, rightX + 18, boxY + 48, boxW - 36, boxW - 36);
   } catch {
     // ignore
   }
   ctx.fillStyle = '#0f172a';
   ctx.textAlign = 'center';
-  ctx.font = 'bold 16px monospace';
+  ctx.font = 'bold 15px monospace';
   ctx.fillText('MÃ QR NHÂN VIÊN', rightX + boxW / 2, boxY + boxH - 28);
 
   // Employee Name & Details Section
   ctx.textAlign = 'center';
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 34px sans-serif';
-  ctx.fillText(staff.fullName.toUpperCase(), canvas.width / 2, 636);
+  ctx.font = 'bold 32px sans-serif';
+  ctx.fillText(staff.fullName.toUpperCase(), canvas.width / 2, 614);
 
   const infoRows: [string, string][] = [
     ['MÃ NHÂN VIÊN', staff.employeeId],
@@ -314,35 +319,35 @@ export async function downloadEmployeeIdCardPng(staff: StaffRecord): Promise<voi
     ['CHỨC VỤ', staff.position || 'Nhân viên'],
   ];
 
-  let y = 696;
+  let y = 678;
   infoRows.forEach(([label, val]) => {
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
-    ctx.roundRect(42, y - 34, canvas.width - 84, 54, 12);
+    ctx.roundRect(36, y - 34, canvas.width - 72, 54, 12);
     ctx.fill();
 
     ctx.textAlign = 'left';
     ctx.fillStyle = '#94a3b8';
-    ctx.font = 'bold 18px sans-serif';
-    ctx.fillText(label, 64, y);
+    ctx.font = 'bold 17px sans-serif';
+    ctx.fillText(label, 56, y);
 
     ctx.textAlign = 'right';
     ctx.fillStyle = '#22d3ee';
-    ctx.font = 'bold 21px monospace';
-    ctx.fillText(val, canvas.width - 64, y);
+    ctx.font = 'bold 20px monospace';
+    ctx.fillText(val, canvas.width - 56, y);
     y += 72;
   });
 
   // Footer
   ctx.textAlign = 'center';
   ctx.fillStyle = staff.badgeIssued ? '#34d399' : '#94a3b8';
-  ctx.font = 'bold 17px monospace';
+  ctx.font = 'bold 16px monospace';
   ctx.fillText(
     staff.badgeIssued
       ? `ĐÃ CẤP THẺ ĐEO${staff.badgeIssuedAt ? ` (${staff.badgeIssuedAt})` : ''}`
       : 'THẺ NHÂN VIÊN NEWPROTEC VINA',
     canvas.width / 2,
-    982
+    958
   );
 
   const pngUrl = canvas.toDataURL('image/png');
@@ -397,7 +402,7 @@ export const EmployeeIdCard: React.FC<EmployeeIdCardProps> = ({
   };
 
   return (
-    <div className="rounded-xl border border-cyan-500/45 bg-gradient-to-b from-slate-900 via-[#0a152a] to-slate-950 shadow-xl overflow-hidden text-slate-100 select-none">
+    <div className="w-full max-w-[272px] mx-auto rounded-xl border border-cyan-500/45 bg-gradient-to-b from-slate-900 via-[#0a152a] to-slate-950 shadow-xl overflow-hidden text-slate-100 select-none">
       {/* Top: Logo công ty + tên công ty (chữ nhỏ) */}
       <div className="px-3 py-2 bg-slate-950/95 border-b border-cyan-500/30 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
