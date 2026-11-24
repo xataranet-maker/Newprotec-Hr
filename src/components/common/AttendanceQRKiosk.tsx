@@ -94,6 +94,7 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
   const cooldownMapRef = useRef<Map<string, number>>(new Map());
   const isAnalyzingRef = useRef(false);
   const lastActivityAtRef = useRef<number>(Date.now());
+  const wasNativeFsRef = useRef(false);
 
   const markKioskActivity = useCallback((wakeIfSleeping = false) => {
     lastActivityAtRef.current = Date.now();
@@ -200,11 +201,26 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
 
   useEffect(() => {
     const onFsChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
+      if (document.fullscreenElement) {
+        wasNativeFsRef.current = true;
+        setIsFullscreen(true);
+      } else if (wasNativeFsRef.current) {
+        wasNativeFsRef.current = false;
+        setIsFullscreen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen && !document.fullscreenElement) {
+        setIsFullscreen(false);
+      }
     };
     document.addEventListener('fullscreenchange', onFsChange);
-    return () => document.removeEventListener('fullscreenchange', onFsChange);
-  }, []);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isFullscreen]);
 
   const stopFaceCamera = useCallback(() => {
     if (streamRef.current) {
@@ -435,14 +451,19 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
   };
 
   const toggleFullscreen = async () => {
+    const next = !isFullscreen;
+    setIsFullscreen(next);
     try {
-      if (!document.fullscreenElement) {
+      if (next && !document.fullscreenElement && document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen();
-      } else {
+        wasNativeFsRef.current = true;
+      } else if (!next && document.fullscreenElement && document.exitFullscreen) {
+        wasNativeFsRef.current = false;
         await document.exitFullscreen();
       }
     } catch {
-      // ignore if fullscreen blocked by browser/iframe
+      // Mobile browsers (especially iOS Safari) & iframes block native requestFullscreen;
+      // the fixed inset-0 z-[95] overlay keeps true edge-to-edge fullscreen active.
     }
   };
 
@@ -597,7 +618,11 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
       onPointerDown={() => {
         if (!isIdleScreensaver) markKioskActivity(false);
       }}
-      className="min-h-full bg-[#020617] text-slate-100 p-4 sm:p-6 flex flex-col items-center justify-center relative overflow-hidden"
+      className={
+        isFullscreen
+          ? 'fixed inset-0 z-[95] bg-[#020617] text-slate-100 p-3 sm:p-6 overflow-y-auto flex flex-col items-center justify-start sm:justify-center'
+          : 'min-h-full bg-[#020617] text-slate-100 p-4 sm:p-6 flex flex-col items-center justify-center relative overflow-hidden'
+      }
     >
       {isIdleScreensaver && (
         <KioskCircuitScreensaver
@@ -620,70 +645,88 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
       {/* Subtle radial glow backdrop */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.12),transparent_55%)]" />
 
-      <div className="relative z-10 w-full max-w-6xl space-y-4">
-        {/* Top Kiosk Header Bar with Mode Switcher */}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 shadow-xl">
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                kioskMode === 'FACE'
-                  ? 'bg-sky-500/15 border-sky-500/40 text-sky-400'
-                  : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-              }`}
-            >
-              {kioskMode === 'FACE' ? (
-                <ScanFace className="w-5 h-5" />
-              ) : (
-                <QrCode className="w-5 h-5" />
-              )}
-            </div>
-            <div>
-              <div className="text-xs sm:text-sm font-extrabold text-white tracking-wider uppercase">
-                {kioskMode === 'FACE'
-                  ? 'NEWPROTEC VINA · CHẤM CÔNG KHUÔN MẶT'
-                  : 'NEWPROTEC VINA · TRẠM QR CHẤM CÔNG'}
+      <div
+        className={`relative z-10 w-full ${
+          isFullscreen ? 'max-w-5xl space-y-3 sm:space-y-4 my-auto' : 'max-w-6xl space-y-4'
+        }`}
+      >
+        {/* Top Kiosk Header Bar: In Fullscreen mode, hide all page/admin menus and keep ONLY scan-mode switch + minimize */}
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl ${
+            isFullscreen ? 'px-3 py-2' : 'px-4 py-3 gap-3'
+          }`}
+        >
+          {!isFullscreen && (
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                  kioskMode === 'FACE'
+                    ? 'bg-sky-500/15 border-sky-500/40 text-sky-400'
+                    : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                }`}
+              >
+                {kioskMode === 'FACE' ? (
+                  <ScanFace className="w-5 h-5" />
+                ) : (
+                  <QrCode className="w-5 h-5" />
+                )}
               </div>
-              <div className="text-[11px] text-emerald-400 font-mono flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>
+              <div>
+                <div className="text-xs sm:text-sm font-extrabold text-white tracking-wider uppercase">
                   {kioskMode === 'FACE'
-                    ? `Đã đồng bộ ${enrolledFaceStaff.length}/${allStaff.length} khuôn mặt nhân viên`
-                    : 'Tài khoản điểm chấm công: QRCODE'}
-                </span>
+                    ? 'NEWPROTEC VINA · CHẤM CÔNG KHUÔN MẶT'
+                    : 'NEWPROTEC VINA · TRẠM QR CHẤM CÔNG'}
+                </div>
+                <div className="text-[11px] text-emerald-400 font-mono flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>
+                    {kioskMode === 'FACE'
+                      ? `Đã đồng bộ ${enrolledFaceStaff.length}/${allStaff.length} khuôn mặt nhân viên`
+                      : 'Tài khoản điểm chấm công: QRCODE'}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Mode Toggle Segmented Switch */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
+          <div
+            className={`flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800 ${
+              isFullscreen ? 'flex-1 sm:flex-initial justify-center' : ''
+            }`}
+          >
             <button
               type="button"
               onClick={() => setKioskMode('QR')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                isFullscreen ? 'flex-1 sm:flex-initial' : ''
+              } ${
                 kioskMode === 'QR'
                   ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              <QrCode className="w-3.5 h-3.5" />
+              <QrCode className="w-3.5 h-3.5 shrink-0" />
               <span>Mã QR Chấm Công</span>
             </button>
             <button
               type="button"
               onClick={() => setKioskMode('FACE')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                isFullscreen ? 'flex-1 sm:flex-initial' : ''
+              } ${
                 kioskMode === 'FACE'
                   ? 'bg-sky-600 text-white shadow-md shadow-sky-950/50'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              <ScanFace className="w-3.5 h-3.5" />
+              <ScanFace className="w-3.5 h-3.5 shrink-0" />
               <span>Chấm Công Khuôn Mặt</span>
             </button>
           </div>
 
           <div className="flex items-center gap-2">
-            {kioskMode === 'QR' && (
+            {!isFullscreen && kioskMode === 'QR' && (
               <>
                 <button
                   type="button"
@@ -709,23 +752,29 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
               </>
             )}
 
-            <button
-              type="button"
-              onClick={() => setIsIdleScreensaver(true)}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-cyan-500/40 text-cyan-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
-              title="Chuyển sang màn hình nghỉ ngay (Tự động bật sau 60 giây không có người chấm công)"
-            >
-              <Moon className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden sm:inline">Màn hình nghỉ</span>
-              <span className="text-[10px] font-mono text-cyan-300/90 tabular-nums">
-                ({idleSecondsLeft}s)
-              </span>
-            </button>
+            {!isFullscreen && (
+              <button
+                type="button"
+                onClick={() => setIsIdleScreensaver(true)}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-cyan-500/40 text-cyan-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+                title="Chuyển sang màn hình nghỉ ngay (Tự động bật sau 60 giây không có người chấm công)"
+              >
+                <Moon className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="hidden sm:inline">Màn hình nghỉ</span>
+                <span className="text-[10px] font-mono text-cyan-300/90 tabular-nums">
+                  ({idleSecondsLeft}s)
+                </span>
+              </button>
+            )}
 
             <button
               type="button"
               onClick={toggleFullscreen}
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                isFullscreen
+                  ? 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-400/50 text-amber-200'
+                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
+              }`}
               title={isFullscreen ? 'Thu nhỏ màn hình' : 'Phóng to toàn màn hình'}
             >
               {isFullscreen ? (
@@ -733,12 +782,12 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
               ) : (
                 <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
               )}
-              <span className="hidden sm:inline">
-                {isFullscreen ? 'Thoát Full' : 'Toàn màn hình'}
+              <span className={isFullscreen ? 'inline' : 'hidden sm:inline'}>
+                {isFullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}
               </span>
             </button>
 
-            {(isStandaloneAccount || onLogout) && (
+            {!isFullscreen && (isStandaloneAccount || onLogout) && (
               <button
                 type="button"
                 onClick={() => setShowRemoteLoginModal(true)}
@@ -803,39 +852,41 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                 </div>
               </div>
 
-              <div className="space-y-2.5 text-xs">
-                <div className="font-bold text-slate-200 uppercase tracking-wider text-[11px]">
-                  Quy Trình Chấm Công Bằng QR
-                </div>
+              {!isFullscreen && (
+                <div className="space-y-2.5 text-xs">
+                  <div className="font-bold text-slate-200 uppercase tracking-wider text-[11px]">
+                    Quy Trình Chấm Công Bằng QR
+                  </div>
 
-                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                  <span className="w-5 h-5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-bold text-[11px] flex items-center justify-center shrink-0">
-                    1
-                  </span>
-                  <p className="text-slate-300 leading-relaxed">
-                    Nhân viên đăng nhập vào hệ thống bằng <strong className="text-white">Mã Nhân Viên</strong> hoặc <strong className="text-white">QR Hồ Sơ</strong>.
-                  </p>
-                </div>
+                  <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                    <span className="w-5 h-5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-bold text-[11px] flex items-center justify-center shrink-0">
+                      1
+                    </span>
+                    <p className="text-slate-300 leading-relaxed">
+                      Nhân viên đăng nhập vào hệ thống bằng <strong className="text-white">Mã Nhân Viên</strong> hoặc <strong className="text-white">QR Hồ Sơ</strong>.
+                    </p>
+                  </div>
 
-                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] flex items-center justify-center shrink-0">
-                    2
-                  </span>
-                  <p className="text-slate-300 leading-relaxed">
-                    Tại thẻ <strong className="text-cyan-300">MÃ QR HỒ SƠ</strong>, nhấn nút{' '}
-                    <strong className="text-emerald-300">CHẤM CÔNG QR</strong> và hướng camera vào mã QR bên cạnh.
-                  </p>
-                </div>
+                  <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                    <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] flex items-center justify-center shrink-0">
+                      2
+                    </span>
+                    <p className="text-slate-300 leading-relaxed">
+                      Tại thẻ <strong className="text-cyan-300">MÃ QR HỒ SƠ</strong>, nhấn nút{' '}
+                      <strong className="text-emerald-300">CHẤM CÔNG QR</strong> và hướng camera vào mã QR bên cạnh.
+                    </p>
+                  </div>
 
-                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-                  <p className="text-slate-300 leading-relaxed">
-                    Hệ thống tự động ghi nhận <strong className="text-white">Giờ Vào</strong> (lần quét đầu) hoặc{' '}
-                    <strong className="text-white">Giờ Ra</strong> (lần quét tiếp theo) vào mục{' '}
-                    <strong className="text-emerald-300">Chấm công QR</strong> theo phòng ban để đối chiếu với bảng chấm công.
-                  </p>
+                  <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <p className="text-slate-300 leading-relaxed">
+                      Hệ thống tự động ghi nhận <strong className="text-white">Giờ Vào</strong> (lần quét đầu) hoặc{' '}
+                      <strong className="text-white">Giờ Ra</strong> (lần quét tiếp theo) vào mục{' '}
+                      <strong className="text-emerald-300">Chấm công QR</strong> theo phòng ban để đối chiếu với bảng chấm công.
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}
@@ -1070,31 +1121,33 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                   </div>
                 </div>
 
-                {/* Quick Manual Employee Select Override (for difficult lighting/recognition) */}
-                <div className="pt-2 border-t border-slate-800/80">
-                  <select
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      if (!id) return;
-                      const st = allStaff.find((s) => s.employeeId === id);
-                      if (st) {
-                        applyMatchedEmployeePunch(st, 98, st.facePhotoUrl || st.avatarUrl || '');
-                        e.target.value = '';
-                      }
-                    }}
-                    defaultValue=""
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 cursor-pointer"
-                  >
-                    <option value="" disabled>
-                      Hoặc chọn nhanh nhân viên chấm công khuôn mặt thủ công...
-                    </option>
-                    {allStaff.map((st) => (
-                      <option key={st.employeeId} value={st.employeeId}>
-                        {st.fullName} ({st.employeeId}) - {st.department || 'MULTI'}
+                {/* Quick Manual Employee Select Override (hidden in fullscreen kiosk mode) */}
+                {!isFullscreen && (
+                  <div className="pt-2 border-t border-slate-800/80">
+                    <select
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        if (!id) return;
+                        const st = allStaff.find((s) => s.employeeId === id);
+                        if (st) {
+                          applyMatchedEmployeePunch(st, 98, st.facePhotoUrl || st.avatarUrl || '');
+                          e.target.value = '';
+                        }
+                      }}
+                      defaultValue=""
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 cursor-pointer"
+                    >
+                      <option value="" disabled>
+                        Hoặc chọn nhanh nhân viên chấm công khuôn mặt thủ công...
                       </option>
-                    ))}
-                  </select>
-                </div>
+                      {allStaff.map((st) => (
+                        <option key={st.employeeId} value={st.employeeId}>
+                          {st.fullName} ({st.employeeId}) - {st.department || 'MULTI'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Latest Recognized Result Card */}
@@ -1151,16 +1204,18 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                         ? `Sẵn sàng nhận diện ${enrolledFaceStaff.length} nhân viên đã đồng bộ.`
                         : 'Chưa có nhân viên nào cài đặt khuôn mặt.'}
                     </div>
-                    <div className="text-[11px] text-slate-400 mt-0.5">
-                      Cài đặt khuôn mặt từng nhân viên tại mục{' '}
-                      <strong className="text-cyan-300">Danh sách nhân viên → Cài đặt khuôn mặt</strong>.
-                      Giờ Vào / Ra sẽ tự động cập nhật vào cột Khuôn mặt trong Dữ liệu công.
-                    </div>
+                    {!isFullscreen && (
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        Cài đặt khuôn mặt từng nhân viên tại mục{' '}
+                        <strong className="text-cyan-300">Danh sách nhân viên → Cài đặt khuôn mặt</strong>.
+                        Giờ Vào / Ra sẽ tự động cập nhật vào cột Khuôn mặt trong Dữ liệu công.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
 
-              {enrolledFaceStaff.length === 0 && (
+              {!isFullscreen && enrolledFaceStaff.length === 0 && (
                 <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                   <span>
