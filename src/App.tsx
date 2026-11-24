@@ -14,6 +14,7 @@ import { AttendanceQRKiosk } from './components/common/AttendanceQRKiosk';
 import { AdminQRLoginScanner } from './components/common/AdminQRLoginScanner';
 import { QrcodeStationLoginGate } from './components/common/QrcodeStationLoginGate';
 import { AdminContactFooter } from './components/common/AdminContactFooter';
+import { applyPageSeo } from './lib/seo';
 import {
   checkIsQrcodeGateUrl,
   QRCODE_STATION_ACCOUNT,
@@ -280,6 +281,47 @@ export default function App() {
     window.addEventListener(MATRIX_UPDATED_EVENT, onMatrixUpdated);
     return () => window.removeEventListener(MATRIX_UPDATED_EVENT, onMatrixUpdated);
   }, []);
+
+  useEffect(() => {
+    if (isPublicCatalogOpen) {
+      applyPageSeo({
+        title: 'Catalog Phần Mềm Quản Lý Nhân Sự HRM & Chấm Công | Newprotec Vina',
+        description:
+          'Khám phá hệ thống HR/HRM Newprotec Vina: chấm công QR Code, nhận diện khuôn mặt AI, quản lý hồ sơ nhân sự, hợp đồng, tăng ca, nghỉ phép và tính lương tự động.',
+        keywords:
+          'catalog phần mềm nhân sự, quản lý nhân sự, HRM, HR, chấm công QR code, chấm công khuôn mặt, tính lương, quản lý tăng ca, Newprotec Vina',
+        canonicalSearch: '?catalog=1',
+      });
+      return;
+    }
+
+    if (isQrcodeGateOpen) {
+      applyPageSeo({
+        title: 'Trạm Chấm Công QRCODE - Newprotec Vina HRM',
+        description: 'Cổng kết nối thiết bị chấm công QR Code và khuôn mặt tại xưởng Newprotec Vina.',
+        noIndex: true,
+      });
+      return;
+    }
+
+    if (!currentUser) {
+      applyPageSeo({
+        title: 'Newprotec Vina HRM – Quản Lý Nhân Sự & Chấm Công Thông Minh',
+        description:
+          'Giải pháp phần mềm HR/HRM Newprotec Vina: quản lý nhân sự, chấm công QR Code và nhận diện khuôn mặt AI, tính công tăng ca, nghỉ phép, bảng lương và vận hành nhà máy.',
+        keywords:
+          'quản lý nhân sự, phần mềm quản lý nhân sự, chấm công, phần mềm chấm công, chấm công QR code, chấm công khuôn mặt, HR, HRM, hệ thống HRM, nhân sự tiền lương, quản lý tăng ca, xin nghỉ phép, Newprotec Vina',
+      });
+      return;
+    }
+
+    applyPageSeo({
+      title: 'Newprotec Vina HRM – Hệ Thống Quản Lý Nhân Sự & Vận Hành',
+      description:
+        'Nền tảng quản trị nhân sự HRM, chấm công thông minh QR & Khuôn mặt, bảng lương và điều hành sản xuất MES Newprotec Vina.',
+      noIndex: true,
+    });
+  }, [currentUser, isPublicCatalogOpen, isQrcodeGateOpen]);
 
   // --- AUTOMATIC PERSISTENCE INTO LOCALSTORAGE ---
   useEffect(() => {

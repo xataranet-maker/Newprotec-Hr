@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UserAccount, StaffRecord, Language } from '../../types';
 import { translations } from '../../data/locales';
-import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode, ScanLine, FileText } from 'lucide-react';
+import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode, ScanLine, FileText, Users, Clock, Calculator } from 'lucide-react';
 import { AppQRModal } from './AppQRModal';
 import { StaffQRScannerModal } from './StaffQRScannerModal';
 import { AdminContactFooter } from './AdminContactFooter';
@@ -325,6 +325,65 @@ export const Login: React.FC<LoginProps> = ({
           </form>
         </div>
       </div>
+
+      {/* Semantic Enterprise HR/HRM & Smart Attendance Overview (SEO & Public Info) */}
+      <section
+        aria-label="Giải pháp Quản lý Nhân sự HRM và Chấm công thông minh"
+        className="w-full max-w-4xl mx-auto mt-6 mb-4 pt-5 border-t border-slate-800/70 space-y-4"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h1 className="text-sm sm:text-base font-bold text-slate-100 tracking-tight">
+              Giải Pháp Quản Lý Nhân Sự (HRM) &amp; Chấm Công Thông Minh Newprotec Vina
+            </h1>
+            <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+              Nền tảng HR/HRM hợp nhất dành cho doanh nghiệp &amp; nhà máy: tự động hóa chấm công QR Code, nhận diện khuôn mặt AI, quản lý hồ sơ nhân sự, tăng ca và tính lương chính xác.
+            </p>
+          </div>
+          {onOpenCatalog && (
+            <button
+              type="button"
+              onClick={onOpenCatalog}
+              className="shrink-0 self-start sm:self-center inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Xem Tài Liệu HRM</span>
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <article className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-3.5 space-y-1.5">
+            <div className="flex items-center gap-2 text-cyan-300 text-xs font-bold">
+              <Clock className="w-4 h-4 shrink-0" />
+              <h2>Chấm Công QR &amp; Khuôn Mặt AI</h2>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Quét mã QR động thời gian thực hoặc xác thực khuôn mặt không tiếp xúc tại trạm Kiosk, phát âm thanh xác nhận và đồng bộ trực tiếp lên bảng công.
+            </p>
+          </article>
+
+          <article className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-3.5 space-y-1.5">
+            <div className="flex items-center gap-2 text-emerald-300 text-xs font-bold">
+              <Users className="w-4 h-4 shrink-0" />
+              <h2>Quản Lý Nhân Sự &amp; Hợp Đồng HR</h2>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Số hóa toàn bộ hồ sơ nhân viên, thẻ QR cá nhân, hợp đồng lao động, cơ cấu phòng ban, đăng ký nghỉ phép và phê duyệt đơn từ trực tuyến.
+            </p>
+          </article>
+
+          <article className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-3.5 space-y-1.5">
+            <div className="flex items-center gap-2 text-amber-300 text-xs font-bold">
+              <Calculator className="w-4 h-4 shrink-0" />
+              <h2>Bảng Công Ma Trận &amp; Tính Lương</h2>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Tổng hợp công chuẩn, giờ tăng ca (OT), phụ cấp, xuất phiếu lương điện tử bảo mật và tích hợp điều hành sản xuất MES toàn diện.
+            </p>
+          </article>
+        </div>
+      </section>
 
       {/* Footer */}
       <AdminContactFooter

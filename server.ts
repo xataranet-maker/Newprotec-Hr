@@ -22,6 +22,54 @@ async function startServer() {
 
   app.use(express.json({ limit: '25mb' }));
 
+  const resolvePublicOrigin = (req: express.Request): string => {
+    const envUrl = String(process.env.APP_URL || '').trim().replace(/\/+$/, '');
+    if (envUrl) return envUrl;
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    const proto = forwardedProto || req.protocol || 'https';
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000').trim();
+    return `${proto}://${host}`;
+  };
+
+  app.get('/robots.txt', (req, res) => {
+    const origin = resolvePublicOrigin(req);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.status(200).send(
+      [
+        'User-agent: *',
+        'Allow: /',
+        'Allow: /?catalog=1',
+        'Disallow: /api/',
+        'Disallow: /?qrcode=1',
+        '',
+        `Sitemap: ${origin}/sitemap.xml`,
+      ].join('\n')
+    );
+  });
+
+  app.get('/sitemap.xml', (req, res) => {
+    const origin = resolvePublicOrigin(req);
+    const today = new Date().toISOString().split('T')[0];
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${origin}/</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>${origin}/?catalog=1</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+</urlset>`);
+  });
+
   app.get('/api/health', async (_req, res) => {
     try {
       const health = await getDatabaseHealth();
