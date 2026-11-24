@@ -23,6 +23,7 @@ import {
   subscribeRemoteQrLoginSession,
 } from '../../lib/qrLogin';
 import { playSuccessChime } from '../../lib/attendanceQr';
+import { AdminContactFooter } from './AdminContactFooter';
 
 interface QrcodeStationLoginGateProps {
   onApprovedQrcodeLogin: (approvedByName?: string) => void;
@@ -296,9 +297,10 @@ export const QrcodeStationLoginGate: React.FC<QrcodeStationLoginGateProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="relative z-10 text-center text-[11px] text-slate-500 font-mono">
-        NEWPROTEC VINA · DEDICATED QRCODE ATTENDANCE GATE
-      </div>
+      <AdminContactFooter
+        variant="centered"
+        systemLabel="NEWPROTEC VINA · DEDICATED QRCODE ATTENDANCE GATE"
+      />
     </div>
   );
 };

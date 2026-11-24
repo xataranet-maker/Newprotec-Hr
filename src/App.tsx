@@ -13,6 +13,7 @@ import { AppQRModal } from './components/common/AppQRModal';
 import { AttendanceQRKiosk } from './components/common/AttendanceQRKiosk';
 import { AdminQRLoginScanner } from './components/common/AdminQRLoginScanner';
 import { QrcodeStationLoginGate } from './components/common/QrcodeStationLoginGate';
+import { AdminContactFooter } from './components/common/AdminContactFooter';
 import {
   checkIsQrcodeGateUrl,
   QRCODE_STATION_ACCOUNT,
@@ -1076,6 +1077,7 @@ export default function App() {
               }}
             />
           </main>
+          <AdminContactFooter variant="bar" />
           <PWAPrompt />
         </div>
       );
@@ -1586,6 +1588,7 @@ export default function App() {
         )}
 
         <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden relative bg-[#020617] custom-scrollbar">{renderContent()}</main>
+        <AdminContactFooter variant="bar" />
       </div>
 
       {/* Modal Hồ Sơ Nhân Viên khi nhấn vào nhân viên bất kỳ */}

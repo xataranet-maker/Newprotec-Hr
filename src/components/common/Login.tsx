@@ -4,6 +4,7 @@ import { translations } from '../../data/locales';
 import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode, ScanLine, FileText } from 'lucide-react';
 import { AppQRModal } from './AppQRModal';
 import { StaffQRScannerModal } from './StaffQRScannerModal';
+import { AdminContactFooter } from './AdminContactFooter';
 
 interface LoginProps {
   users: UserAccount[];
@@ -326,9 +327,10 @@ export const Login: React.FC<LoginProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="text-center text-[11px] text-slate-400 font-mono">
-        NEWPROTEC VINA INDUSTRIAL SYSTEM · MES V2.0 PRODUCTION SYSTEM
-      </div>
+      <AdminContactFooter
+        variant="centered"
+        systemLabel="NEWPROTEC VINA INDUSTRIAL SYSTEM · MES V2.0 PRODUCTION SYSTEM"
+      />
 
       <AppQRModal isOpen={showQRModal} onClose={() => setShowQRModal(false)} />
 
