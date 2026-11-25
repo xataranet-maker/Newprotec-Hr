@@ -5,6 +5,7 @@ import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode, ScanLine, FileText,
 import { AppQRModal } from './AppQRModal';
 import { StaffQRScannerModal } from './StaffQRScannerModal';
 import { AdminContactFooter } from './AdminContactFooter';
+import { getEffectiveStaffPin } from '../../lib/staffPin';
 
 interface LoginProps {
   users: UserAccount[];
@@ -39,7 +40,21 @@ export const Login: React.FC<LoginProps> = ({
     const trimmedUser = username.trim();
     const trimmedPass = password.trim();
 
-    // 1. Check employee ID login (Tài khoản là mã nhân viên, mật khẩu là 123)
+    // 1. Check non-staff manager / admin / station user accounts first
+    const foundManager = users.find(
+      u => u.username.toLowerCase() === trimmedUser.toLowerCase() && u.role !== 'staff'
+    );
+
+    if (foundManager) {
+      if (!foundManager.password || foundManager.password === trimmedPass) {
+        onLogin(foundManager);
+        return;
+      }
+      setError('Tài khoản hoặc mật khẩu không chính xác.');
+      return;
+    }
+
+    // 2. Check employee ID login (Dùng chung mã PIN với Quét Mã QR; mặc định lần đầu 123)
     const foundStaff = allStaff.find(
       s => s.employeeId.toLowerCase() === trimmedUser.toLowerCase()
     );
@@ -48,8 +63,8 @@ export const Login: React.FC<LoginProps> = ({
       const matchedAccount = users.find(
         u => u.username.toLowerCase() === trimmedUser.toLowerCase() && u.role === 'staff'
       );
-      const expectedPassword = matchedAccount?.password || '123';
-      if (trimmedPass === expectedPassword || trimmedPass === '123') {
+      const expectedPin = getEffectiveStaffPin(foundStaff, matchedAccount?.password);
+      if (trimmedPass === expectedPin) {
         onLogin({
           username: foundStaff.employeeId,
           fullName: foundStaff.fullName,
@@ -59,11 +74,11 @@ export const Login: React.FC<LoginProps> = ({
         });
         return;
       }
-      setError('Mật khẩu nhân viên không chính xác.');
+      setError('Mã PIN nhân viên không chính xác. Nếu quên, vui lòng liên hệ phòng HC & NS để cấp lại.');
       return;
     }
 
-    // 2. Check manager / admin user accounts
+    // 3. Check any remaining staff user account without StaffRecord
     const foundUser = users.find(
       u => u.username.toLowerCase() === trimmedUser.toLowerCase()
     );
@@ -282,7 +297,7 @@ export const Login: React.FC<LoginProps> = ({
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Mật khẩu
+                Mật khẩu / Mã PIN
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
@@ -290,11 +305,14 @@ export const Login: React.FC<LoginProps> = ({
                   type="password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder="Mật khẩu đăng nhập"
+                  placeholder="Nhập mật khẩu hoặc mã PIN"
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 transition-colors"
                   required
                 />
               </div>
+              <p className="text-[10px] text-slate-400 mt-1.5">
+                Nhân viên dùng chung một mã PIN cho Mã nhân viên và Quét QR.
+              </p>
             </div>
 
             <button

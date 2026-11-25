@@ -62,6 +62,10 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
       department,
       qrAccessEnabled,
       qrAccessToken: generateStaffQrToken(cleanEmpId),
+      securityPin: '123',
+      mustChangePin: true,
+      pinUpdatedAt: new Date().toLocaleString('vi-VN'),
+      pinUpdatedBy: 'Khởi tạo hồ sơ (HC & NS)',
     };
 
     if (department === 'MULTI') setMultiStaff([...multiStaff, newStaff]);
@@ -145,6 +149,9 @@ export const HRAddStaff: React.FC<HRAddStaffProps> = ({
                     ? 'Đã cấp quyền quét vào thẳng hồ sơ'
                     : 'Đang khóa truy cập QR'}
                 </span>
+              </div>
+              <div className="text-[11px] text-amber-300 mt-0.5">
+                Mã PIN đăng nhập &amp; QR mặc định: <strong className="font-mono">123</strong> (yêu cầu đổi ở lần đầu).
               </div>
             </div>
 

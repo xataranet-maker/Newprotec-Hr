@@ -6,6 +6,7 @@ import {
   isStaffQrEnabled,
 } from '../../lib/staffQr';
 import { compressAvatarImageFile } from '../../lib/avatarUtils';
+import { DEFAULT_STAFF_PIN, validateNewStaffPin } from '../../lib/staffPin';
 import { EmployeeQRCodeSvg } from './EmployeeQRModal';
 import {
   Camera,
@@ -653,7 +654,7 @@ export const EmployeeIdCardModal: React.FC<EmployeeIdCardModalProps> = ({
         )}
 
         {/* Security PIN Management Section */}
-        <SecurityPinManager staff={staff} onUpdateStaff={onUpdateStaff} />
+        <SecurityPinManager staff={staff} onUpdateStaff={onUpdateStaff} canResetToDefault={canManageBadge} />
 
         <div className="grid grid-cols-2 gap-2 pt-1">
           <button
@@ -696,29 +697,35 @@ export const EmployeeIdCardModal: React.FC<EmployeeIdCardModalProps> = ({
   );
 };
 
-const SecurityPinManager: React.FC<{ staff: StaffRecord; onUpdateStaff?: (updated: StaffRecord) => void }> = ({
+const SecurityPinManager: React.FC<{
+  staff: StaffRecord;
+  onUpdateStaff?: (updated: StaffRecord) => void;
+  canResetToDefault?: boolean;
+}> = ({
   staff,
   onUpdateStaff,
+  canResetToDefault = false,
 }) => {
-  const [pinValue, setPinValue] = useState(staff.securityPin || '123');
+  const currentPin = (staff.securityPin || DEFAULT_STAFF_PIN).trim();
+  const [pinValue, setPinValue] = useState(currentPin === DEFAULT_STAFF_PIN ? '' : currentPin);
+  const [confirmPinValue, setConfirmPinValue] = useState('');
   const [isEditingPin, setIsEditingPin] = useState(false);
   const [pinMsg, setPinMsg] = useState('');
-
-  const currentPin = staff.securityPin || '123';
+  const [pinErr, setPinErr] = useState('');
 
   return (
     <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
           <Key className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Mã bảo mật quét QR (PIN)</span>
+          <span>Mã PIN Đăng Nhập &amp; QR</span>
         </span>
         <span className="text-[11px] font-mono font-bold text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-700/50">
-          {currentPin}
+          {currentPin === DEFAULT_STAFF_PIN ? '123 (Mặc định)' : currentPin}
         </span>
       </div>
       <div className="text-[11px] text-slate-400">
-        Dùng để xác thực khi quét mã QR trên thẻ nhân viên. Mặc định lần đầu là <strong className="text-white">123</strong>.
+        Dùng chung cho đăng nhập bằng <strong className="text-slate-200">Mã nhân viên</strong> và <strong className="text-slate-200">Quét mã QR</strong>.
       </div>
       {isEditingPin ? (
         <div className="space-y-2 pt-1">
@@ -726,33 +733,50 @@ const SecurityPinManager: React.FC<{ staff: StaffRecord; onUpdateStaff?: (update
             type="text"
             value={pinValue}
             onChange={(e) => setPinValue(e.target.value)}
-            placeholder="Nhập mã PIN mới (VD: 4567)"
+            placeholder="Nhập mã PIN mới (từ 4 ký tự)"
             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
           />
-          <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={confirmPinValue}
+            onChange={(e) => setConfirmPinValue(e.target.value)}
+            placeholder="Nhập lại mã PIN mới"
+            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
+          />
+          {pinErr && <div className="text-[10px] text-rose-400">{pinErr}</div>}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => {
-                const cleanPin = pinValue.trim();
-                if (!cleanPin) {
-                  setPinMsg('Mã PIN không được để trống.');
+                const check = validateNewStaffPin(pinValue, confirmPinValue);
+                if (!check.ok) {
+                  setPinErr(check.error);
                   return;
                 }
                 if (onUpdateStaff) {
-                  onUpdateStaff({ ...staff, securityPin: cleanPin });
-                  setPinMsg('Đã lưu mã bảo mật mới!');
+                  onUpdateStaff({
+                    ...staff,
+                    securityPin: check.pin,
+                    mustChangePin: false,
+                    pinUpdatedAt: new Date().toLocaleString('vi-VN'),
+                    pinUpdatedBy: canResetToDefault ? 'Quản lý / HC & NS' : staff.employeeId,
+                  });
+                  setPinErr('');
+                  setPinMsg('Đã lưu mã PIN dùng chung mới!');
                   setIsEditingPin(false);
                 }
               }}
               className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold cursor-pointer"
             >
-              Lưu
+              Lưu PIN
             </button>
             <button
               type="button"
               onClick={() => {
-                setPinValue(currentPin);
+                setPinValue('');
+                setConfirmPinValue('');
                 setIsEditingPin(false);
+                setPinErr('');
                 setPinMsg('');
               }}
               className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer"
@@ -763,20 +787,43 @@ const SecurityPinManager: React.FC<{ staff: StaffRecord; onUpdateStaff?: (update
           {pinMsg && <div className="text-[10px] text-cyan-400">{pinMsg}</div>}
         </div>
       ) : (
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-[10px] text-cyan-400">{pinMsg || ''}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+          <span className="text-[10px] text-emerald-400">{pinMsg || ''}</span>
           {onUpdateStaff && (
-            <button
-              type="button"
-              onClick={() => {
-                setPinValue(currentPin);
-                setIsEditingPin(true);
-                setPinMsg('');
-              }}
-              className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer underline"
-            >
-              Đổi mã bảo mật
-            </button>
+            <div className="flex items-center gap-2.5">
+              {canResetToDefault && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUpdateStaff({
+                      ...staff,
+                      securityPin: DEFAULT_STAFF_PIN,
+                      mustChangePin: true,
+                      pinUpdatedAt: new Date().toLocaleString('vi-VN'),
+                      pinUpdatedBy: 'Phòng HC & NS (Cấp lại mặc định)',
+                    });
+                    setPinErr('');
+                    setPinMsg('Đã cấp lại PIN mặc định (123).');
+                  }}
+                  className="text-xs text-amber-300 hover:text-amber-200 font-semibold cursor-pointer underline"
+                >
+                  Cấp lại mặc định (123)
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setPinValue('');
+                  setConfirmPinValue('');
+                  setIsEditingPin(true);
+                  setPinErr('');
+                  setPinMsg('');
+                }}
+                className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold cursor-pointer underline"
+              >
+                Đổi mã PIN
+              </button>
+            </div>
           )}
         </div>
       )}

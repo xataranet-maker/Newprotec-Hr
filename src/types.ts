@@ -227,6 +227,9 @@ export interface StaffRecord {
   badgeIssuedAt?: string;
   badgeIssuedBy?: string;
   securityPin?: string;
+  mustChangePin?: boolean;
+  pinUpdatedAt?: string;
+  pinUpdatedBy?: string;
 }
 
 export interface SecurityGateLogRecord {

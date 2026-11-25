@@ -3,9 +3,16 @@ import { StaffRecord, AttendanceRecord, OvertimeRecord, AttendanceStatus, StaffL
 import { 
   Users, Search, Filter, Phone, Building, Clock, 
   AlertTriangle, CheckCircle2, LayoutGrid, Table, Trash2, X,
-  QrCode, ShieldCheck, ShieldOff, Lock, Unlock, CreditCard, Printer, ScanFace
+  QrCode, ShieldCheck, ShieldOff, Lock, Unlock, CreditCard, Printer, ScanFace,
+  KeyRound, Eye, EyeOff, RefreshCw, Copy, Check
 } from 'lucide-react';
 import { isStaffQrEnabled, generateStaffQrToken, getStaffQrToken } from '../../lib/staffQr';
+import {
+  DEFAULT_STAFF_PIN,
+  generateRandomStaffPin,
+  getEffectiveStaffPin,
+  staffNeedsFirstPinChange,
+} from '../../lib/staffPin';
 import { isStaffFaceEnrolled, isStaffFaceEnabled } from '../../lib/faceRecognition';
 import { resolveStaffLockType, syncStaffLockToMatrices } from '../../lib/matrixTimekeeping';
 import { EmployeeQRModal } from '../common/EmployeeQRModal';
@@ -34,6 +41,7 @@ interface HRStaffManagementProps {
   onUpdateAttendanceConfirmation?: (c: any) => void;
   onViewProfile?: (staff: StaffRecord) => void;
   onDeleteStaff?: (staff: StaffRecord) => void;
+  onUpdateStaff?: (staff: StaffRecord) => void;
 }
 
 export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
@@ -43,6 +51,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
   setHrStaff,
   onViewProfile,
   onDeleteStaff,
+  onUpdateStaff,
 }) => {
   const [filterDept, setFilterDept] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -55,6 +64,12 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
   const [idCardModalStaff, setIdCardModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
   const [lockModalStaff, setLockModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
   const [faceModalStaff, setFaceModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
+  const [pinModalStaff, setPinModalStaff] = useState<(StaffRecord & { dept?: string; deptKey?: string }) | null>(null);
+  const [revealedPins, setRevealedPins] = useState<Record<string, boolean>>({});
+  const [customReissuePin, setCustomReissuePin] = useState('');
+  const [requireChangeOnNextLogin, setRequireChangeOnNextLogin] = useState(true);
+  const [pinModalError, setPinModalError] = useState('');
+  const [copiedPinId, setCopiedPinId] = useState<string | null>(null);
   const [deleteToast, setDeleteToast] = useState<string | null>(null);
 
   const handleConfirmDelete = () => {
@@ -107,6 +122,10 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
   };
 
   const handleUpdateSingleStaff = (updated: StaffRecord & { deptKey?: string }) => {
+    if (onUpdateStaff) {
+      onUpdateStaff(updated);
+      return;
+    }
     const resolvedDept = updated.deptKey || (updated.department === 'HR' ? 'HR' : 'MULTI');
     const updater = (prev: StaffRecord[]) =>
       prev.map(item =>
@@ -119,6 +138,51 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
       );
     if (resolvedDept === 'MULTI') setMultiStaff(updater(multiStaff));
     else if (resolvedDept === 'HR') setHrStaff(updater(hrStaff));
+  };
+
+  const openPinModal = (staff: StaffRecord & { dept?: string; deptKey?: string }) => {
+    setPinModalStaff(staff);
+    setCustomReissuePin('');
+    setRequireChangeOnNextLogin(true);
+    setPinModalError('');
+  };
+
+  const handleApplyPinReissue = (
+    target: StaffRecord & { dept?: string; deptKey?: string },
+    nextPin: string,
+    mustChange: boolean
+  ) => {
+    const cleanPin = nextPin.trim();
+    if (!cleanPin) {
+      setPinModalError('Vui lòng nhập mã PIN cần cấp lại.');
+      return;
+    }
+    if (cleanPin !== DEFAULT_STAFF_PIN && cleanPin.length < 4) {
+      setPinModalError('Mã PIN cấp mới phải có ít nhất 4 ký tự (hoặc chọn khôi phục 123).');
+      return;
+    }
+
+    const updated: StaffRecord & { deptKey?: string } = {
+      ...target,
+      securityPin: cleanPin,
+      mustChangePin: cleanPin === DEFAULT_STAFF_PIN ? true : mustChange,
+      pinUpdatedAt: new Date().toLocaleString('vi-VN'),
+      pinUpdatedBy: 'Phòng HC & NS',
+    };
+    handleUpdateSingleStaff(updated);
+    setRevealedPins(prev => ({ ...prev, [target.employeeId]: true }));
+    setPinModalStaff(null);
+    setPinModalError('');
+    setDeleteToast(
+      `Đã cấp lại mã PIN "${cleanPin}" cho ${target.fullName} (${target.employeeId})${
+        updated.mustChangePin ? ' — yêu cầu đổi PIN mới khi đăng nhập.' : '.'
+      }`
+    );
+    window.setTimeout(() => setDeleteToast(null), 5000);
+  };
+
+  const toggleRevealPin = (employeeId: string) => {
+    setRevealedPins(prev => ({ ...prev, [employeeId]: !prev[employeeId] }));
   };
 
   const filtered = allStaff.filter(s => {
@@ -592,6 +656,57 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                       </div>
                     </div>
                   )}
+                  {/* Unified Login & QR PIN Row (Stored & Managed by HC & NS) */}
+                  {(() => {
+                    const effectivePin = getEffectiveStaffPin(s);
+                    const isPinRevealed = Boolean(revealedPins[s.employeeId]);
+                    const pendingPinChange = staffNeedsFirstPinChange(s);
+                    return (
+                      <div
+                        onClick={e => e.stopPropagation()}
+                        className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-slate-800/60"
+                      >
+                        <div className="flex items-center gap-1.5 text-[11px]">
+                          <KeyRound className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                          <span className="text-slate-400">PIN:</span>
+                          <span className="font-mono font-bold text-cyan-300 bg-slate-950 border border-slate-800 px-1.5 py-0.5 rounded">
+                            {isPinRevealed ? effectivePin : '••••'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => toggleRevealPin(s.employeeId)}
+                            className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                            title={isPinRevealed ? 'Ẩn mã PIN' : 'Xem mã PIN đang lưu'}
+                          >
+                            {isPinRevealed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                          </button>
+                          <span
+                            className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                              pendingPinChange
+                                ? 'bg-amber-950/70 text-amber-300 border border-amber-700/50'
+                                : 'bg-emerald-950/60 text-emerald-300 border border-emerald-700/50'
+                            }`}
+                          >
+                            {effectivePin === DEFAULT_STAFF_PIN
+                              ? 'Mặc định'
+                              : pendingPinChange
+                              ? 'Chờ đổi'
+                              : 'Đã đổi'}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openPinModal(s)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-semibold transition-colors cursor-pointer"
+                          title="Quản lý & cấp lại mã PIN cho nhân viên"
+                        >
+                          <KeyRound className="w-3 h-3" />
+                          <span>Cấp lại PIN</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
+
                   {/* QR & ID Card Quick Access Management Row */}
                   <div
                     onClick={e => e.stopPropagation()}
@@ -691,6 +806,7 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                   <th className="py-2.5 px-3">Điểm Danh</th>
                   <th className="py-2.5 px-3">Thời Gian Đi Muộn</th>
                   <th className="py-2.5 px-3">Thời Gian Về Sớm</th>
+                  <th className="py-2.5 px-3 text-center">Mã PIN (NV &amp; QR)</th>
                   <th className="py-2.5 px-3 text-center">Mã QR &amp; Quyền</th>
                   <th className="py-2.5 px-3 text-center">Thao Tác</th>
                 </tr>
@@ -802,6 +918,45 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
                         ) : (
                           <span className="text-slate-600 text-xs italic">—</span>
                         )}
+                      </td>
+                      <td className="py-2.5 px-3 text-center" onClick={e => e.stopPropagation()}>
+                        {(() => {
+                          const effectivePin = getEffectiveStaffPin(s);
+                          const isPinRevealed = Boolean(revealedPins[s.employeeId]);
+                          const pendingPinChange = staffNeedsFirstPinChange(s);
+                          return (
+                            <div className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                              <span className="font-mono font-bold text-cyan-300 bg-slate-950 border border-slate-800 px-1.5 py-0.5 rounded text-[11px]">
+                                {isPinRevealed ? effectivePin : '••••'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => toggleRevealPin(s.employeeId)}
+                                className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                                title={isPinRevealed ? 'Ẩn mã PIN' : 'Hiện mã PIN'}
+                              >
+                                {isPinRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openPinModal(s)}
+                                title={
+                                  pendingPinChange
+                                    ? 'Chưa đổi PIN cá nhân — nhấn để cấp lại PIN'
+                                    : 'Cấp lại / quản lý mã PIN'
+                                }
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold transition-colors cursor-pointer ${
+                                  pendingPinChange
+                                    ? 'bg-amber-950/60 hover:bg-amber-600 text-amber-300 hover:text-white border-amber-600/60'
+                                    : 'bg-slate-800 hover:bg-amber-600/80 text-slate-200 hover:text-white border-slate-700'
+                                }`}
+                              >
+                                <KeyRound className="w-3 h-3" />
+                                <span>Cấp lại</span>
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-2.5 px-3 text-center" onClick={e => e.stopPropagation()}>
                         <div className="inline-flex items-center gap-1.5">
@@ -1081,6 +1236,181 @@ export const HRStaffManagement: React.FC<HRStaffManagementProps> = ({
           }}
         />
       )}
+
+      {/* Modal Quản Lý & Cấp Lại Mã PIN Nhân Viên (HC & NS) */}
+      {pinModalStaff && (() => {
+        const liveStaff =
+          allStaff.find(st => st.employeeId === pinModalStaff.employeeId) || pinModalStaff;
+        const currentPin = getEffectiveStaffPin(liveStaff);
+        const pendingFirstChange = staffNeedsFirstPinChange(liveStaff);
+        const isShown = Boolean(revealedPins[liveStaff.employeeId]);
+
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+            onClick={() => setPinModalStaff(null)}
+          >
+            <div
+              className="bg-slate-900 border border-cyan-700/60 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl text-slate-100"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-950 border border-cyan-600/60 flex items-center justify-center text-cyan-300 shrink-0">
+                    <KeyRound className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">Quản Lý &amp; Cấp Lại Mã PIN</h3>
+                    <p className="text-[11px] text-slate-400">
+                      {liveStaff.fullName} · <span className="font-mono text-cyan-300">{liveStaff.employeeId}</span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPinModalStaff(null)}
+                  className="text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-400">Mã PIN hiện tại (Mã NV &amp; QR):</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono font-extrabold text-sm text-cyan-300 bg-slate-900 px-2.5 py-0.5 rounded border border-cyan-800/60">
+                      {isShown ? currentPin : '••••••'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleRevealPin(liveStaff.employeeId)}
+                      className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                      title={isShown ? 'Ẩn mã PIN' : 'Hiện mã PIN'}
+                    >
+                      {isShown ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(currentPin).catch(() => null);
+                        setCopiedPinId(liveStaff.employeeId);
+                        window.setTimeout(() => setCopiedPinId(null), 2000);
+                      }}
+                      className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                      title="Sao chép mã PIN"
+                    >
+                      {copiedPinId === liveStaff.employeeId ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400">Trạng thái:</span>
+                  <span
+                    className={`font-semibold px-2 py-0.5 rounded ${
+                      pendingFirstChange
+                        ? 'bg-amber-950/70 text-amber-300 border border-amber-700/50'
+                        : 'bg-emerald-950/60 text-emerald-300 border border-emerald-700/50'
+                    }`}
+                  >
+                    {currentPin === DEFAULT_STAFF_PIN
+                      ? 'Đang dùng mặc định (123) — Bắt buộc đổi'
+                      : pendingFirstChange
+                      ? 'PIN tạm thời — Bắt buộc đổi lần tới'
+                      : 'Đã kích hoạt mã PIN cá nhân'}
+                  </span>
+                </div>
+
+                {(liveStaff.pinUpdatedAt || liveStaff.pinUpdatedBy) && (
+                  <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-800/80 flex justify-between gap-2">
+                    <span>Cập nhật: {liveStaff.pinUpdatedAt || '—'}</span>
+                    <span>Bởi: {liveStaff.pinUpdatedBy || '—'}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick Reset to 123 */}
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => handleApplyPinReissue(liveStaff, DEFAULT_STAFF_PIN, true)}
+                  className="w-full py-2.5 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/50 text-amber-200 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                >
+                  <RefreshCw className="w-4 h-4 text-amber-300" />
+                  <span>Khôi Phục Về PIN Mặc Định (123)</span>
+                </button>
+                <p className="text-[10px] text-slate-400 text-center">
+                  Nhân viên đăng nhập lại bằng mã <strong>123</strong> (Mã NV hoặc Quét QR) và phải tự đổi PIN mới.
+                </p>
+              </div>
+
+              {/* Or Issue Custom / Random PIN */}
+              <div className="pt-3 border-t border-slate-800 space-y-2.5">
+                <label className="block text-xs font-bold text-slate-200">
+                  Hoặc Cấp Mã PIN Mới Cho Nhân Viên
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customReissuePin}
+                    onChange={e => setCustomReissuePin(e.target.value)}
+                    placeholder="Nhập mã PIN mới (từ 4 ký tự)"
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCustomReissuePin(generateRandomStaffPin(4))}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 text-xs font-semibold flex items-center gap-1 cursor-pointer shrink-0"
+                    title="Tạo ngẫu nhiên 4 chữ số"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Ngẫu nhiên</span>
+                  </button>
+                </div>
+
+                <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={requireChangeOnNextLogin}
+                    onChange={e => setRequireChangeOnNextLogin(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-950 text-cyan-500 focus:ring-cyan-500"
+                  />
+                  <span>Yêu cầu nhân viên đổi lại PIN cá nhân khi đăng nhập lần tới</span>
+                </label>
+
+                {pinModalError && (
+                  <div className="text-xs text-rose-300 bg-rose-950/50 border border-rose-800/60 p-2 rounded-lg text-center">
+                    {pinModalError}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setPinModalStaff(null)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                  >
+                    Đóng
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPinReissue(liveStaff, customReissuePin, requireChangeOnNextLogin)}
+                    className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>Cấp Lại Mã PIN</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

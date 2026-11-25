@@ -53,7 +53,11 @@
         "faceUpdatedAt": { "type": "string", "maxLength": 32 },
         "badgeIssued": { "type": "boolean" },
         "badgeIssuedAt": { "type": "string", "maxLength": 32 },
-        "badgeIssuedBy": { "type": "string", "maxLength": 128 }
+        "badgeIssuedBy": { "type": "string", "maxLength": 128 },
+        "securityPin": { "type": "string", "maxLength": 32 },
+        "mustChangePin": { "type": "boolean" },
+        "pinUpdatedAt": { "type": "string", "maxLength": 64 },
+        "pinUpdatedBy": { "type": "string", "maxLength": 128 }
       },
       "required": ["employeeId", "fullName"]
     },
