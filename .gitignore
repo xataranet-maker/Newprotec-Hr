@@ -1,6 +1,15 @@
 node_modules/
 build/
 dist/
+dist-electron/
+release/
+android/
+ios/
+*.exe
+*.dmg
+*.apk
+*.aab
+*.ipa
 coverage/
 .DS_Store
 *.log

@@ -104,8 +104,9 @@ import {
 } from './lib/salaryConfig';
 import { translations } from './data/locales';
 import { INITIAL_USERS, INITIAL_STAFF, INITIAL_ANNOUNCEMENTS } from './data/initialData';
+import { resolveApiUrl } from './lib/apiBase';
 
-const SYNC_API_URL = '/api/sync';
+const SYNC_API_URL = resolveApiUrl('/api/sync');
 
 const loadFromStorage = (key: string, defaultValue: any) => {
   try {

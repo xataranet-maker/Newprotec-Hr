@@ -1,0 +1,188 @@
+name: Build Installers (Windows, Android, Apple)
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Nền tảng cần đóng gói (Platform to build)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+          - android
+          - ios
+      api_base_url:
+        description: 'URL máy chủ Web đang chạy (tùy chọn, VD: https://your-domain.com để đồng bộ API nội bộ)'
+        required: false
+        default: ''
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows Installer (.exe + portable)
+        env:
+          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: npm run pack:win
+
+      - name: Compress Windows output into zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-zips | Out-Null
+          $files = Get-ChildItem -Path release -File | Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' }
+          if ($files.Count -gt 0) {
+            Compress-Archive -Path $files.FullName -DestinationPath "dist-zips/Newprotec-Vina-HRM-Windows-Installer.zip" -Force
+          }
+
+      - name: Upload Windows Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Newprotec-Vina-HRM-Windows-Installer
+          path: dist-zips/Newprotec-Vina-HRM-Windows-Installer.zip
+          if-no-files-found: error
+
+  build-macos:
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build macOS Installer (.dmg + .zip)
+        env:
+          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: npm run pack:mac
+
+      - name: Compress macOS output
+        run: |
+          mkdir -p dist-zips
+          cd release
+          zip -r -y ../dist-zips/Newprotec-Vina-HRM-macOS-Installer.zip *.dmg *-mac.zip *.yml || zip -r -y ../dist-zips/Newprotec-Vina-HRM-macOS-Installer.zip .
+
+      - name: Upload macOS Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Newprotec-Vina-HRM-macOS-Installer
+          path: dist-zips/Newprotec-Vina-HRM-macOS-Installer.zip
+          if-no-files-found: error
+
+  build-android:
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'android'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Android APK
+        env:
+          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: npm run pack:android
+
+      - name: Compress Android APK
+        run: |
+          mkdir -p dist-zips
+          zip -j dist-zips/Newprotec-Vina-HRM-Android-APK.zip release/Newprotec-Vina-HRM-Android.apk
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Newprotec-Vina-HRM-Android-APK
+          path: dist-zips/Newprotec-Vina-HRM-Android-APK.zip
+          if-no-files-found: error
+
+  build-ios:
+    if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'ios'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build iOS Package (.ipa + Xcode archive)
+        env:
+          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+        run: npm run pack:ios
+
+      - name: Compress iOS Package
+        run: |
+          mkdir -p dist-zips
+          cd release
+          zip -r -y ../dist-zips/Newprotec-Vina-HRM-iOS-Package.zip Newprotec-Vina-HRM-iOS-unsigned.ipa Newprotec-Vina-HRM-iOS.xcarchive
+
+      - name: Upload iOS Package Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Newprotec-Vina-HRM-iOS-Package
+          path: dist-zips/Newprotec-Vina-HRM-iOS-Package.zip
+          if-no-files-found: error
+
+  publish-release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-macos, build-android, build-ios]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+          generate_release_notes: true

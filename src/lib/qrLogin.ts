@@ -1,5 +1,6 @@
 import { doc, getDoc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
+import { resolveApiUrl } from './apiBase';
 import { UserAccount } from '../types';
 
 export const ADMIN_QR_LOGIN_TYPE = 'NP_ADMIN_QR_LOGIN';
@@ -183,7 +184,7 @@ export async function createRemoteQrLoginSession(
     logFirestoreChannelWarning(err, OperationType.CREATE, firestorePath);
   });
 
-  const writeApi = fetch('/api/qr-login', {
+  const writeApi = fetch(resolveApiUrl('/api/qr-login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -245,7 +246,9 @@ export function subscribeRemoteQrLoginSession(
   const pollTimer = window.setInterval(async () => {
     if (stopped || handledApproved) return;
     try {
-      const res = await fetch(`/api/qr-login?sessionId=${encodeURIComponent(sessionId)}`, {
+      const res = await fetch(
+        resolveApiUrl(`/api/qr-login?sessionId=${encodeURIComponent(sessionId)}`),
+        {
         cache: 'no-store',
       });
       if (res.ok) {
@@ -338,7 +341,7 @@ export async function approveRemoteQrLoginSession(params: {
 
   // Channel 2: Backend /api/qr-login approval
   try {
-    const res = await fetch('/api/qr-login', {
+    const res = await fetch(resolveApiUrl('/api/qr-login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -402,7 +405,7 @@ export async function consumeRemoteQrLoginSession(sessionId: string): Promise<vo
     logFirestoreChannelWarning(err, OperationType.UPDATE, firestorePath);
   });
 
-  const updateApi = fetch('/api/qr-login', {
+  const updateApi = fetch(resolveApiUrl('/api/qr-login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'CONSUME', sessionId }),
