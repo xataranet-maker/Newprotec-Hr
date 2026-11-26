@@ -1,3 +1,59 @@
+const API_BASE_STORAGE_KEY = 'app_api_base_url';
+
+export function isPackagedAppShell(): boolean {
+  if (typeof window === 'undefined') return false;
+  const { protocol, hostname, port } = window.location;
+  const win = window as unknown as {
+    Capacitor?: { isNativePlatform?: () => boolean };
+  };
+  const isCapacitorNative = Boolean(win.Capacitor?.isNativePlatform?.());
+  const isElectronUa =
+    typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron');
+
+  return (
+    isCapacitorNative ||
+    isElectronUa ||
+    protocol === 'file:' ||
+    protocol === 'capacitor:' ||
+    protocol === 'ionic:' ||
+    hostname === '127.0.0.1' ||
+    (hostname === 'localhost' && port === '')
+  );
+}
+
+export function getConfiguredApiBaseUrl(): string {
+  const envBase = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (envBase) return envBase;
+
+  if (typeof window !== 'undefined' && isPackagedAppShell()) {
+    try {
+      const storedBase = (window.localStorage.getItem(API_BASE_STORAGE_KEY) || '')
+        .trim()
+        .replace(/\/+$/, '');
+      if (storedBase) return storedBase;
+    } catch {
+      // ignore storage errors
+    }
+  }
+  return '';
+}
+
+export function setConfiguredApiBaseUrl(url: string): string {
+  const normalized = url.trim().replace(/\/+$/, '');
+  if (typeof window !== 'undefined') {
+    try {
+      if (normalized) {
+        window.localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
+      } else {
+        window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }
+  return normalized;
+}
+
 /**
  * Resolves relative `/api/...` paths so the app works identically:
  * - On Web / PWA: keeps relative `/api/...` paths on the same origin.
@@ -7,33 +63,9 @@
  */
 export function resolveApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-
-  const envBase = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-  if (envBase) {
-    return `${envBase}${normalizedPath}`;
+  const base = getConfiguredApiBaseUrl();
+  if (base) {
+    return `${base}${normalizedPath}`;
   }
-
-  if (typeof window !== 'undefined') {
-    const { protocol, hostname } = window.location;
-    const isPackagedShell =
-      protocol === 'file:' ||
-      protocol === 'capacitor:' ||
-      protocol === 'ionic:' ||
-      hostname === '127.0.0.1';
-
-    if (isPackagedShell) {
-      try {
-        const storedBase = (window.localStorage.getItem('app_api_base_url') || '')
-          .trim()
-          .replace(/\/+$/, '');
-        if (storedBase) {
-          return `${storedBase}${normalizedPath}`;
-        }
-      } catch {
-        // ignore storage errors
-      }
-    }
-  }
-
   return normalizedPath;
 }

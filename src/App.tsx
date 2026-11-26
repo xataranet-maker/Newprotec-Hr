@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Sidebar } from './components/common/Sidebar';
-import { TopBar } from './components/common/TopBar';
+import { TopBar, SyncStatusKind } from './components/common/TopBar';
 import { Dashboard } from './components/common/Dashboard';
 import { Login } from './components/common/Login';
 import { PWAPrompt } from './components/common/PWAPrompt';
@@ -104,9 +104,15 @@ import {
 } from './lib/salaryConfig';
 import { translations } from './data/locales';
 import { INITIAL_USERS, INITIAL_STAFF, INITIAL_ANNOUNCEMENTS } from './data/initialData';
-import { resolveApiUrl } from './lib/apiBase';
+import {
+  resolveApiUrl,
+  isPackagedAppShell,
+  getConfiguredApiBaseUrl,
+  setConfiguredApiBaseUrl,
+} from './lib/apiBase';
 
-const SYNC_API_URL = resolveApiUrl('/api/sync');
+const MAX_VERCEL_BATCH_BYTES = 1_500_000;
+const FIRESTORE_MAX_SAFE_BYTES = 950_000;
 
 const loadFromStorage = (key: string, defaultValue: any) => {
   try {
@@ -174,6 +180,12 @@ const updatePublicCatalogUrl = (open: boolean) => {
 export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatusKind>('idle');
+  const [syncDetail, setSyncDetail] = useState<string | null>(null);
+  const [showSyncRepairModal, setShowSyncRepairModal] = useState(false);
+  const [serverUrlInput, setServerUrlInput] = useState<string>(() => getConfiguredApiBaseUrl());
+  const [serverTestFeedback, setServerTestFeedback] = useState<string | null>(null);
+  const [isTestingServerUrl, setIsTestingServerUrl] = useState(false);
   const isInitialized = useRef(false);
 
   const [userAccounts, setUserAccounts] = useState<UserAccount[]>(() => {
@@ -453,6 +465,7 @@ export default function App() {
   const hasPulledInitial = useRef(false);
   const skipNextAutoPush = useRef(false);
   const isSyncingRef = useRef(false);
+  const pendingPushRef = useRef(false);
 
   const buildCurrentState = useCallback(
     () => ({
@@ -545,48 +558,144 @@ export default function App() {
 
   // --- SYNC ENGINE (VERCEL TURSO PRIMARY + FIRESTORE SECONDARY FALLBACK) ---
   const performSync = useCallback(
-    async (isPush: boolean) => {
-      if (isSyncingRef.current) return;
+    async (isPush: boolean, options?: { manual?: boolean }) => {
+      if (isSyncingRef.current) {
+        if (isPush) {
+          pendingPushRef.current = true;
+        }
+        return;
+      }
       isSyncingRef.current = true;
       setIsSyncing(true);
       try {
         const state = latestStateRef.current;
         const actor = currentUser?.fullName || currentUser?.username || 'system';
+        const syncApiUrl = resolveApiUrl('/api/sync');
         let tursoSynced = false;
+        let firestoreSynced = false;
+        let resolvedProvider: 'turso' | 'local-sqlite' | null = null;
+        let resolvedHost: string | null = null;
+        let tursoErrorMsg = '';
+        let firestoreErrorMsg = '';
+
+        const parseErrorResponse = async (res: Response): Promise<string> => {
+          try {
+            const text = await res.text();
+            if (!text) return `HTTP ${res.status}`;
+            try {
+              const parsed = JSON.parse(text) as { error?: string };
+              return parsed.error || `HTTP ${res.status}`;
+            } catch {
+              return text.slice(0, 180);
+            }
+          } catch {
+            return `HTTP ${res.status}`;
+          }
+        };
+
+        const pushStateInBatches = async (
+          payloadObj: Record<string, unknown>,
+          pushActor: string
+        ): Promise<{ ok: boolean; provider?: 'turso' | 'local-sqlite'; databaseHost?: string | null; error?: string }> => {
+          const encoder = new TextEncoder();
+          const entries = Object.entries(payloadObj).filter(([, v]) => v !== undefined);
+          const batches: Record<string, unknown>[] = [];
+          let currentBatch: Record<string, unknown> = {};
+          let currentBytes = 64;
+
+          for (const [key, value] of entries) {
+            const entryBytes = encoder.encode(JSON.stringify({ [key]: value })).length;
+            if (Object.keys(currentBatch).length > 0 && currentBytes + entryBytes > MAX_VERCEL_BATCH_BYTES) {
+              batches.push(currentBatch);
+              currentBatch = { [key]: value };
+              currentBytes = 64 + entryBytes;
+            } else {
+              currentBatch[key] = value;
+              currentBytes += entryBytes;
+            }
+          }
+          if (Object.keys(currentBatch).length > 0) {
+            batches.push(currentBatch);
+          }
+
+          let lastProvider: 'turso' | 'local-sqlite' | undefined;
+          let lastHost: string | null | undefined;
+          for (const batch of batches) {
+            const res = await fetch(syncApiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'PUSH',
+                actor: pushActor,
+                data: batch,
+              }),
+            });
+            if (!res.ok) {
+              return { ok: false, error: await parseErrorResponse(res) };
+            }
+            const result = (await res.json()) as {
+              success?: boolean;
+              provider?: 'turso' | 'local-sqlite';
+              databaseHost?: string | null;
+              error?: string;
+            };
+            if (!result?.success) {
+              return { ok: false, error: result?.error || 'Đồng bộ Turso thất bại' };
+            }
+            lastProvider = result.provider;
+            lastHost = result.databaseHost;
+          }
+          return { ok: true, provider: lastProvider, databaseHost: lastHost };
+        };
 
         try {
-          const res = await fetch(SYNC_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: isPush ? 'PUSH' : 'PULL',
-              actor,
-              data: isPush ? state : undefined,
-            }),
-          });
-
-          if (res.ok) {
-            const result = await res.json();
-            if (result.success) {
+          if (isPush) {
+            const pushRes = await pushStateInBatches(state, actor);
+            if (pushRes.ok) {
               tursoSynced = true;
-              if (!isPush) {
+              resolvedProvider = pushRes.provider || 'turso';
+              resolvedHost = pushRes.databaseHost || null;
+            } else if (pushRes.error) {
+              tursoErrorMsg = pushRes.error;
+            }
+          } else {
+            const res = await fetch(syncApiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'PULL',
+                actor,
+              }),
+            });
+
+            if (res.ok) {
+              const result = (await res.json()) as {
+                success?: boolean;
+                empty?: boolean;
+                data?: Record<string, unknown>;
+                provider?: 'turso' | 'local-sqlite';
+                databaseHost?: string | null;
+                error?: string;
+              };
+              if (result.success) {
+                tursoSynced = true;
+                resolvedProvider = result.provider || 'turso';
+                resolvedHost = result.databaseHost || null;
                 if (!result.empty && result.data && Object.keys(result.data).length > 0) {
                   applySyncedState(result.data);
                 } else if (result.empty) {
-                  await fetch(SYNC_API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      action: 'PUSH',
-                      actor: 'initial-seed',
-                      data: state,
-                    }),
-                  }).catch(() => null);
+                  await pushStateInBatches(state, 'initial-seed').catch(() => null);
                 }
+              } else {
+                tursoErrorMsg = result.error || 'Không thể tải dữ liệu từ Turso';
               }
+            } else {
+              tursoErrorMsg = await parseErrorResponse(res);
             }
           }
         } catch (tursoErr) {
+          tursoErrorMsg =
+            tursoErr instanceof Error ? tursoErr.message : 'Không kết nối được tới API máy chủ';
           console.warn('Turso API sync fallback:', tursoErr);
         }
 
@@ -594,32 +703,87 @@ export default function App() {
           const docRef = doc(db, 'app_state', 'factory_data');
           if (isPush) {
             try {
-              await setDoc(docRef, { ...state, updatedAt: new Date().toISOString() });
+              const serializedBytes = new TextEncoder().encode(JSON.stringify(state)).length;
+              if (serializedBytes <= FIRESTORE_MAX_SAFE_BYTES) {
+                await setDoc(docRef, { ...state, updatedAt: new Date().toISOString() });
+                firestoreSynced = true;
+              } else {
+                firestoreErrorMsg = 'Dữ liệu vượt giới hạn 1MB của Firestore fallback';
+              }
             } catch (fsErr) {
+              firestoreErrorMsg =
+                fsErr instanceof Error ? fsErr.message : 'Lỗi ghi Firestore fallback';
               console.warn('Firestore write fallback', fsErr);
             }
           } else {
             try {
               const docSnap = await getDoc(docRef);
-              if (docSnap && docSnap.exists()) {
-                applySyncedState(docSnap.data());
+              if (docSnap) {
+                firestoreSynced = true;
+                if (docSnap.exists()) {
+                  applySyncedState(docSnap.data());
+                }
               }
             } catch (fsErr) {
+              firestoreErrorMsg =
+                fsErr instanceof Error ? fsErr.message : 'Lỗi đọc Firestore fallback';
               console.warn('Firestore get fallback', fsErr);
             }
           }
         }
 
-        setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+        if (tursoSynced) {
+          hasPulledInitial.current = true;
+          setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+          if (resolvedProvider === 'turso') {
+            setSyncStatus('turso');
+            setSyncDetail(
+              `Đã kết nối Vercel Turso (database-newprotec${resolvedHost ? ` · ${resolvedHost}` : ''})`
+            );
+          } else {
+            setSyncStatus('local');
+            setSyncDetail('Đang lưu Local SQLite (chưa cấu hình TURSO_DATABASE_URL)');
+          }
+        } else if (firestoreSynced) {
+          hasPulledInitial.current = true;
+          setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+          setSyncStatus('firestore');
+          setSyncDetail(
+            `Đang dùng Firestore dự phòng — API Vercel lỗi: ${tursoErrorMsg || 'Không phản hồi'}`
+          );
+          if (options?.manual) {
+            setServerUrlInput(getConfiguredApiBaseUrl());
+            setServerTestFeedback(null);
+            setShowSyncRepairModal(true);
+          }
+        } else {
+          const combinedErr =
+            tursoErrorMsg || firestoreErrorMsg || 'Không thể kết nối máy chủ Vercel & Firestore';
+          setSyncStatus('error');
+          setSyncDetail(`Mất kết nối đồng bộ: ${combinedErr}`);
+          if (options?.manual) {
+            setServerUrlInput(getConfiguredApiBaseUrl());
+            setServerTestFeedback(null);
+            setShowSyncRepairModal(true);
+          }
+        }
       } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Lỗi đồng bộ không xác định';
+        setSyncStatus('error');
+        setSyncDetail(`Mất kết nối đồng bộ: ${msg}`);
         console.warn('Sync offline fallback active', e);
       } finally {
         if (!isPush) {
-          hasPulledInitial.current = true;
           setInitialSyncDone(true);
         }
         isSyncingRef.current = false;
         setIsSyncing(false);
+        if (pendingPushRef.current) {
+          pendingPushRef.current = false;
+          window.setTimeout(() => {
+            performSync(true);
+          }, 150);
+        }
       }
     },
     [applySyncedState, currentUser]
@@ -1549,8 +1713,10 @@ export default function App() {
           toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           isSidebarOpen={isSidebarOpen}
           isSyncing={isSyncing}
-          onSync={() => performSync(true)}
+          onSync={() => performSync(true, { manual: true })}
           lastSyncTime={lastSyncTime}
+          syncStatus={syncStatus}
+          syncDetail={syncDetail}
           onOpenQR={() => setShowAppQR(true)}
         />
 
@@ -1641,6 +1807,94 @@ export default function App() {
 
       <PWAPrompt />
       <AppQRModal isOpen={showAppQR} onClose={() => setShowAppQR(false)} />
+
+      {showSyncRepairModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-xl bg-slate-900 border border-slate-700 p-5 text-slate-200 shadow-2xl space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-white">
+                  Kiểm tra kết nối Vercel Database (Turso)
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  {syncDetail || 'Không thể kết nối tới /api/sync.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSyncRepairModal(false)}
+                className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded bg-slate-800 cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+
+            {isPackagedAppShell() && (
+              <div className="space-y-2 border-t border-slate-800 pt-3">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Địa chỉ Web Vercel của nhà máy (dùng cho app Windows / Android / iOS)
+                </label>
+                <input
+                  type="url"
+                  value={serverUrlInput}
+                  onChange={(e) => setServerUrlInput(e.target.value)}
+                  placeholder="https://ten-du-an.vercel.app"
+                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+            )}
+
+            {serverTestFeedback && (
+              <p className="text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-cyan-300">
+                {serverTestFeedback}
+              </p>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={isTestingServerUrl}
+                onClick={async () => {
+                  setIsTestingServerUrl(true);
+                  setServerTestFeedback(null);
+                  try {
+                    if (isPackagedAppShell()) {
+                      setConfiguredApiBaseUrl(serverUrlInput);
+                    }
+                    const healthUrl = resolveApiUrl('/api/health');
+                    const res = await fetch(healthUrl, { cache: 'no-store' });
+                    const data = (await res.json().catch(() => ({}))) as {
+                      ok?: boolean;
+                      provider?: string;
+                      databaseHost?: string;
+                      slicesCount?: number;
+                      error?: string;
+                    };
+                    if (res.ok && data.ok) {
+                      setServerTestFeedback(
+                        `Kết nối thành công (${data.provider === 'turso' ? 'Vercel Turso' : 'Local SQLite'} · ${data.slicesCount ?? 0} bảng dữ liệu). Đang đồng bộ lại...`
+                      );
+                      await performSync(false);
+                      setShowSyncRepairModal(false);
+                    } else {
+                      setServerTestFeedback(data.error || `Máy chủ trả về mã ${res.status}`);
+                    }
+                  } catch (err) {
+                    setServerTestFeedback(
+                      err instanceof Error ? err.message : 'Không thể kết nối tới máy chủ.'
+                    );
+                  } finally {
+                    setIsTestingServerUrl(false);
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+              >
+                {isTestingServerUrl ? 'Đang kiểm tra...' : 'Kiểm tra & Đồng bộ lại'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

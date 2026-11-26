@@ -50,7 +50,7 @@ jobs:
 
       - name: Build Windows Installer (.exe + portable)
         env:
-          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run pack:win
 
@@ -98,7 +98,7 @@ jobs:
 
       - name: Build macOS Installer (.dmg + .zip)
         env:
-          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run pack:mac
 
@@ -160,7 +160,7 @@ jobs:
 
       - name: Build Android APK
         env:
-          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
         run: npm run pack:android
 
       - name: Compress Android APK
@@ -197,7 +197,7 @@ jobs:
 
       - name: Build iOS Package (.ipa + Xcode archive)
         env:
-          VITE_API_BASE_URL: ${{ inputs.api_base_url }}
+          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
         run: npm run pack:ios
 
       - name: Compress iOS Package

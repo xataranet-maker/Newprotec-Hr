@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { UserAccount } from '../../types';
 import { 
-  Menu, Cloud, RefreshCw, LogOut, 
+  Menu, Cloud, CloudOff, RefreshCw, LogOut, 
   Clock, Shield, Lock, ChevronLeft, ChevronRight, QrCode
 } from 'lucide-react';
+
+export type SyncStatusKind = 'idle' | 'turso' | 'local' | 'firestore' | 'error';
 
 interface TopBarProps {
   currentUser: UserAccount | null;
@@ -14,6 +16,8 @@ interface TopBarProps {
   isSyncing: boolean;
   onSync: () => void;
   lastSyncTime: string | null;
+  syncStatus?: SyncStatusKind;
+  syncDetail?: string | null;
   onOpenQR?: () => void;
 }
 
@@ -26,6 +30,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   isSyncing,
   onSync,
   lastSyncTime,
+  syncStatus = 'idle',
+  syncDetail = null,
   onOpenQR
 }) => {
   const [time, setTime] = useState<string>('');
@@ -42,6 +48,12 @@ export const TopBar: React.FC<TopBarProps> = ({
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const isError = syncStatus === 'error';
+  const isFallback = syncStatus === 'local' || syncStatus === 'firestore';
+  const defaultTitle =
+    syncDetail ||
+    'Đồng bộ dữ liệu với Vercel Turso Database (database-newprotec)';
 
   return (
     <header className="h-14 bg-slate-900/90 border-b border-slate-800 backdrop-blur-md px-4 flex items-center justify-between text-xs font-medium z-30 select-none shrink-0">
@@ -102,15 +114,23 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           onClick={onSync}
           disabled={isSyncing}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60 text-slate-300 hover:text-cyan-300 transition-colors cursor-pointer"
-          title="Đồng bộ dữ liệu với Vercel Turso Database (database-newprotec)"
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border transition-colors cursor-pointer ${
+            isError
+              ? 'bg-rose-950/60 hover:bg-rose-900/60 border-rose-500/50 text-rose-300'
+              : isFallback
+              ? 'bg-amber-950/40 hover:bg-amber-900/50 border-amber-500/40 text-amber-200'
+              : 'bg-slate-800/80 hover:bg-slate-700 border-slate-700/60 text-slate-300 hover:text-cyan-300'
+          }`}
+          title={defaultTitle}
         >
           {isSyncing ? (
             <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+          ) : isError ? (
+            <CloudOff className="w-3.5 h-3.5 text-rose-400" />
           ) : (
-            <Cloud className="w-3.5 h-3.5 text-cyan-400" />
+            <Cloud className={`w-3.5 h-3.5 ${isFallback ? 'text-amber-400' : 'text-cyan-400'}`} />
           )}
-          <span>{isSyncing ? 'Đang lưu...' : 'Lưu Cloud'}</span>
+          <span>{isSyncing ? 'Đang lưu...' : isError ? 'Lỗi Cloud' : 'Lưu Cloud'}</span>
           {lastSyncTime && (
             <span className="text-[10px] text-slate-400 font-mono">({lastSyncTime})</span>
           )}

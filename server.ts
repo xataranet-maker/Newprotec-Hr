@@ -12,6 +12,7 @@ import {
   approveQrLoginSessionDb,
   consumeQrLoginSessionDb,
 } from './lib/tursoDb.ts';
+import { handleApiCors } from './lib/cors.ts';
 
 const PORT = Number(process.env.PORT || 3000);
 const isProd = process.env.NODE_ENV === 'production';
@@ -20,6 +21,10 @@ async function startServer() {
   const app = express();
   const httpServer = http.createServer(app);
 
+  app.use('/api', (req, res, next) => {
+    if (handleApiCors(req, res)) return;
+    next();
+  });
   app.use(express.json({ limit: '25mb' }));
 
   const resolvePublicOrigin = (req: express.Request): string => {

@@ -1,7 +1,9 @@
 import { pullFactoryState, pushFactoryState, getDatabaseHealth } from '../lib/tursoDb.ts';
+import { handleApiCors } from '../lib/cors.ts';
 
 interface ApiRequest {
   method?: string;
+  headers?: Record<string, string | string[] | undefined>;
   body?: unknown;
 }
 
@@ -9,6 +11,7 @@ interface ApiResponse {
   status: (code: number) => ApiResponse;
   json: (payload: unknown) => void;
   setHeader: (name: string, value: string) => void;
+  end?: () => void;
 }
 
 function parseBody(rawBody: unknown): Record<string, unknown> {
@@ -28,6 +31,7 @@ function parseBody(rawBody: unknown): Record<string, unknown> {
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
   res.setHeader('Cache-Control', 'no-store');
+  if (handleApiCors(req, res)) return;
 
   try {
     if (req.method === 'GET') {

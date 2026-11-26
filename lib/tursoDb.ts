@@ -1,4 +1,4 @@
-import { createClient, type Client, type InStatement } from '@libsql/client';
+import type { Client, InStatement } from '@libsql/client';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -8,6 +8,7 @@ export interface TursoConnectionInfo {
   provider: 'turso' | 'local-sqlite';
   tursoConfigured: boolean;
   databaseHost: string | null;
+  matchedEnvKey: string | null;
 }
 
 let cachedClient: Client | null = null;
@@ -39,52 +40,69 @@ function extractEnvValue(raw: string, keys: string[]): string {
   return '';
 }
 
+function findFirstEnvEntry(keys: string[]): { key: string; value: string } | null {
+  for (const key of keys) {
+    const val = (process.env[key] || '').trim();
+    if (val) return { key, value: val };
+  }
+  return null;
+}
+
 export function resolveTursoConfig(): TursoConnectionInfo {
-  const rawUrl = (
-    process.env.TURSO_DATABASE_URL ||
-    process.env.NEWPROTEC_TURSO_DATABASE_URL ||
-    process.env.STORAGE_TURSO_DATABASE_URL ||
-    process.env.LIBSQL_URL ||
-    process.env.DATABASE_URL ||
-    ''
-  ).trim();
-
-  const rawToken = (
-    process.env.TURSO_AUTH_TOKEN ||
-    process.env.NEWPROTEC_TURSO_AUTH_TOKEN ||
-    process.env.STORAGE_TURSO_AUTH_TOKEN ||
-    process.env.LIBSQL_AUTH_TOKEN ||
-    process.env.DATABASE_AUTH_TOKEN ||
-    ''
-  ).trim();
-
-  const urlKeys = [
+  const explicitUrlKeys = [
     'TURSO_DATABASE_URL',
     'NEWPROTEC_TURSO_DATABASE_URL',
     'STORAGE_TURSO_DATABASE_URL',
+    'DATABASE_NEWPROTEC_TURSO_DATABASE_URL',
     'LIBSQL_URL',
     'DATABASE_URL',
+    'TURSO_URL',
   ];
-  const tokenKeys = [
+  const explicitTokenKeys = [
     'TURSO_AUTH_TOKEN',
     'NEWPROTEC_TURSO_AUTH_TOKEN',
     'STORAGE_TURSO_AUTH_TOKEN',
+    'DATABASE_NEWPROTEC_TURSO_AUTH_TOKEN',
     'LIBSQL_AUTH_TOKEN',
     'DATABASE_AUTH_TOKEN',
+    'TURSO_TOKEN',
   ];
 
-  let url = extractEnvValue(rawUrl, urlKeys) || extractEnvValue(rawToken, urlKeys);
+  // Also detect any Vercel Storage custom prefix like <PREFIX>_TURSO_DATABASE_URL
+  const dynamicUrlKeys = Object.keys(process.env).filter(
+    (k) =>
+      !explicitUrlKeys.includes(k) &&
+      /_(?:TURSO_DATABASE_URL|LIBSQL_URL)$/i.test(k) &&
+      Boolean((process.env[k] || '').trim())
+  );
+  const allUrlKeys = [...explicitUrlKeys, ...dynamicUrlKeys];
+
+  const dynamicTokenKeys = Object.keys(process.env).filter(
+    (k) =>
+      !explicitTokenKeys.includes(k) &&
+      /_(?:TURSO_AUTH_TOKEN|LIBSQL_AUTH_TOKEN)$/i.test(k) &&
+      Boolean((process.env[k] || '').trim())
+  );
+  const allTokenKeys = [...explicitTokenKeys, ...dynamicTokenKeys];
+
+  const urlEntry = findFirstEnvEntry(allUrlKeys);
+  const tokenEntry = findFirstEnvEntry(allTokenKeys);
+
+  const rawUrl = urlEntry?.value || '';
+  const rawToken = tokenEntry?.value || '';
+
+  let url = extractEnvValue(rawUrl, allUrlKeys) || extractEnvValue(rawToken, allUrlKeys);
   if (!url && rawUrl && !rawUrl.includes('=')) {
     url = stripQuotes(rawUrl);
   }
   if (!url) {
-    const directUrlMatch = `${rawUrl} ${rawToken}`.match(/(?:libsql|https?):\/\/[^\s"']+/);
+    const directUrlMatch = `${rawUrl} ${rawToken}`.match(/(?:libsql|https?|wss?):\/\/[^\s"']+/);
     if (directUrlMatch) {
       url = directUrlMatch[0];
     }
   }
 
-  let authToken = extractEnvValue(rawToken, tokenKeys) || extractEnvValue(rawUrl, tokenKeys);
+  let authToken = extractEnvValue(rawToken, allTokenKeys) || extractEnvValue(rawUrl, allTokenKeys);
   if (!authToken && rawToken && !rawToken.includes('=')) {
     authToken = stripQuotes(rawToken);
   }
@@ -103,12 +121,13 @@ export function resolveTursoConfig(): TursoConnectionInfo {
       provider: 'turso',
       tursoConfigured: true,
       databaseHost,
+      matchedEnvKey: urlEntry?.key || null,
     };
   }
 
   if (process.env.VERCEL === '1') {
     throw new Error(
-      'TURSO_DATABASE_URL chưa được cấu hình trên Vercel Project. Vui lòng kiểm tra kết nối database-newprotec trong Vercel Storage.'
+      'TURSO_DATABASE_URL chưa được cấu hình trên Vercel Project. Vui lòng kiểm tra kết nối database-newprotec trong Vercel Storage (Settings -> Environment Variables).'
     );
   }
 
@@ -123,18 +142,29 @@ export function resolveTursoConfig(): TursoConnectionInfo {
     provider: 'local-sqlite',
     tursoConfigured: false,
     databaseHost: 'local-sqlite',
+    matchedEnvKey: null,
   };
 }
 
-export function getTursoClient(): { client: Client; info: TursoConnectionInfo } {
+export async function getTursoClient(): Promise<{ client: Client; info: TursoConnectionInfo }> {
   const info = resolveTursoConfig();
   const configKey = `${info.url}::${info.authToken || ''}`;
 
   if (!cachedClient || cachedConfigKey !== configKey) {
-    cachedClient = createClient({
-      url: info.url,
-      authToken: info.authToken,
-    });
+    if (info.provider === 'turso') {
+      // Pure JS HTTP/WS client for remote Turso — avoids native sqlite3 `.node` binary bundling failures on Vercel Serverless
+      const { createClient } = await import('@libsql/client/web');
+      cachedClient = createClient({
+        url: info.url,
+        authToken: info.authToken,
+      });
+    } else {
+      const { createClient } = await import('@libsql/client');
+      cachedClient = createClient({
+        url: info.url,
+        authToken: info.authToken,
+      });
+    }
     cachedConfigKey = configKey;
     schemaInitialized = false;
   }
@@ -143,7 +173,7 @@ export function getTursoClient(): { client: Client; info: TursoConnectionInfo } 
 }
 
 export async function ensureSchema(): Promise<TursoConnectionInfo> {
-  const { client, info } = getTursoClient();
+  const { client, info } = await getTursoClient();
   if (schemaInitialized) {
     return info;
   }
@@ -185,7 +215,7 @@ export async function ensureSchema(): Promise<TursoConnectionInfo> {
 
 export async function getDatabaseHealth() {
   const info = await ensureSchema();
-  const { client } = getTursoClient();
+  const { client } = await getTursoClient();
 
   const summaryRes = await client.execute(
     'SELECT COUNT(*) AS slices_count, MAX(updated_at) AS last_updated FROM factory_state_slices'
@@ -198,6 +228,8 @@ export async function getDatabaseHealth() {
     provider: info.provider,
     tursoConfigured: info.tursoConfigured,
     databaseHost: info.databaseHost,
+    matchedEnvKey: info.matchedEnvKey,
+    hasAuthToken: Boolean(info.authToken),
     slicesCount: Number(row?.slices_count ?? 0),
     lastUpdated: row?.last_updated ? String(row.last_updated) : null,
     timestamp: new Date().toISOString(),
@@ -206,7 +238,7 @@ export async function getDatabaseHealth() {
 
 export async function pullFactoryState() {
   const info = await ensureSchema();
-  const { client } = getTursoClient();
+  const { client } = await getTursoClient();
 
   const result = await client.execute(
     'SELECT slice_key, data_json, updated_at FROM factory_state_slices'
@@ -236,6 +268,7 @@ export async function pullFactoryState() {
     databaseName: 'database-newprotec',
     provider: info.provider,
     tursoConfigured: info.tursoConfigured,
+    databaseHost: info.databaseHost,
     empty: result.rows.length === 0,
     slicesCount: result.rows.length,
     updatedAt: latestUpdatedAt,
@@ -252,17 +285,23 @@ export async function pushFactoryState(
   }
 
   const info = await ensureSchema();
-  const { client } = getTursoClient();
+  const { client } = await getTursoClient();
   const nowIso = new Date().toISOString();
   const safeActor = String(actor || 'system').slice(0, 128);
 
-  const entries = Object.entries(statePayload).filter(([, value]) => value !== undefined);
+  const entries = Object.entries(statePayload).filter(
+    ([sliceKey, value]) =>
+      value !== undefined &&
+      typeof sliceKey === 'string' &&
+      /^[a-zA-Z0-9_.-]{1,128}$/.test(sliceKey)
+  );
   if (entries.length === 0) {
     return {
       success: true,
       databaseName: 'database-newprotec',
       provider: info.provider,
       tursoConfigured: info.tursoConfigured,
+      databaseHost: info.databaseHost,
       slicesCount: 0,
       updatedAt: nowIso,
     };
@@ -294,6 +333,7 @@ export async function pushFactoryState(
     databaseName: 'database-newprotec',
     provider: info.provider,
     tursoConfigured: info.tursoConfigured,
+    databaseHost: info.databaseHost,
     slicesCount: entries.length,
     updatedAt: nowIso,
   };
@@ -306,7 +346,7 @@ export async function createQrLoginSessionDb(params: {
   createdAt?: string;
 }) {
   await ensureSchema();
-  const { client } = getTursoClient();
+  const { client } = await getTursoClient();
   const createdAt = params.createdAt || new Date().toISOString();
   const cleanId = String(params.sessionId || '').trim().slice(0, 128);
   if (!/^[a-zA-Z0-9_-]+$/.test(cleanId)) {
@@ -340,7 +380,7 @@ export async function createQrLoginSessionDb(params: {
 
 export async function getQrLoginSessionDb(sessionId: string) {
   await ensureSchema();
-  const { client } = getTursoClient();
+  const { client } = await getTursoClient();
   const cleanId = String(sessionId || '').trim().slice(0, 128);
   if (!cleanId) return null;
 
@@ -386,7 +426,7 @@ export async function approveQrLoginSessionDb(params: {
   };
 }) {
   await ensureSchema();
-  const { client } = getTursoClient();
+  const { client } = await getTursoClient();
   const cleanId = String(params.sessionId || '').trim().slice(0, 128);
   if (!/^[a-zA-Z0-9_-]+$/.test(cleanId)) {
     throw new Error('Invalid sessionId');
@@ -432,7 +472,7 @@ export async function approveQrLoginSessionDb(params: {
 
 export async function consumeQrLoginSessionDb(sessionId: string) {
   await ensureSchema();
-  const { client } = getTursoClient();
+  const { client } = await getTursoClient();
   const cleanId = String(sessionId || '').trim().slice(0, 128);
   if (!cleanId) return;
   await client.execute({
