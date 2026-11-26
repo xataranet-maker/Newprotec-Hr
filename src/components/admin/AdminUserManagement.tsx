@@ -12,12 +12,24 @@ import {
   CheckCircle2,
   Save,
   ShieldAlert,
+  Download,
+  Link2,
+  Sparkles,
+  ExternalLink,
+  Trash2,
 } from 'lucide-react';
 import {
   DEFAULT_SALARY_SECURITY_CONFIG,
   canUserAccessSalarySlip,
   normalizeSalarySecurityConfig,
 } from '../../lib/salaryConfig';
+import {
+  InstallerDownloadLinks,
+  buildGithubReleaseShortcutUrls,
+  getEnvDefaultInstallerLinks,
+  normalizeInstallerLinks,
+  sanitizeDownloadUrl,
+} from '../../lib/installerLinks';
 
 interface AdminUserManagementProps {
   users: UserAccount[];
@@ -25,7 +37,9 @@ interface AdminUserManagementProps {
   currentUser?: UserAccount | null;
   salarySecurity?: SalarySecurityConfig;
   onUpdateSalarySecurity?: (cfg: SalarySecurityConfig) => void;
-  initialTab?: 'users' | 'security';
+  installerLinks?: InstallerDownloadLinks;
+  onUpdateInstallerLinks?: (links: InstallerDownloadLinks) => void;
+  initialTab?: 'users' | 'security' | 'downloads';
 }
 
 const ROLE_OPTIONS: { role: UserRole; label: string; desc: string }[] = [
@@ -44,9 +58,11 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
   currentUser,
   salarySecurity,
   onUpdateSalarySecurity,
+  installerLinks,
+  onUpdateInstallerLinks,
   initialTab = 'users',
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'security'>(initialTab);
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'security' | 'downloads'>(initialTab);
   const [showAdd, setShowAdd] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -61,6 +77,13 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
   const [showPin, setShowPin] = useState(false);
   const [securityToast, setSecurityToast] = useState<string | null>(null);
 
+  // Local draft for Installer Download Links
+  const [draftLinks, setDraftLinks] = useState<InstallerDownloadLinks>(() =>
+    normalizeInstallerLinks(installerLinks || getEnvDefaultInstallerLinks())
+  );
+  const [repoInput, setRepoInput] = useState('');
+  const [linkError, setLinkError] = useState<string | null>(null);
+
   useEffect(() => {
     setActiveSubTab(initialTab);
   }, [initialTab]);
@@ -70,6 +93,12 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
       setDraftSecurity(normalizeSalarySecurityConfig(salarySecurity));
     }
   }, [salarySecurity]);
+
+  useEffect(() => {
+    if (installerLinks) {
+      setDraftLinks(normalizeInstallerLinks(installerLinks));
+    }
+  }, [installerLinks]);
 
   const showToast = (msg: string) => {
     setSecurityToast(msg);
@@ -184,6 +213,58 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
     alert('Đã lưu cấu hình bảo mật Tab Phiếu Lương thành công!');
   };
 
+  const handleApplyGithubRepo = () => {
+    setLinkError(null);
+    const shortcut = buildGithubReleaseShortcutUrls(repoInput);
+    if (!shortcut) {
+      setLinkError(
+        'Vui lòng nhập đúng định dạng repo GitHub (ví dụ: xataranet-maker/newprotec-hrm hoặc https://github.com/owner/repo).'
+      );
+      return;
+    }
+    setDraftLinks((prev) => ({
+      ...prev,
+      ...shortcut,
+    }));
+    showToast('Đã tự điền 4 link tải trực tiếp từ GitHub Releases. Nhấn Lưu để áp dụng.');
+  };
+
+  const handleSaveInstallerLinks = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLinkError(null);
+
+    const fields: Array<{ key: keyof Pick<InstallerDownloadLinks, 'windowsUrl' | 'androidUrl' | 'macosUrl' | 'iosUrl'>; label: string }> = [
+      { key: 'windowsUrl', label: 'Windows (.exe / .zip)' },
+      { key: 'androidUrl', label: 'Android (.apk / .zip)' },
+      { key: 'macosUrl', label: 'macOS (.dmg / .zip)' },
+      { key: 'iosUrl', label: 'iOS (.ipa / .zip)' },
+    ];
+
+    for (const f of fields) {
+      const rawVal = (draftLinks[f.key] || '').trim();
+      if (rawVal && !sanitizeDownloadUrl(rawVal)) {
+        setLinkError(
+          `Link tải ${f.label} không hợp lệ. Chỉ chấp nhận đường dẫn bắt đầu bằng https:// hoặc http://.`
+        );
+        return;
+      }
+    }
+
+    const nextLinks: InstallerDownloadLinks = {
+      windowsUrl: sanitizeDownloadUrl(draftLinks.windowsUrl),
+      androidUrl: sanitizeDownloadUrl(draftLinks.androidUrl),
+      macosUrl: sanitizeDownloadUrl(draftLinks.macosUrl),
+      iosUrl: sanitizeDownloadUrl(draftLinks.iosUrl),
+      releaseVersion: (draftLinks.releaseVersion || '').trim().slice(0, 32) || undefined,
+      updatedAt: new Date().toLocaleString('vi-VN'),
+      updatedBy: currentUser?.fullName || currentUser?.username || 'Admin',
+    };
+
+    setDraftLinks(nextLinks);
+    onUpdateInstallerLinks?.(nextLinks);
+    showToast('Đã lưu & đồng bộ link tải bộ cài đặt cho toàn bộ nhân viên!');
+  };
+
   const liveSecurity = salarySecurity || draftSecurity;
 
   return (
@@ -194,24 +275,30 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
           <h2 className="text-base sm:text-lg font-bold text-white flex flex-wrap items-center justify-center lg:justify-start gap-2">
             {activeSubTab === 'security' ? (
               <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+            ) : activeSubTab === 'downloads' ? (
+              <Download className="w-5 h-5 text-cyan-400 shrink-0" />
             ) : (
               <Users className="w-5 h-5 text-blue-400 shrink-0" />
             )}
             <span>
               {activeSubTab === 'security'
                 ? 'Cấu Hình Bảo Mật Tab Phiếu Lương'
+                : activeSubTab === 'downloads'
+                ? 'Quản Lý Link Tải Bộ Cài Đặt (Windows / Android / Apple)'
                 : 'Quản Trị Người Dùng & Phân Quyền Hệ Thống'}
             </span>
           </h2>
           <p className="text-xs text-slate-400 mt-1 text-center lg:text-left">
             {activeSubTab === 'security'
               ? 'Kiểm soát nghiêm ngặt tài khoản được phép xem lương nhân viên, khóa mã PIN lớp 2 và che số liệu.'
+              : activeSubTab === 'downloads'
+              ? 'Gắn link GitHub Releases, Cloudflare R2 hoặc Google Drive để nhân viên bấm tải trực tiếp từ trang đăng nhập mà không tốn dung lượng server.'
               : 'Quản lý tài khoản đăng nhập và phân quyền truy cập theo vai trò (Admin, HC & NS, Trưởng ca).'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center justify-center lg:justify-end gap-2 shrink-0">
-          <div className="bg-slate-900 border border-slate-800 rounded-lg p-1 flex text-xs font-semibold">
+          <div className="bg-slate-900 border border-slate-800 rounded-lg p-1 flex flex-wrap text-xs font-semibold">
             <button
               type="button"
               onClick={() => setActiveSubTab('users')}
@@ -235,6 +322,18 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
             >
               <ShieldCheck className="w-3.5 h-3.5" />
               <span>Bảo Mật Lương</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('downloads')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                activeSubTab === 'downloads'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Link Tải App</span>
             </button>
           </div>
 
@@ -345,7 +444,7 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
             );
           })}
         </div>
-      ) : (
+      ) : activeSubTab === 'security' ? (
         /* TAB BẢO MẬT LƯƠNG */
         <form onSubmit={handleSaveSecurity} className="space-y-5 text-xs">
           {/* Master Switch Card */}
@@ -593,6 +692,177 @@ export const AdminUserManagement: React.FC<AdminUserManagementProps> = ({
             >
               <Save className="w-4 h-4" />
               <span>Lưu Cấu Hình Bảo Mật</span>
+            </button>
+          </div>
+        </form>
+      ) : (
+        /* TAB LINK TẢI BỘ CÀI ĐẶT */
+        <form onSubmit={handleSaveInstallerLinks} className="space-y-5 text-xs">
+          {/* Quick fill GitHub Releases */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-white">Điền Nhanh Link Từ GitHub Releases</h3>
+                <p className="text-slate-400 leading-relaxed">
+                  Nếu bạn đã chạy workflow <span className="font-mono text-cyan-300">publish-release</span> (bằng cách gắn tag{' '}
+                  <span className="font-mono text-slate-200">v1.0.0</span> hoặc tạo Release trên GitHub), nhập tên repo bên dưới để tự tạo 4 link tải trực tiếp.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={repoInput}
+                onChange={(e) => {
+                  setRepoInput(e.target.value);
+                  if (linkError) setLinkError(null);
+                }}
+                placeholder="VD: xataranet-maker/newprotec-hrm hoặc https://github.com/owner/repo"
+                className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500"
+              />
+              <button
+                type="button"
+                onClick={handleApplyGithubRepo}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold cursor-pointer transition-colors shrink-0"
+              >
+                <Link2 className="w-4 h-4" />
+                <span>Tự Điền Link GitHub Releases</span>
+              </button>
+            </div>
+          </div>
+
+          {linkError && (
+            <div className="bg-rose-950/70 border border-rose-600/60 text-rose-200 px-4 py-2.5 rounded-xl text-xs font-semibold">
+              {linkError}
+            </div>
+          )}
+
+          {/* Version + 4 Platform Links */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-white">Đường Dẫn Tải Trực Tiếp Theo Hệ Điều Hành</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Để trống nếu chưa phát hành cho hệ điều hành đó. Chỉ chấp nhận link https:// hoặc http://.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-slate-400">Phiên bản:</span>
+                <input
+                  type="text"
+                  value={draftLinks.releaseVersion || ''}
+                  onChange={(e) =>
+                    setDraftLinks((prev) => ({ ...prev, releaseVersion: e.target.value }))
+                  }
+                  placeholder="VD: v2.1.0"
+                  maxLength={32}
+                  className="w-28 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {(
+                [
+                  {
+                    key: 'windowsUrl',
+                    label: 'Windows (PC / Laptop)',
+                    hint: 'Newprotec-Vina-HRM-Windows-Installer.zip hoặc file .exe',
+                  },
+                  {
+                    key: 'androidUrl',
+                    label: 'Android (Điện thoại / Máy chấm công)',
+                    hint: 'Newprotec-Vina-HRM-Android-APK.zip hoặc file .apk',
+                  },
+                  {
+                    key: 'macosUrl',
+                    label: 'Apple macOS (MacBook / iMac)',
+                    hint: 'Newprotec-Vina-HRM-macOS-Installer.zip hoặc file .dmg',
+                  },
+                  {
+                    key: 'iosUrl',
+                    label: 'Apple iOS (iPhone / iPad)',
+                    hint: 'Link TestFlight, OTA hoặc Newprotec-Vina-HRM-iOS-Package.zip',
+                  },
+                ] as const
+              ).map((item) => {
+                const value = draftLinks[item.key] || '';
+                const safeHref = sanitizeDownloadUrl(value);
+                return (
+                  <div
+                    key={item.key}
+                    className="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="font-bold text-slate-200">{item.label}</label>
+                      <div className="flex items-center gap-1.5">
+                        {safeHref && (
+                          <a
+                            href={safeHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-semibold"
+                            title="Mở thử liên kết"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            <span>Thử</span>
+                          </a>
+                        )}
+                        {value && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDraftLinks((prev) => ({ ...prev, [item.key]: '' }));
+                              if (linkError) setLinkError(null);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 text-[10px] cursor-pointer"
+                            title="Xóa link"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Xóa</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <input
+                      type="url"
+                      value={value}
+                      onChange={(e) => {
+                        setDraftLinks((prev) => ({ ...prev, [item.key]: e.target.value }));
+                        if (linkError) setLinkError(null);
+                      }}
+                      placeholder="https://github.com/.../releases/latest/download/..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500 font-mono text-[11px]"
+                    />
+                    <div className="text-[10px] text-slate-500">{item.hint}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {draftLinks.updatedAt && (
+              <div className="text-[11px] text-slate-400 pt-1">
+                Cập nhật gần nhất: <span className="text-slate-200">{draftLinks.updatedAt}</span>
+                {draftLinks.updatedBy ? (
+                  <>
+                    {' '}bởi <span className="text-cyan-300">{draftLinks.updatedBy}</span>
+                  </>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
+            <button
+              type="submit"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg cursor-pointer transition-colors"
+            >
+              <Save className="w-4 h-4" />
+              <span>Lưu &amp; Đồng Bộ Link Tải</span>
             </button>
           </div>
         </form>

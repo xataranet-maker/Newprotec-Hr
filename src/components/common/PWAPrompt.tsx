@@ -1,23 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import { Download, X, Smartphone, Monitor, Share, PlusSquare } from 'lucide-react';
+import { Download, X, Smartphone, Monitor, Share, PlusSquare, HardDriveDownload } from 'lucide-react';
+import { AppDownloadModal } from './AppDownloadModal';
+import { InstallerDownloadLinks } from '../../lib/installerLinks';
+import { isPackagedAppShell } from '../../lib/apiBase';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
-export const PWAPrompt: React.FC = () => {
+interface PWAPromptProps {
+  installerLinks?: InstallerDownloadLinks | null;
+}
+
+export const PWAPrompt: React.FC<PWAPromptProps> = ({ installerLinks }) => {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showBanner, setShowBanner] = useState(false);
   const [showIOSModal, setShowIOSModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
   const [platform, setPlatform] = useState<'desktop' | 'android' | 'ios' | 'other'>('other');
 
   useEffect(() => {
-    // Check if running in standalone mode (already installed as PWA)
+    // Check if running in standalone mode or packaged desktop/mobile shell
     const isStandalone =
+      isPackagedAppShell() ||
       window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as unknown as { standalone?: boolean }).standalone === true;
     
@@ -121,6 +130,15 @@ export const PWAPrompt: React.FC = () => {
 
           <div className="flex items-center gap-2 self-end sm:self-center shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800">
             <button
+              type="button"
+              onClick={() => setShowDownloadModal(true)}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sky-300 font-semibold cursor-pointer transition flex items-center justify-center gap-1"
+              title="Tải file cài đặt (.exe, .apk, .dmg, .ipa)"
+            >
+              <HardDriveDownload className="w-3.5 h-3.5" />
+              <span>Tải File</span>
+            </button>
+            <button
               onClick={handleInstallClick}
               className="flex-1 sm:flex-initial px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold cursor-pointer shadow-md shadow-cyan-900/30 transition flex items-center justify-center gap-1.5"
             >
@@ -129,7 +147,7 @@ export const PWAPrompt: React.FC = () => {
             </button>
             <button
               onClick={handleDismissBanner}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
               title="Đóng thông báo"
             >
               <X className="w-4 h-4" />
@@ -254,15 +272,35 @@ export const PWAPrompt: React.FC = () => {
               </div>
             </div>
 
-            <button
-              onClick={() => setShowGuideModal(false)}
-              className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition shadow-lg shadow-cyan-950/50 cursor-pointer"
-            >
-              Đã Rõ
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowGuideModal(false);
+                  setShowDownloadModal(true);
+                }}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sky-300 font-semibold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <HardDriveDownload className="w-3.5 h-3.5" />
+                <span>Tải Bộ Cài (.exe / .apk / Apple)</span>
+              </button>
+              <button
+                onClick={() => setShowGuideModal(false)}
+                className="flex-1 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition shadow-lg shadow-cyan-950/50 cursor-pointer"
+              >
+                Đã Rõ
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      <AppDownloadModal
+        isOpen={showDownloadModal}
+        onClose={() => setShowDownloadModal(false)}
+        links={installerLinks}
+        onTriggerPwaInstall={handleInstallClick}
+      />
     </>
   );
 };

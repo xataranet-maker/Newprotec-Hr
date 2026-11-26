@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { UserAccount, StaffRecord, Language } from '../../types';
 import { translations } from '../../data/locales';
-import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode, ScanLine, FileText, Users, Clock, Calculator } from 'lucide-react';
+import { Lock, User, Globe, ArrowRight, ShieldCheck, QrCode, ScanLine, FileText, Users, Clock, Calculator, Download } from 'lucide-react';
 import { AppQRModal } from './AppQRModal';
+import { AppDownloadModal } from './AppDownloadModal';
 import { StaffQRScannerModal } from './StaffQRScannerModal';
 import { AdminContactFooter } from './AdminContactFooter';
 import { getEffectiveStaffPin } from '../../lib/staffPin';
+import { InstallerDownloadLinks } from '../../lib/installerLinks';
+import { isPackagedAppShell } from '../../lib/apiBase';
 
 interface LoginProps {
   users: UserAccount[];
@@ -16,6 +19,7 @@ interface LoginProps {
   onLanguageChange: (lang: Language) => void;
   onOpenCatalog?: () => void;
   onOpenQrcodeGate?: () => void;
+  installerLinks?: InstallerDownloadLinks | null;
 }
 
 export const Login: React.FC<LoginProps> = ({
@@ -27,12 +31,15 @@ export const Login: React.FC<LoginProps> = ({
   onLanguageChange,
   onOpenCatalog,
   onOpenQrcodeGate,
+  installerLinks,
 }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const showDownloadAction = !isPackagedAppShell();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,9 +138,15 @@ export const Login: React.FC<LoginProps> = ({
     setError('Tài khoản hoặc mật khẩu không chính xác.');
   };
 
-  const actionCount = 1 + (onOpenQrcodeGate ? 1 : 0) + (onOpenCatalog ? 1 : 0);
+  const actionCount = 1 + (onOpenQrcodeGate ? 1 : 0) + (onOpenCatalog ? 1 : 0) + (showDownloadAction ? 1 : 0);
   const mobileGridCols =
-    actionCount >= 3 ? 'grid-cols-3' : actionCount === 2 ? 'grid-cols-2' : 'grid-cols-1';
+    actionCount >= 4
+      ? 'grid-cols-2 sm:grid-cols-4'
+      : actionCount === 3
+      ? 'grid-cols-3'
+      : actionCount === 2
+      ? 'grid-cols-2'
+      : 'grid-cols-1';
 
   return (
     <div className="min-h-screen bg-[#020617] flex flex-col justify-between gap-6 p-4 sm:p-8 select-none text-slate-100">
@@ -210,6 +223,18 @@ export const Login: React.FC<LoginProps> = ({
             >
               <FileText className="w-4 h-4 md:w-3.5 md:h-3.5 text-amber-400 shrink-0" />
               <span>Catalog App</span>
+            </button>
+          )}
+
+          {showDownloadAction && (
+            <button
+              type="button"
+              onClick={() => setShowDownloadModal(true)}
+              className="flex flex-col md:flex-row items-center justify-center gap-1 md:gap-1.5 px-2 md:px-2.5 py-2 md:py-1.5 rounded-xl md:rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/50 text-sky-200 text-[11px] md:text-xs font-semibold leading-tight text-center transition-colors cursor-pointer h-full"
+              title="Tải bộ cài ứng dụng cho Windows, Android và Apple"
+            >
+              <Download className="w-4 h-4 md:w-3.5 md:h-3.5 text-sky-400 shrink-0" />
+              <span>Tải App</span>
             </button>
           )}
 
@@ -410,6 +435,12 @@ export const Login: React.FC<LoginProps> = ({
       />
 
       <AppQRModal isOpen={showQRModal} onClose={() => setShowQRModal(false)} />
+
+      <AppDownloadModal
+        isOpen={showDownloadModal}
+        onClose={() => setShowDownloadModal(false)}
+        links={installerLinks}
+      />
 
       <StaffQRScannerModal
         isOpen={showQRScanner}

@@ -110,6 +110,11 @@ import {
   getConfiguredApiBaseUrl,
   setConfiguredApiBaseUrl,
 } from './lib/apiBase';
+import {
+  INSTALLER_LINKS_STORAGE_KEY,
+  InstallerDownloadLinks,
+  normalizeInstallerLinks,
+} from './lib/installerLinks';
 
 const MAX_VERCEL_BATCH_BYTES = 1_500_000;
 const FIRESTORE_MAX_SAFE_BYTES = 950_000;
@@ -281,6 +286,9 @@ export default function App() {
   const [securityLogs, setSecurityLogs] = useState<SecurityGateLogRecord[]>(() =>
     loadFromStorage('app_security_logs', [])
   );
+  const [installerLinks, setInstallerLinks] = useState<InstallerDownloadLinks>(() =>
+    normalizeInstallerLinks(loadFromStorage(INSTALLER_LINKS_STORAGE_KEY, null))
+  );
   const [matrixVersion, setMatrixVersion] = useState(0);
 
   useEffect(() => {
@@ -357,6 +365,7 @@ export default function App() {
     localStorage.setItem(SALARY_SECURITY_STORAGE_KEY, JSON.stringify(salarySecurity));
     localStorage.setItem(LEAVE_REGISTRATIONS_STORAGE_KEY, JSON.stringify(leaveRecords));
     localStorage.setItem('app_security_logs', JSON.stringify(securityLogs));
+    localStorage.setItem(INSTALLER_LINKS_STORAGE_KEY, JSON.stringify(installerLinks));
   }, [
     userAccounts,
     language,
@@ -379,6 +388,7 @@ export default function App() {
     salarySecurity,
     leaveRecords,
     securityLogs,
+    installerLinks,
   ]);
 
   const allStaff = useMemo(() => [...staffRecords, ...hrStaff], [staffRecords, hrStaff]);
@@ -489,6 +499,7 @@ export default function App() {
       salarySecurity,
       leaveRecords,
       securityLogs,
+      installerLinks,
       matrixSnapshots: getAllStoredMatrixSnapshots(),
       language,
     }),
@@ -513,6 +524,7 @@ export default function App() {
       salarySecurity,
       leaveRecords,
       securityLogs,
+      installerLinks,
       matrixVersion,
       language,
     ]
@@ -550,6 +562,9 @@ export default function App() {
     if (Array.isArray(s.securityLogs)) setSecurityLogs(s.securityLogs);
     if (s.salarySecurity && typeof s.salarySecurity === 'object') {
       setSalarySecurity(normalizeSalarySecurityConfig(s.salarySecurity));
+    }
+    if (s.installerLinks && typeof s.installerLinks === 'object') {
+      setInstallerLinks(normalizeInstallerLinks(s.installerLinks));
     }
     if (s.matrixSnapshots && typeof s.matrixSnapshots === 'object') {
       restoreStoredMatrixSnapshots(s.matrixSnapshots);
@@ -1161,7 +1176,7 @@ export default function App() {
                 canManualAttendance={false}
               />
             </main>
-            <PWAPrompt />
+            <PWAPrompt installerLinks={installerLinks} />
           </div>
         );
       }
@@ -1211,7 +1226,7 @@ export default function App() {
             />
           </main>
           <AdminContactFooter variant="bar" />
-          <PWAPrompt />
+          <PWAPrompt installerLinks={installerLinks} />
         </div>
       );
     }
@@ -1265,6 +1280,7 @@ export default function App() {
           updateQrcodeGateUrl(true);
           setIsQrcodeGateOpen(true);
         }}
+        installerLinks={installerLinks}
       />
     );
   }
@@ -1644,6 +1660,8 @@ export default function App() {
             currentUser={currentUser}
             salarySecurity={salarySecurity}
             onUpdateSalarySecurity={setSalarySecurity}
+            installerLinks={installerLinks}
+            onUpdateInstallerLinks={setInstallerLinks}
             initialTab={id === 'admin_salary_security' ? 'security' : 'users'}
           />
         );
@@ -1805,7 +1823,7 @@ export default function App() {
         );
       })()}
 
-      <PWAPrompt />
+      <PWAPrompt installerLinks={installerLinks} />
       <AppQRModal isOpen={showAppQR} onClose={() => setShowAppQR(false)} />
 
       {showSyncRepairModal && (
