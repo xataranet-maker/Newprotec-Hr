@@ -3,7 +3,12 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const DIST_DIR = path.resolve(__dirname, '..', 'dist');
+const DIST_DIR = fs.existsSync(path.resolve(__dirname, 'dist'))
+  ? path.resolve(__dirname, 'dist')
+  : path.resolve(__dirname, '..', 'dist');
+const ICON_PATH = fs.existsSync(path.resolve(__dirname, 'icon.png'))
+  ? path.resolve(__dirname, 'icon.png')
+  : path.resolve(__dirname, '..', 'public', 'pwa-512x512.png');
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -77,7 +82,7 @@ function createWindow() {
     title: 'Newprotec Vina HRM',
     autoHideMenuBar: true,
     backgroundColor: '#020617',
-    icon: path.resolve(__dirname, '..', 'public', 'pwa-512x512.png'),
+    icon: ICON_PATH,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

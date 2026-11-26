@@ -43,7 +43,7 @@ jobs:
         shell: pwsh
         run: |
           if (Test-Path package-lock.json) {
-            npm ci --no-audit --no-fund
+            npm ci --no-audit --no-fund --legacy-peer-deps
           } else {
             npm install --no-audit --no-fund --legacy-peer-deps
           }
@@ -87,7 +87,7 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then
-            npm ci --no-audit --no-fund
+            npm ci --no-audit --no-fund --legacy-peer-deps
           else
             npm install --no-audit --no-fund --legacy-peer-deps
           fi
@@ -103,11 +103,12 @@ jobs:
           mkdir -p dist-zips
           cd release
           shopt -s nullglob
-          files=(*.dmg *-mac.zip *.yml)
+          files=(*.dmg *.zip *.yml)
           if [ ${#files[@]} -gt 0 ]; then
             zip -r -y ../dist-zips/Newprotec-Vina-HRM-macOS-Installer.zip "${files[@]}"
           else
-            zip -r -y ../dist-zips/Newprotec-Vina-HRM-macOS-Installer.zip .
+            echo "No macOS installer files found in release/"
+            exit 1
           fi
 
       - name: Upload macOS Installer Artifact
@@ -135,13 +136,20 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Prepare Android SDK Licenses
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          sudo mkdir -p "$SDK_DIR/licenses"
+          sudo chmod -R a+rwX "$SDK_DIR" || true
+          printf "\n24333f8a63b6825ea9c5514f83c2829b004d1fee\nd56f5187479451eabf01fb78af6dfcb131a6481e\n8933bad161af4178b1185d1a37fbf41ea5269c55\n" > "$SDK_DIR/licenses/android-sdk-license"
+          printf "\n84831b9409646a918e30573bab4c9c91346d8abd\n" > "$SDK_DIR/licenses/android-sdk-preview-license"
 
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then
-            npm ci --no-audit --no-fund
+            npm ci --no-audit --no-fund --legacy-peer-deps
           else
             npm install --no-audit --no-fund --legacy-peer-deps
           fi
@@ -178,7 +186,7 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then
-            npm ci --no-audit --no-fund
+            npm ci --no-audit --no-fund --legacy-peer-deps
           else
             npm install --no-audit --no-fund --legacy-peer-deps
           fi

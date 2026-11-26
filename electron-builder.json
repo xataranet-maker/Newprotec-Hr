@@ -2,23 +2,16 @@
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.newprotecvina.hrm",
   "productName": "Newprotec Vina HRM",
-  "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
   "npmRebuild": false,
-  "extraMetadata": {
-    "main": "electron/main.cjs"
-  },
   "directories": {
+    "app": "dist-electron-app",
     "output": "release"
   },
   "files": [
-    "dist/**/*",
-    "electron/**/*",
-    "public/pwa-512x512.png",
-    "package.json",
-    "!node_modules/**/*"
+    "**/*"
   ],
   "win": {
-    "icon": "public/pwa-512x512.png",
+    "icon": "icon.png",
     "target": [
       {
         "target": "nsis",
@@ -31,24 +24,31 @@
     ]
   },
   "nsis": {
+    "artifactName": "Newprotec-Vina-HRM-Setup-${version}-win-${arch}.${ext}",
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true
   },
+  "portable": {
+    "artifactName": "Newprotec-Vina-HRM-Portable-${version}-win-${arch}.${ext}"
+  },
   "mac": {
-    "icon": "public/pwa-512x512.png",
+    "icon": "icon.png",
     "category": "public.app-category.business",
     "identity": null,
     "target": [
       {
         "target": "dmg",
-        "arch": ["universal"]
+        "arch": ["arm64", "x64"]
       },
       {
         "target": "zip",
-        "arch": ["universal"]
+        "arch": ["arm64", "x64"]
       }
     ]
+  },
+  "dmg": {
+    "artifactName": "Newprotec-Vina-HRM-${version}-mac-${arch}.${ext}"
   }
 }

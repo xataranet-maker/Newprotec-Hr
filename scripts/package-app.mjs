@@ -13,6 +13,7 @@ if (!validTargets.has(target)) {
 
 const ROOT = process.cwd();
 const RELEASE_DIR = path.join(ROOT, 'release');
+const ELECTRON_APP_DIR = path.join(ROOT, 'dist-electron-app');
 const IS_WIN = process.platform === 'win32';
 const IS_MAC = process.platform === 'darwin';
 
@@ -41,6 +42,25 @@ function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+}
+
+function prepareElectronAppDir() {
+  fs.rmSync(ELECTRON_APP_DIR, { recursive: true, force: true });
+  fs.mkdirSync(ELECTRON_APP_DIR, { recursive: true });
+
+  fs.cpSync(path.join(ROOT, 'dist'), path.join(ELECTRON_APP_DIR, 'dist'), { recursive: true });
+  fs.copyFileSync(path.join(ROOT, 'electron', 'main.cjs'), path.join(ELECTRON_APP_DIR, 'main.cjs'));
+  fs.copyFileSync(path.join(ROOT, 'public', 'pwa-512x512.png'), path.join(ELECTRON_APP_DIR, 'icon.png'));
+
+  const rootPkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const appPkg = {
+    name: 'newprotec-vina-hrm',
+    version: rootPkg.version && rootPkg.version !== '0.0.0' ? rootPkg.version : '2.1.0',
+    description: 'Hệ thống quản lý nhân sự & sản xuất Newprotec Vina HRM',
+    author: 'Newprotec Vina',
+    main: 'main.cjs',
+  };
+  fs.writeFileSync(path.join(ELECTRON_APP_DIR, 'package.json'), JSON.stringify(appPkg, null, 2), 'utf8');
 }
 
 function patchAndroidProject() {
@@ -128,12 +148,16 @@ ensureDir(RELEASE_DIR);
 run('npm run build');
 
 if (target === 'win' || target === 'mac') {
-  ensurePackages(['electron@^35.0.0', 'electron-builder@^25.1.8']);
+  ensurePackages(['electron', 'electron-builder@26']);
+  prepareElectronAppDir();
+  const electronPkg = JSON.parse(
+    fs.readFileSync(path.join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')
+  );
   const flag = target === 'win' ? '--win' : '--mac';
-  run(`npx electron-builder ${flag} --config electron-builder.json`);
+  run(`npx electron-builder ${flag} --config electron-builder.json -c.electronVersion=${electronPkg.version}`);
   console.log(`\nDone! Check output files in: ${RELEASE_DIR}`);
 } else if (target === 'android') {
-  ensurePackages(['@capacitor/core@^7.0.0', '@capacitor/cli@^7.0.0', '@capacitor/android@^7.0.0']);
+  ensurePackages(['@capacitor/core@7', '@capacitor/cli@7', '@capacitor/android@7']);
   if (!fs.existsSync(path.join(ROOT, 'android'))) {
     run('npx cap add android');
   }
@@ -156,7 +180,7 @@ if (target === 'win' || target === 'mac') {
     throw new Error('Gradle build completed, but APK was not found at expected debug output path.');
   }
 } else if (target === 'ios') {
-  ensurePackages(['@capacitor/core@^7.0.0', '@capacitor/cli@^7.0.0', '@capacitor/ios@^7.0.0']);
+  ensurePackages(['@capacitor/core@7', '@capacitor/cli@7', '@capacitor/ios@7']);
   if (!fs.existsSync(path.join(ROOT, 'ios'))) {
     run('npx cap add ios');
   }
