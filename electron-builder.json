@@ -3,6 +3,7 @@
   "appId": "com.newprotecvina.hrm",
   "productName": "Newprotec Vina HRM",
   "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+  "npmRebuild": false,
   "extraMetadata": {
     "main": "electron/main.cjs"
   },
@@ -13,7 +14,8 @@
     "dist/**/*",
     "electron/**/*",
     "public/pwa-512x512.png",
-    "package.json"
+    "package.json",
+    "!node_modules/**/*"
   ],
   "win": {
     "icon": "public/pwa-512x512.png",
@@ -37,6 +39,7 @@
   "mac": {
     "icon": "public/pwa-512x512.png",
     "category": "public.app-category.business",
+    "identity": null,
     "target": [
       {
         "target": "dmg",

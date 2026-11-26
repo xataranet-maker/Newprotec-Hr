@@ -26,10 +26,14 @@ function hasNodePackage(pkgName) {
 }
 
 function ensurePackages(pkgs) {
-  const missing = pkgs.filter((p) => !hasNodePackage(p));
+  const missing = pkgs.filter((pkgSpec) => {
+    const atIndex = pkgSpec.lastIndexOf('@');
+    const name = atIndex > 0 ? pkgSpec.slice(0, atIndex) : pkgSpec;
+    return !hasNodePackage(name);
+  });
   if (missing.length > 0) {
     console.log(`Installing packaging tools (--no-save): ${missing.join(', ')}`);
-    run(`npm install --no-save ${missing.join(' ')}`);
+    run(`npm install --no-save --no-audit --no-fund --legacy-peer-deps ${missing.join(' ')}`);
   }
 }
 
@@ -110,7 +114,9 @@ function patchIosProject() {
     try {
       run(`sips -z 1024 1024 "${iconSrc}" --out "${iosIconDest}"`);
     } catch {
-      fs.copyFileSync(iconSrc, iosIconDest);
+      if (fs.existsSync(iosIconDest)) {
+        fs.copyFileSync(iconSrc, iosIconDest);
+      }
     }
   }
 }
@@ -118,16 +124,16 @@ function patchIosProject() {
 console.log(`\n=== Packaging Newprotec Vina HRM for target: ${target.toUpperCase()} ===`);
 ensureDir(RELEASE_DIR);
 
-// 1. Always build fresh Web/PWA bundle first (works identically on browser + packaged shell)
+// 1. Build fresh Web/PWA bundle (works identically on browser + packaged shell)
 run('npm run build');
 
 if (target === 'win' || target === 'mac') {
-  ensurePackages(['electron', 'electron-builder']);
+  ensurePackages(['electron@^35.0.0', 'electron-builder@^25.1.8']);
   const flag = target === 'win' ? '--win' : '--mac';
   run(`npx electron-builder ${flag} --config electron-builder.json`);
   console.log(`\nDone! Check output files in: ${RELEASE_DIR}`);
 } else if (target === 'android') {
-  ensurePackages(['@capacitor/core', '@capacitor/cli', '@capacitor/android']);
+  ensurePackages(['@capacitor/core@^7.0.0', '@capacitor/cli@^7.0.0', '@capacitor/android@^7.0.0']);
   if (!fs.existsSync(path.join(ROOT, 'android'))) {
     run('npx cap add android');
   }
@@ -139,7 +145,7 @@ if (target === 'win' || target === 'mac') {
   if (!IS_WIN && fs.existsSync(path.join(androidDir, 'gradlew'))) {
     fs.chmodSync(path.join(androidDir, 'gradlew'), 0o755);
   }
-  run(`${gradlew} assembleDebug`, androidDir);
+  run(`${gradlew} assembleDebug --no-daemon`, androidDir);
 
   const apkSrc = path.join(androidDir, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
   if (fs.existsSync(apkSrc)) {
@@ -147,10 +153,10 @@ if (target === 'win' || target === 'mac') {
     fs.copyFileSync(apkSrc, apkOut);
     console.log(`\nDone! Android APK created at: ${apkOut}`);
   } else {
-    console.warn('Gradle build completed, but APK was not found at expected debug output path.');
+    throw new Error('Gradle build completed, but APK was not found at expected debug output path.');
   }
 } else if (target === 'ios') {
-  ensurePackages(['@capacitor/core', '@capacitor/cli', '@capacitor/ios']);
+  ensurePackages(['@capacitor/core@^7.0.0', '@capacitor/cli@^7.0.0', '@capacitor/ios@^7.0.0']);
   if (!fs.existsSync(path.join(ROOT, 'ios'))) {
     run('npx cap add ios');
   }
@@ -159,7 +165,7 @@ if (target === 'win' || target === 'mac') {
 
   if (!IS_MAC) {
     console.log('\niOS Xcode project synced into ./ios.');
-    console.log('To generate an .ipa, open ./ios/App/App.xcworkspace on macOS Xcode or run the GitHub Actions workflow.');
+    console.log('To generate an .ipa, open ./ios/App in macOS Xcode or run the GitHub Actions workflow.');
   } else {
     const iosAppDir = path.join(ROOT, 'ios', 'App');
     const archivePath = path.join(RELEASE_DIR, 'Newprotec-Vina-HRM-iOS.xcarchive');
@@ -171,7 +177,7 @@ if (target === 'win' || target === 'mac') {
       : '-project App.xcodeproj';
 
     run(
-      `xcodebuild ${workspaceArg} -scheme App -configuration Release -sdk iphoneos -archivePath "${archivePath}" archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""`,
+      `xcodebuild ${workspaceArg} -scheme App -configuration Release -sdk iphoneos -destination "generic/platform=iOS" -archivePath "${archivePath}" archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""`,
       iosAppDir
     );
 
@@ -187,6 +193,8 @@ if (target === 'win' || target === 'mac') {
       run(`zip -r -y "${ipaOut}" Payload`, payloadTmp);
       fs.rmSync(payloadTmp, { recursive: true, force: true });
       console.log(`\nDone! Unsigned iOS IPA created at: ${ipaOut}`);
+    } else {
+      throw new Error('Xcode archive completed, but App.app was not found inside xcarchive.');
     }
   }
 }
