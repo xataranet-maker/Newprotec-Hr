@@ -11,7 +11,7 @@
     "**/*"
   ],
   "win": {
-    "icon": "icon.png",
+    "icon": "public/pwa-512x512.png",
     "target": [
       {
         "target": "nsis",
@@ -34,9 +34,10 @@
     "artifactName": "Newprotec-Vina-HRM-Portable-${version}-win-${arch}.${ext}"
   },
   "mac": {
-    "icon": "icon.png",
+    "icon": "public/pwa-512x512.png",
     "category": "public.app-category.business",
     "identity": null,
+    "artifactName": "Newprotec-Vina-HRM-${version}-mac-${arch}.${ext}",
     "target": [
       {
         "target": "dmg",
@@ -47,8 +48,5 @@
         "arch": ["arm64", "x64"]
       }
     ]
-  },
-  "dmg": {
-    "artifactName": "Newprotec-Vina-HRM-${version}-mac-${arch}.${ext}"
   }
 }
