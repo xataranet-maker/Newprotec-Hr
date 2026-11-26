@@ -147,14 +147,60 @@ ensureDir(RELEASE_DIR);
 // 1. Build fresh Web/PWA bundle (works identically on browser + packaged shell)
 run('npm run build');
 
-if (target === 'win' || target === 'mac') {
+if (target === 'win') {
   ensurePackages(['electron', 'electron-builder@26']);
   prepareElectronAppDir();
   const electronPkg = JSON.parse(
     fs.readFileSync(path.join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')
   );
-  const flag = target === 'win' ? '--win' : '--mac';
-  run(`npx electron-builder ${flag} --config electron-builder.json -c.electronVersion=${electronPkg.version}`);
+  const baseCmd = `npx electron-builder --win --config electron-builder.json -c.electronVersion=${electronPkg.version}`;
+  try {
+    run(baseCmd);
+  } catch (err) {
+    console.warn('Windows build with executable resource editing failed; retrying without rcedit...', err?.message || err);
+    fs.rmSync(RELEASE_DIR, { recursive: true, force: true });
+    ensureDir(RELEASE_DIR);
+    run(`${baseCmd} -c.win.signAndEditExecutable=false`);
+  }
+  console.log(`\nDone! Check output files in: ${RELEASE_DIR}`);
+} else if (target === 'mac') {
+  ensurePackages(['electron', 'electron-builder@26']);
+  prepareElectronAppDir();
+  const electronPkg = JSON.parse(
+    fs.readFileSync(path.join(ROOT, 'node_modules', 'electron', 'package.json'), 'utf8')
+  );
+  run(`npx electron-builder --mac zip --config electron-builder.json -c.electronVersion=${electronPkg.version}`);
+
+  if (IS_MAC) {
+    const appPkg = JSON.parse(fs.readFileSync(path.join(ELECTRON_APP_DIR, 'package.json'), 'utf8'));
+    const macDirs = fs
+      .readdirSync(RELEASE_DIR, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && d.name.startsWith('mac'))
+      .map((d) => d.name);
+
+    for (const dirName of macDirs) {
+      const archLabel = dirName === 'mac-arm64' ? 'arm64' : dirName === 'mac-x64' ? 'x64' : dirName.replace(/^mac-?/, '') || 'x64';
+      const appDir = path.join(RELEASE_DIR, dirName);
+      const appBundles = fs.readdirSync(appDir).filter((f) => f.endsWith('.app'));
+      if (appBundles.length === 0) continue;
+
+      const dmgStage = path.join(RELEASE_DIR, `dmg-stage-${archLabel}`);
+      fs.rmSync(dmgStage, { recursive: true, force: true });
+      fs.mkdirSync(dmgStage, { recursive: true });
+      run(`cp -R "${path.join(appDir, appBundles[0])}" "${path.join(dmgStage, appBundles[0])}"`);
+      run(`ln -s /Applications "${path.join(dmgStage, 'Applications')}"`);
+
+      const dmgOut = path.join(RELEASE_DIR, `Newprotec-Vina-HRM-${appPkg.version}-mac-${archLabel}.dmg`);
+      if (fs.existsSync(dmgOut)) fs.unlinkSync(dmgOut);
+      try {
+        run(`hdiutil create -volname "Newprotec Vina HRM" -srcfolder "${dmgStage}" -ov -format UDZO "${dmgOut}"`);
+      } catch (err) {
+        console.warn(`DMG creation skipped for ${archLabel} (.zip package is still available):`, err?.message || err);
+      } finally {
+        fs.rmSync(dmgStage, { recursive: true, force: true });
+      }
+    }
+  }
   console.log(`\nDone! Check output files in: ${RELEASE_DIR}`);
 } else if (target === 'android') {
   ensurePackages(['@capacitor/core@7', '@capacitor/cli@7', '@capacitor/android@7']);
