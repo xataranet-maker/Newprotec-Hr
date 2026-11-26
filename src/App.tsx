@@ -593,16 +593,34 @@ export default function App() {
         let tursoErrorMsg = '';
         let firestoreErrorMsg = '';
 
+        const parseJsonSafely = async <T,>(
+          res: Response
+        ): Promise<{ ok: boolean; data?: T; error?: string }> => {
+          const text = await res.text();
+          if (!text) {
+            return { ok: false, error: `Máy chủ trả về phản hồi trống (HTTP ${res.status})` };
+          }
+          const trimmed = text.trim();
+          if (trimmed.startsWith('<')) {
+            return {
+              ok: false,
+              error:
+                'Không tìm thấy API /api/sync trên địa chỉ hiện tại (trả về trang HTML). Nếu đang mở app cài đặt hoặc bản xem trước tĩnh, hãy bấm "Lỗi Cloud" để nhập địa chỉ Web Vercel.',
+            };
+          }
+          try {
+            return { ok: true, data: JSON.parse(trimmed) as T };
+          } catch {
+            return { ok: false, error: `Phản hồi không hợp lệ (HTTP ${res.status})` };
+          }
+        };
+
         const parseErrorResponse = async (res: Response): Promise<string> => {
           try {
-            const text = await res.text();
-            if (!text) return `HTTP ${res.status}`;
-            try {
-              const parsed = JSON.parse(text) as { error?: string };
-              return parsed.error || `HTTP ${res.status}`;
-            } catch {
-              return text.slice(0, 180);
-            }
+            const parsed = await parseJsonSafely<{ error?: string }>(res);
+            if (parsed.ok && parsed.data?.error) return parsed.data.error;
+            if (!parsed.ok && parsed.error) return parsed.error;
+            return `HTTP ${res.status}`;
           } catch {
             return `HTTP ${res.status}`;
           }
@@ -648,12 +666,16 @@ export default function App() {
             if (!res.ok) {
               return { ok: false, error: await parseErrorResponse(res) };
             }
-            const result = (await res.json()) as {
+            const parsedPush = await parseJsonSafely<{
               success?: boolean;
               provider?: 'turso' | 'local-sqlite';
               databaseHost?: string | null;
               error?: string;
-            };
+            }>(res);
+            if (!parsedPush.ok || !parsedPush.data) {
+              return { ok: false, error: parsedPush.error || 'Đồng bộ Turso thất bại' };
+            }
+            const result = parsedPush.data;
             if (!result?.success) {
               return { ok: false, error: result?.error || 'Đồng bộ Turso thất bại' };
             }
@@ -684,15 +706,16 @@ export default function App() {
             });
 
             if (res.ok) {
-              const result = (await res.json()) as {
+              const parsedPull = await parseJsonSafely<{
                 success?: boolean;
                 empty?: boolean;
                 data?: Record<string, unknown>;
                 provider?: 'turso' | 'local-sqlite';
                 databaseHost?: string | null;
                 error?: string;
-              };
-              if (result.success) {
+              }>(res);
+              if (parsedPull.ok && parsedPull.data?.success) {
+                const result = parsedPull.data;
                 tursoSynced = true;
                 resolvedProvider = result.provider || 'turso';
                 resolvedHost = result.databaseHost || null;
@@ -702,7 +725,8 @@ export default function App() {
                   await pushStateInBatches(state, 'initial-seed').catch(() => null);
                 }
               } else {
-                tursoErrorMsg = result.error || 'Không thể tải dữ liệu từ Turso';
+                tursoErrorMsg =
+                  parsedPull.data?.error || parsedPull.error || 'Không thể tải dữ liệu từ Turso';
               }
             } else {
               tursoErrorMsg = await parseErrorResponse(res);
@@ -718,9 +742,11 @@ export default function App() {
           const docRef = doc(db, 'app_state', 'factory_data');
           if (isPush) {
             try {
-              const serializedBytes = new TextEncoder().encode(JSON.stringify(state)).length;
+              const cleanJson = JSON.stringify(state);
+              const serializedBytes = new TextEncoder().encode(cleanJson).length;
               if (serializedBytes <= FIRESTORE_MAX_SAFE_BYTES) {
-                await setDoc(docRef, { ...state, updatedAt: new Date().toISOString() });
+                const sanitizedState = JSON.parse(cleanJson) as Record<string, unknown>;
+                await setDoc(docRef, { ...sanitizedState, updatedAt: new Date().toISOString() });
                 firestoreSynced = true;
               } else {
                 firestoreErrorMsg = 'Dữ liệu vượt giới hạn 1MB của Firestore fallback';
@@ -1653,6 +1679,7 @@ export default function App() {
       // --- TAB ADMIN ---
       case 'users':
       case 'admin_salary_security':
+      case 'admin_app_downloads':
         return (
           <AdminUserManagement
             users={userAccounts}
@@ -1662,7 +1689,13 @@ export default function App() {
             onUpdateSalarySecurity={setSalarySecurity}
             installerLinks={installerLinks}
             onUpdateInstallerLinks={setInstallerLinks}
-            initialTab={id === 'admin_salary_security' ? 'security' : 'users'}
+            initialTab={
+              id === 'admin_salary_security'
+                ? 'security'
+                : id === 'admin_app_downloads'
+                ? 'downloads'
+                : 'users'
+            }
           />
         );
 

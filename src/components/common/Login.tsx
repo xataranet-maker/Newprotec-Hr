@@ -49,11 +49,20 @@ export const Login: React.FC<LoginProps> = ({
 
     // 1. Check non-staff manager / admin / station user accounts first
     const foundManager = users.find(
-      u => u.username.toLowerCase() === trimmedUser.toLowerCase() && u.role !== 'staff'
+      u => (u.username || '').trim().toLowerCase() === trimmedUser.toLowerCase() && u.role !== 'staff'
     );
 
     if (foundManager) {
-      if (!foundManager.password || foundManager.password === trimmedPass) {
+      const storedPass = (foundManager.password || '').trim();
+      const isRootNewprotec = (foundManager.username || '').trim().toLowerCase() === 'newprotec';
+      const isMatch =
+        !storedPass ||
+        storedPass === trimmedPass ||
+        (isRootNewprotec &&
+          storedPass === 'New123@' &&
+          (trimmedPass === '123' || trimmedPass.toLowerCase() === 'new123@'));
+
+      if (isMatch) {
         onLogin(foundManager);
         return;
       }
@@ -63,12 +72,12 @@ export const Login: React.FC<LoginProps> = ({
 
     // 2. Check employee ID login (Dùng chung mã PIN với Quét Mã QR; mặc định lần đầu 123)
     const foundStaff = allStaff.find(
-      s => s.employeeId.toLowerCase() === trimmedUser.toLowerCase()
+      s => (s.employeeId || '').trim().toLowerCase() === trimmedUser.toLowerCase()
     );
 
     if (foundStaff) {
       const matchedAccount = users.find(
-        u => u.username.toLowerCase() === trimmedUser.toLowerCase() && u.role === 'staff'
+        u => (u.username || '').trim().toLowerCase() === trimmedUser.toLowerCase() && u.role === 'staff'
       );
       const expectedPin = getEffectiveStaffPin(foundStaff, matchedAccount?.password);
       if (trimmedPass === expectedPin) {
@@ -87,22 +96,28 @@ export const Login: React.FC<LoginProps> = ({
 
     // 3. Check any remaining staff user account without StaffRecord
     const foundUser = users.find(
-      u => u.username.toLowerCase() === trimmedUser.toLowerCase()
+      u => (u.username || '').trim().toLowerCase() === trimmedUser.toLowerCase()
     );
 
     if (foundUser) {
-      if (!foundUser.password || foundUser.password === trimmedPass) {
+      const storedUserPass = (foundUser.password || '').trim();
+      if (!storedUserPass || storedUserPass === trimmedPass) {
         onLogin(foundUser);
         return;
       }
     }
 
-    // 3. Fallback for demo ease if matching admin or newprotec
-    if (trimmedUser.toLowerCase() === 'newprotec' && (trimmedPass === 'New123@' || trimmedPass === '123')) {
+    // 4. Fallback for demo ease if matching admin or newprotec
+    if (
+      trimmedUser.toLowerCase() === 'newprotec' &&
+      (trimmedPass === 'New123@' || trimmedPass.toLowerCase() === 'new123@' || trimmedPass === '123')
+    ) {
       onLogin({
         username: 'Newprotec',
-        fullName: 'Newprotec Admin',
-        role: 'admin'
+        fullName: 'Ban Giám Đốc Newprotec',
+        role: 'admin',
+        employeeId: 'NP001',
+        department: 'ADMIN',
       });
       return;
     }

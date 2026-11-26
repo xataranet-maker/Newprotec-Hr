@@ -27,12 +27,13 @@ export function sanitizeDownloadUrl(raw: unknown): string {
 }
 
 export function getEnvDefaultInstallerLinks(): InstallerDownloadLinks {
+  const version = String(import.meta.env.VITE_APP_RELEASE_VERSION || '').trim();
   return {
     windowsUrl: sanitizeDownloadUrl(import.meta.env.VITE_DOWNLOAD_WINDOWS_URL || ''),
     androidUrl: sanitizeDownloadUrl(import.meta.env.VITE_DOWNLOAD_ANDROID_URL || ''),
     macosUrl: sanitizeDownloadUrl(import.meta.env.VITE_DOWNLOAD_MACOS_URL || ''),
     iosUrl: sanitizeDownloadUrl(import.meta.env.VITE_DOWNLOAD_IOS_URL || ''),
-    releaseVersion: String(import.meta.env.VITE_APP_RELEASE_VERSION || '').trim() || undefined,
+    ...(version ? { releaseVersion: version } : {}),
   };
 }
 
@@ -50,18 +51,21 @@ export function normalizeInstallerLinks(raw: unknown): InstallerDownloadLinks {
     typeof obj.macosUrl === 'string' ? sanitizeDownloadUrl(obj.macosUrl) : defaults.macosUrl;
   const iosUrl =
     typeof obj.iosUrl === 'string' ? sanitizeDownloadUrl(obj.iosUrl) : defaults.iosUrl;
+  const releaseVersion =
+    typeof obj.releaseVersion === 'string' && obj.releaseVersion.trim()
+      ? obj.releaseVersion.trim().slice(0, 32)
+      : defaults.releaseVersion;
+  const updatedAt = typeof obj.updatedAt === 'string' && obj.updatedAt.trim() ? obj.updatedAt : undefined;
+  const updatedBy = typeof obj.updatedBy === 'string' && obj.updatedBy.trim() ? obj.updatedBy : undefined;
 
   return {
     windowsUrl,
     androidUrl,
     macosUrl,
     iosUrl,
-    releaseVersion:
-      typeof obj.releaseVersion === 'string' && obj.releaseVersion.trim()
-        ? obj.releaseVersion.trim().slice(0, 32)
-        : defaults.releaseVersion,
-    updatedAt: typeof obj.updatedAt === 'string' ? obj.updatedAt : undefined,
-    updatedBy: typeof obj.updatedBy === 'string' ? obj.updatedBy : undefined,
+    ...(releaseVersion ? { releaseVersion } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+    ...(updatedBy ? { updatedBy } : {}),
   };
 }
 

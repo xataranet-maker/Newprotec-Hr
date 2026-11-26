@@ -25,6 +25,7 @@ import {
   Wallet,
   QrCode,
   ScanLine,
+  Download,
 } from 'lucide-react';
 
 export const ribbonData: RibbonTab[] = [
@@ -129,6 +130,7 @@ export const ribbonData: RibbonTab[] = [
         items: [
           { id: 'users', label: 'TÀI KHOẢN', icon: Users, isLarge: true, color: 'text-blue-400' },
           { id: 'admin_salary_security', label: 'BẢO MẬT LƯƠNG', icon: ShieldCheck, isLarge: true, color: 'text-emerald-400' },
+          { id: 'admin_app_downloads', label: 'LINK TẢI APP', icon: Download, isLarge: true, color: 'text-cyan-400' },
         ],
       },
     ],
