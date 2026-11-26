@@ -58,7 +58,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist-zips | Out-Null
-          $files = Get-ChildItem -Path release -File | Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' }
+          $portableDir = Join-Path "release" "Newprotec Vina HRM-win32-x64"
+          if (Test-Path $portableDir) {
+            Compress-Archive -Path $portableDir -DestinationPath "release/Newprotec-Vina-HRM-Portable-2.1.0-win-x64.zip" -Force
+          }
+          $files = Get-ChildItem -Path release -File | Where-Object { $_.Extension -in '.exe', '.zip' }
           if ($files.Count -gt 0) {
             Compress-Archive -Path $files.FullName -DestinationPath "dist-zips/Newprotec-Vina-HRM-Windows-Installer.zip" -Force
           } else {
