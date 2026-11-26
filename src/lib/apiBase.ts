@@ -25,7 +25,7 @@ export function getConfiguredApiBaseUrl(): string {
   const envBase = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
   if (envBase) return envBase;
 
-  if (typeof window !== 'undefined' && isPackagedAppShell()) {
+  if (typeof window !== 'undefined') {
     try {
       const storedBase = (window.localStorage.getItem(API_BASE_STORAGE_KEY) || '')
         .trim()

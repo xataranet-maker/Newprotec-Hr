@@ -799,7 +799,9 @@ export default function App() {
           }
         } else {
           const combinedErr =
-            tursoErrorMsg || firestoreErrorMsg || 'Không thể kết nối máy chủ Vercel & Firestore';
+            tursoErrorMsg && firestoreErrorMsg
+              ? `${tursoErrorMsg} | Dự phòng Firestore: ${firestoreErrorMsg}`
+              : tursoErrorMsg || firestoreErrorMsg || 'Không thể kết nối máy chủ Vercel & Firestore';
           setSyncStatus('error');
           setSyncDetail(`Mất kết nối đồng bộ: ${combinedErr}`);
           if (options?.manual) {
@@ -1880,23 +1882,21 @@ export default function App() {
               </button>
             </div>
 
-            {isPackagedAppShell() && (
-              <div className="space-y-2 border-t border-slate-800 pt-3">
-                <label className="block text-xs font-semibold text-slate-300">
-                  Địa chỉ Web Vercel của nhà máy (dùng cho app Windows / Android / iOS)
-                </label>
-                <input
-                  type="url"
-                  value={serverUrlInput}
-                  onChange={(e) => setServerUrlInput(e.target.value)}
-                  placeholder="https://ten-du-an.vercel.app"
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-            )}
+            <div className="space-y-2 border-t border-slate-800 pt-3">
+              <label className="block text-xs font-semibold text-slate-300">
+                Địa chỉ Web Vercel của nhà máy (tùy chọn — dùng khi mở qua app cài đặt hoặc link xem trước tĩnh)
+              </label>
+              <input
+                type="url"
+                value={serverUrlInput}
+                onChange={(e) => setServerUrlInput(e.target.value)}
+                placeholder="https://ten-du-an.vercel.app (để trống nếu đang mở trực tiếp trên web chính)"
+                className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500"
+              />
+            </div>
 
             {serverTestFeedback && (
-              <p className="text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-cyan-300">
+              <p className="text-xs rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-cyan-300 leading-relaxed">
                 {serverTestFeedback}
               </p>
             )}
@@ -1909,18 +1909,29 @@ export default function App() {
                   setIsTestingServerUrl(true);
                   setServerTestFeedback(null);
                   try {
-                    if (isPackagedAppShell()) {
-                      setConfiguredApiBaseUrl(serverUrlInput);
-                    }
+                    setConfiguredApiBaseUrl(serverUrlInput);
                     const healthUrl = resolveApiUrl('/api/health');
                     const res = await fetch(healthUrl, { cache: 'no-store' });
-                    const data = (await res.json().catch(() => ({}))) as {
+                    const rawText = await res.text();
+                    const trimmedText = rawText.trim();
+                    if (trimmedText.startsWith('<')) {
+                      setServerTestFeedback(
+                        'Đường dẫn hiện tại chỉ phục vụ giao diện tĩnh (không có máy chủ API /api/health). Hãy mở bằng link Vercel chính thức hoặc nhập https://ten-du-an.vercel.app vào ô phía trên.'
+                      );
+                      return;
+                    }
+                    let data: {
                       ok?: boolean;
                       provider?: string;
                       databaseHost?: string;
                       slicesCount?: number;
                       error?: string;
-                    };
+                    } = {};
+                    try {
+                      data = trimmedText ? JSON.parse(trimmedText) : {};
+                    } catch {
+                      data = {};
+                    }
                     if (res.ok && data.ok) {
                       setServerTestFeedback(
                         `Kết nối thành công (${data.provider === 'turso' ? 'Vercel Turso' : 'Local SQLite'} · ${data.slicesCount ?? 0} bảng dữ liệu). Đang đồng bộ lại...`
