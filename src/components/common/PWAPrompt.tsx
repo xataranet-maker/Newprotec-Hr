@@ -112,9 +112,11 @@ export const PWAPrompt: React.FC<PWAPromptProps> = ({ installerLinks }) => {
       {/* Floating Bottom PWA Banner */}
       {showBanner && (
         <div className="fixed bottom-5 right-5 z-50 bg-slate-900/95 backdrop-blur-md border border-cyan-500/30 p-4 rounded-2xl shadow-2xl shadow-cyan-950/50 flex flex-col sm:flex-row items-start sm:items-center gap-4 text-xs max-w-md w-[calc(100vw-2.5rem)] text-slate-200 animate-in fade-in slide-in-from-bottom-5 duration-300">
-          <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-cyan-500/30 text-cyan-400 shrink-0">
-            {platform === 'desktop' ? <Monitor className="w-5 h-5" /> : <Smartphone className="w-5 h-5" />}
-          </div>
+          <img
+            src="/app-logo.png"
+            alt="Newprotec Smart MES V2.0"
+            className="w-11 h-11 rounded-xl object-cover border border-cyan-500/40 shadow-md shadow-cyan-950/50 shrink-0"
+          />
           
           <div className="flex-1 min-w-0">
             <div className="font-bold text-white text-sm flex items-center gap-1.5">

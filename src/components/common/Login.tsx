@@ -170,9 +170,11 @@ export const Login: React.FC<LoginProps> = ({
         {/* Top Row: Company Logo & Name (left) + Compact Language Switcher (mobile right) */}
         <div className="flex items-center justify-between gap-2 w-full md:w-auto">
           <div className="flex items-center gap-2.5 shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 font-bold shrink-0">
-              NP
-            </div>
+            <img
+              src="/app-logo.png"
+              alt="Newprotec Smart MES V2.0"
+              className="w-9 h-9 rounded-lg object-cover border border-cyan-500/40 shadow-md shadow-cyan-950/50 shrink-0"
+            />
             <div className="whitespace-nowrap">
               <div className="font-bold text-sm tracking-tight text-white leading-tight">
                 NEWPROTEC VINA

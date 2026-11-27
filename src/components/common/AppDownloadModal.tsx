@@ -101,9 +101,11 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-900/95">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="p-2.5 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 shrink-0">
-              <Download className="w-5 h-5" />
-            </div>
+            <img
+              src="/app-logo.png"
+              alt="Newprotec Smart MES V2.0"
+              className="w-10 h-10 rounded-xl object-cover border border-cyan-500/40 shadow-md shadow-cyan-950/50 shrink-0"
+            />
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm sm:text-base font-bold text-white truncate">

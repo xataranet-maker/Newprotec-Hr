@@ -226,9 +226,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="group flex items-center gap-2.5 min-w-0 cursor-pointer focus:outline-none"
             title={effectiveCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
           >
-            <div className="w-8 h-8 rounded-full bg-white text-slate-950 flex items-center justify-center shrink-0 shadow-sm font-extrabold text-xs tracking-tighter transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 group-active:scale-95">
-              NP
-            </div>
+            <img
+              src="/app-logo.png"
+              alt="Newprotec Smart MES V2.0"
+              className="w-8 h-8 rounded-lg object-cover shrink-0 border border-cyan-500/40 shadow-sm shadow-cyan-950/50 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 group-active:scale-95"
+            />
             {!effectiveCollapsed && (
               <span className="font-bold text-slate-100 text-sm tracking-tight whitespace-nowrap truncate transition-transform duration-200 group-hover:translate-x-0.5">
                 Newprotec

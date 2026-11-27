@@ -11,7 +11,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['apple-touch-icon.png', 'icon.svg'],
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg', 'app-logo.png'],
         manifest: {
           id: '/',
           name: 'Newprotec Vina V2.0 - Quản Lý Sản Xuất',
@@ -25,20 +25,8 @@ export default defineConfig(() => {
           scope: '/',
           icons: [
             {
-              src: 'pwa-192x192.png',
-              sizes: '192x192',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
               src: '/pwa-192x192.png',
               sizes: '192x192',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: 'pwa-512x512.png',
-              sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
@@ -47,12 +35,6 @@ export default defineConfig(() => {
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
-            },
-            {
-              src: 'pwa-maskable-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'maskable',
             },
             {
               src: '/pwa-maskable-512x512.png',
