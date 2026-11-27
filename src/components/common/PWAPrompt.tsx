@@ -115,7 +115,7 @@ export const PWAPrompt: React.FC<PWAPromptProps> = ({ installerLinks }) => {
           <img
             src="/app-logo.png"
             alt="Newprotec Smart MES V2.0"
-            className="w-11 h-11 rounded-xl object-cover border border-cyan-500/40 shadow-md shadow-cyan-950/50 shrink-0"
+            className="w-11 h-11 object-contain drop-shadow-md shrink-0"
           />
           
           <div className="flex-1 min-w-0">

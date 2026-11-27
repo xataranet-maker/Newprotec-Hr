@@ -229,7 +229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <img
               src="/app-logo.png"
               alt="Newprotec Smart MES V2.0"
-              className="w-8 h-8 rounded-lg object-cover shrink-0 border border-cyan-500/40 shadow-sm shadow-cyan-950/50 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 group-active:scale-95"
+              className="w-8 h-8 object-contain shrink-0 drop-shadow-sm transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 group-active:scale-95"
             />
             {!effectiveCollapsed && (
               <span className="font-bold text-slate-100 text-sm tracking-tight whitespace-nowrap truncate transition-transform duration-200 group-hover:translate-x-0.5">

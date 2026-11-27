@@ -143,7 +143,7 @@ export const QrcodeStationLoginGate: React.FC<QrcodeStationLoginGateProps> = ({
           <img
             src="/app-logo.png"
             alt="Newprotec Smart MES V2.0"
-            className="w-9 h-9 rounded-xl object-cover border border-emerald-500/40 shadow-md shadow-emerald-950/50 shrink-0"
+            className="w-9 h-9 object-contain drop-shadow-md shrink-0"
           />
           <div className="min-w-0">
             <div className="font-bold text-sm tracking-tight text-white">NEWPROTEC VINA</div>

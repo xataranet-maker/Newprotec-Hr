@@ -104,7 +104,7 @@ export const AppDownloadModal: React.FC<AppDownloadModalProps> = ({
             <img
               src="/app-logo.png"
               alt="Newprotec Smart MES V2.0"
-              className="w-10 h-10 rounded-xl object-cover border border-cyan-500/40 shadow-md shadow-cyan-950/50 shrink-0"
+              className="w-10 h-10 object-contain drop-shadow-md shrink-0"
             />
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">

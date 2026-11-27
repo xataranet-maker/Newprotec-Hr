@@ -173,7 +173,7 @@ export const Login: React.FC<LoginProps> = ({
             <img
               src="/app-logo.png"
               alt="Newprotec Smart MES V2.0"
-              className="w-9 h-9 rounded-lg object-cover border border-cyan-500/40 shadow-md shadow-cyan-950/50 shrink-0"
+              className="w-9 h-9 object-contain drop-shadow-md shrink-0"
             />
             <div className="whitespace-nowrap">
               <div className="font-bold text-sm tracking-tight text-white leading-tight">
