@@ -50,9 +50,9 @@ export const LEAVE_TYPE_OPTIONS: {
   },
   {
     value: 'Nghỉ việc riêng',
-    vi: 'Nghỉ việc riêng',
+    vi: 'Nghỉ việc riêng (Không lương)',
     ko: '결근',
-    fullLabel: 'Nghỉ việc riêng / 결근',
+    fullLabel: 'Nghỉ việc riêng (Không lương) / 결근',
     activeClass: 'bg-amber-600/90 border-amber-400 text-white shadow-[0_0_16px_rgba(245,158,11,0.35)]',
     idleClass: 'bg-[#081020] border-amber-500/35 text-amber-200 hover:border-amber-400/70 hover:bg-amber-950/30',
     badgeClass: 'bg-amber-950/90 text-amber-300 border-amber-500/40',
@@ -90,6 +90,7 @@ const QUICK_REASONS = [
   'Giải quyết việc gia đình',
   'Đi khám bệnh',
   'Việc cá nhân',
+  'Nghỉ không lương',
   'Nghỉ phép năm',
   'Đăng ký kết hôn',
 ];

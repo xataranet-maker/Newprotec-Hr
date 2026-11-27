@@ -55,6 +55,7 @@ import {
   resolveStaffLockType,
   MATRIX_UPDATED_EVENT,
   calculateMatrixDayHoursFromTimes,
+  normalizeMatrixWorkingStatus,
 } from '../../lib/matrixTimekeeping';
 import { loadQrPunchMap, loadFacePunchMap } from '../../lib/attendanceQr';
 import {
@@ -925,6 +926,22 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       isHol
     );
 
+    const nextTotalHours = calc.regularHours + calc.totalOtHours;
+    const isNextWorking =
+      nextTotalHours > 0 ||
+      Boolean(nextInTime.trim().includes(':') && nextOutTime.trim().includes(':'));
+    const curStatus = String(editingCell.entry.status || '').trim();
+    const isCurNonWorkingStatus =
+      curStatus === 'Nghỉ phép' ||
+      curStatus === 'Nghỉ KL' ||
+      curStatus === 'Nghỉ ốm' ||
+      curStatus === 'Nghỉ cưới' ||
+      curStatus === 'Nghỉ tang' ||
+      curStatus === 'FAMILY' ||
+      curStatus === 'Nghỉ chủ nhật' ||
+      curStatus === 'Nghỉ lễ' ||
+      curStatus === 'Vắng mặt';
+
     setEditingCell({
       ...editingCell,
       entry: {
@@ -943,6 +960,8 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
         status:
           patch.status !== undefined
             ? patch.status
+            : isNextWorking && isCurNonWorkingStatus
+            ? calc.suggestedStatus
             : editingCell.entry.status &&
               editingCell.entry.status !== 'Đúng giờ' &&
               editingCell.entry.status !== 'Đi muộn' &&
@@ -1154,14 +1173,16 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
       totalHolidayOt: 0,
     };
 
+    const normalizedSavedEntry = normalizeMatrixWorkingStatus({
+      ...updatedEntry,
+      leaveRecordId: undefined,
+      isManual: true,
+      isAutoDefault: false,
+    });
+
     const updatedDays = {
       ...currentStaffData.days,
-      [day]: {
-        ...updatedEntry,
-        leaveRecordId: undefined,
-        isManual: true,
-        isAutoDefault: false,
-      },
+      [day]: normalizedSavedEntry,
     };
 
     const totals = recalculateStaffTotals(updatedDays);
@@ -1493,15 +1514,18 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
             vaoCell = '';
             raCell = '';
           }
-        } else if (d?.status === 'Nghỉ phép') {
+        } else if (d?.status === 'Nghỉ phép' && !hasWorkingData) {
           caCell = 'Nghỉ phép';
           vaoCell = '';
           raCell = '';
-        } else if (d?.status === 'Nghỉ KL') {
+        } else if (d?.status === 'Nghỉ KL' && !hasWorkingData) {
           caCell = 'Nghỉ KL';
           vaoCell = '';
           raCell = '';
-        } else if (d?.status === 'Nghỉ ốm' || d?.status === 'Nghỉ cưới' || d?.status === 'Nghỉ tang') {
+        } else if (
+          (d?.status === 'Nghỉ ốm' || d?.status === 'Nghỉ cưới' || d?.status === 'Nghỉ tang') &&
+          !hasWorkingData
+        ) {
           caCell = d.status;
           vaoCell = '';
           raCell = '';
@@ -1720,15 +1744,21 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
               status = 'Nghỉ chế độ';
             } else if (isResigned) {
               status = 'Đã nghỉ việc';
-            } else if (caLower.includes('nghỉ phép') || vaoVal.includes('Nghỉ phép')) {
+            } else if (!hasTime && (caLower.includes('nghỉ phép') || vaoVal.includes('Nghỉ phép'))) {
               status = 'Nghỉ phép';
-            } else if (caLower.includes('nghỉ kl') || vaoVal.includes('Nghỉ KL')) {
+            } else if (
+              !hasTime &&
+              (caLower.includes('nghỉ kl') ||
+                caLower.includes('không lương') ||
+                vaoVal.includes('Nghỉ KL') ||
+                vaoLower.includes('không lương'))
+            ) {
               status = 'Nghỉ KL';
-            } else if (caLower.includes('nghỉ ốm')) {
+            } else if (!hasTime && caLower.includes('nghỉ ốm')) {
               status = 'Nghỉ ốm';
-            } else if (caLower.includes('nghỉ cưới')) {
+            } else if (!hasTime && caLower.includes('nghỉ cưới')) {
               status = 'Nghỉ cưới';
-            } else if (caLower.includes('nghỉ tang')) {
+            } else if (!hasTime && caLower.includes('nghỉ tang')) {
               status = 'Nghỉ tang';
             } else if (
               caLower.includes('nghỉ cn') ||
@@ -3877,18 +3907,55 @@ export const DepartmentTimekeepingMatrix: React.FC<DepartmentTimekeepingMatrixPr
                 <label className="block text-slate-300 font-medium mb-1">Trạng Thái Điểm Danh</label>
                 <select
                   value={editingCell.entry.status || 'Đúng giờ'}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const nextStatus = e.target.value as AttendanceStatus;
+                    const isFullDayOffStatus =
+                      nextStatus === 'Nghỉ phép' ||
+                      nextStatus === 'Nghỉ KL' ||
+                      nextStatus === 'Nghỉ cưới' ||
+                      nextStatus === 'Nghỉ tang' ||
+                      nextStatus === 'Nghỉ ốm' ||
+                      nextStatus === 'Nghỉ lễ' ||
+                      nextStatus === 'Nghỉ chủ nhật' ||
+                      nextStatus === 'Vắng mặt' ||
+                      nextStatus === 'Nghỉ chế độ' ||
+                      nextStatus === 'Đã nghỉ việc';
+                    const curHours = getEntryTotalHours(editingCell.entry);
+                    const isHalfDayLeave =
+                      nextStatus === 'Nghỉ phép' &&
+                      curHours > 0 &&
+                      curHours <= 4 &&
+                      String(editingCell.entry.note || '').includes('nửa phép');
                     setEditingCell({
                       ...editingCell,
-                      entry: { ...editingCell.entry, status: e.target.value as AttendanceStatus },
-                    })
-                  }
+                      entry:
+                        isFullDayOffStatus && !isHalfDayLeave
+                          ? {
+                              ...editingCell.entry,
+                              status: nextStatus,
+                              inTime: '',
+                              outTime: '',
+                              regularHours: 0,
+                              otDayHours: 0,
+                              otNightHours: 0,
+                              otSundayHours: 0,
+                              otSundayNightHours: 0,
+                              otHolidayHours: 0,
+                              otHolidayNightHours: 0,
+                            }
+                          : {
+                              ...editingCell.entry,
+                              status: nextStatus,
+                            },
+                    });
+                  }}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-200 font-semibold"
                 >
                   <option value="Đúng giờ">Đúng giờ</option>
                   <option value="Đi muộn">Đi muộn</option>
                   <option value="Về sớm">Về sớm</option>
                   <option value="Nghỉ phép">Nghỉ phép</option>
+                  <option value="Nghỉ KL">Nghỉ không lương (Nghỉ KL)</option>
                   <option value="Nghỉ cưới">Nghỉ phép cưới (Hiếu hỷ)</option>
                   <option value="Nghỉ tang">Nghỉ tang / Người nhà mất (Hiếu hỷ)</option>
                   <option value="Nghỉ ốm">Nghỉ ốm</option>

@@ -3752,6 +3752,7 @@ export const HRTimekeeping: React.FC<HRTimekeepingProps> = ({
                     <option value="Đi muộn">Đi muộn</option>
                     <option value="Về sớm">Về sớm</option>
                     <option value="Nghỉ phép">Nghỉ phép</option>
+                    <option value="Nghỉ KL">Nghỉ không lương (Nghỉ KL)</option>
                     <option value="Nghỉ ốm">Nghỉ ốm</option>
                     <option value="Nghỉ lễ">Nghỉ lễ</option>
                     <option value="Nghỉ chủ nhật">Nghỉ chủ nhật</option>

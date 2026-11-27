@@ -522,15 +522,31 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
         statusLabel = isSunday ? '' : 'Đã thôi việc';
         statusTone = 'empty';
       } else if (
-        entry?.status === 'Nghỉ phép' ||
-        entry?.status === 'Nghỉ cưới' ||
-        entry?.status === 'Nghỉ tang' ||
-        entry?.status === 'FAMILY' ||
-        entry?.status === 'Nghỉ ốm' ||
-        entry?.status === 'Vắng mặt' ||
-        entry?.status === 'Nghỉ KL'
+        totalHrs === 0 &&
+        !(entry?.inTime && entry?.outTime) &&
+        (entry?.status === 'Nghỉ phép' ||
+          entry?.status === 'Nghỉ cưới' ||
+          entry?.status === 'Nghỉ tang' ||
+          entry?.status === 'FAMILY' ||
+          entry?.status === 'Nghỉ ốm' ||
+          entry?.status === 'Vắng mặt' ||
+          entry?.status === 'Nghỉ KL')
       ) {
-        statusLabel = entry.status === 'FAMILY' ? 'Hiếu hỷ' : entry.status;
+        statusLabel =
+          entry.status === 'FAMILY'
+            ? 'Hiếu hỷ'
+            : entry.status === 'Nghỉ KL'
+            ? 'Nghỉ không lương'
+            : entry.status;
+        statusTone = 'leave';
+      } else if (
+        entry?.status === 'Nghỉ phép' &&
+        totalHrs > 0 &&
+        totalHrs <= 4 &&
+        totalOtDayRow === 0 &&
+        (entry.leaveRecordId !== undefined || String(entry.note || '').includes('Nghỉ nửa phép'))
+      ) {
+        statusLabel = 'Nghỉ nửa phép';
         statusTone = 'leave';
       } else if (totalOtDayRow > 0) {
         statusLabel = 'Có tăng ca';

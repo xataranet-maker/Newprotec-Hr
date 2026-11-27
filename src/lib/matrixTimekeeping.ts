@@ -72,6 +72,60 @@ export function isLeaveMatrixStatus(status?: string): boolean {
   );
 }
 
+const STALE_OFF_STATUSES = new Set<string>([
+  'Nghỉ phép',
+  'Nghỉ KL',
+  'Nghỉ ốm',
+  'Nghỉ cưới',
+  'Nghỉ tang',
+  'FAMILY',
+  'Nghỉ chủ nhật',
+  'Nghỉ lễ',
+  'Vắng mặt',
+]);
+
+export function normalizeMatrixWorkingStatus(
+  entry: MatrixDayTimeEntry,
+  preferredStatus: AttendanceStatus = 'Đúng giờ'
+): MatrixDayTimeEntry {
+  const totalHrs = getMatrixEntryTotalHours(entry);
+  const otHrs =
+    (entry.otDayHours || 0) +
+    (entry.otNightHours || 0) +
+    (entry.otSundayHours || 0) +
+    (entry.otSundayNightHours || 0) +
+    (entry.otHolidayHours || 0) +
+    (entry.otHolidayNightHours || 0);
+  const hasTimes = Boolean(
+    entry.inTime &&
+      entry.inTime.trim().includes(':') &&
+      entry.outTime &&
+      entry.outTime.trim().includes(':')
+  );
+  const isStaleOff = STALE_OFF_STATUSES.has(String(entry.status || '').trim());
+  const isHalfDayLeave =
+    entry.status === 'Nghỉ phép' &&
+    (entry.leaveRecordId !== undefined || String(entry.note || '').includes('Nghỉ nửa phép')) &&
+    totalHrs > 0 &&
+    totalHrs <= 4 &&
+    otHrs === 0;
+
+  if (
+    isStaleOff &&
+    !isHalfDayLeave &&
+    (totalHrs > 4 ||
+      otHrs > 0 ||
+      (totalHrs > 0 && !isLeaveMatrixStatus(entry.status)) ||
+      (totalHrs > 0 && hasTimes && entry.leaveRecordId === undefined))
+  ) {
+    return {
+      ...entry,
+      status: preferredStatus,
+    };
+  }
+  return entry;
+}
+
 export function resolveStaffLockType(
   staff?: StaffRecord,
   record?: Pick<MatrixEmployeeTimekeeping, 'lockType' | 'days'>
@@ -635,7 +689,7 @@ export function applyJoinDateAndLockRules(
           Boolean(existing.isManual) ||
           Boolean(existing.isRestored);
         if (keepAsReal) {
-          nextDays[day] = existing;
+          nextDays[day] = normalizeMatrixWorkingStatus(existing);
         } else if (isHol || isSun) {
           nextDays[day] = {
             day,
@@ -709,7 +763,7 @@ export function applyJoinDateAndLockRules(
     }
 
     if (existing) {
-      nextDays[day] = existing;
+      nextDays[day] = normalizeMatrixWorkingStatus(existing);
     }
   }
 

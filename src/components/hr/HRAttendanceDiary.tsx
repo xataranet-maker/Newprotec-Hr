@@ -278,6 +278,7 @@ export const HRAttendanceDiary: React.FC<{
                         <option value="Đi muộn">Đi muộn (Muộn giờ)</option>
                         <option value="Về sớm">Về sớm (Sớm giờ)</option>
                         <option value="Nghỉ phép">Nghỉ phép</option>
+                        <option value="Nghỉ KL">Nghỉ không lương (Nghỉ KL)</option>
                         <option value="Nghỉ ốm">Nghỉ ốm</option>
                         <option value="Vắng mặt">Vắng mặt</option>
                       </select>

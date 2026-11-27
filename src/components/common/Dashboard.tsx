@@ -201,21 +201,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
             (entry.otHolidayNightHours || 0);
           staffOt += ot;
 
+          const totalHrsForLeave = (entry.regularHours || 0) + ot;
+          const hasTimesForLeave = Boolean(
+            entry.inTime &&
+              entry.inTime.trim().includes(':') &&
+              entry.outTime &&
+              entry.outTime.trim().includes(':')
+          );
+
           if ((entry.regularHours || 0) > 0 || ot > 0) {
             staffWorked += 1;
           }
 
-          if (
-            entry.status === 'Nghỉ phép' ||
-            entry.status === 'Nghỉ ốm' ||
-            entry.status === 'Nghỉ cưới' ||
-            entry.status === 'Nghỉ tang' ||
-            entry.status === 'FAMILY' ||
-            entry.status === 'Vắng mặt' ||
-            entry.status === 'Nghỉ KL'
+          if (totalHrsForLeave === 0 && !hasTimesForLeave) {
+            if (
+              entry.status === 'Nghỉ phép' ||
+              entry.status === 'Nghỉ ốm' ||
+              entry.status === 'Nghỉ cưới' ||
+              entry.status === 'Nghỉ tang' ||
+              entry.status === 'FAMILY' ||
+              entry.status === 'Vắng mặt' ||
+              entry.status === 'Nghỉ KL'
+            ) {
+              matrixLeaveDays += 1;
+            } else if ((entry.status as string) === 'Nghỉ nửa phép') {
+              matrixLeaveDays += 0.5;
+            }
+          } else if (
+            ((entry.status as string) === 'Nghỉ nửa phép' ||
+              (entry.status === 'Nghỉ phép' &&
+                totalHrsForLeave > 0 &&
+                totalHrsForLeave <= 4 &&
+                ot === 0 &&
+                (entry.leaveRecordId !== undefined || String(entry.note || '').includes('Nghỉ nửa phép'))))
           ) {
-            matrixLeaveDays += 1;
-          } else if ((entry.status as string) === 'Nghỉ nửa phép') {
             matrixLeaveDays += 0.5;
           }
         }
