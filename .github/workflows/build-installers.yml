@@ -15,7 +15,7 @@ on:
           - android
           - ios
       api_base_url:
-        description: 'URL máy chủ Web đang chạy (tùy chọn, VD: https://your-domain.com để đồng bộ API nội bộ)'
+        description: 'https://newprotechr.vercel.app/'
         required: false
         default: ''
         type: string
