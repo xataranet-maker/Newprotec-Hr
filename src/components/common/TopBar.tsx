@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserAccount } from '../../types';
 import { 
   Menu, Cloud, CloudOff, RefreshCw, LogOut, 
-  Clock, Shield, Lock, ChevronLeft, ChevronRight, QrCode
+  Clock, Shield, Lock, QrCode
 } from 'lucide-react';
 
 export type SyncStatusKind = 'idle' | 'turso' | 'local' | 'firestore' | 'error';
@@ -57,26 +57,20 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <header className="h-14 bg-slate-900/90 border-b border-slate-800 backdrop-blur-md px-4 flex items-center justify-between text-xs font-medium z-30 select-none shrink-0">
-      {/* Zone 1: Sidebar Toggle & Context Breadcrumbs */}
+      {/* Zone 1: Mobile Menu Trigger & Context Breadcrumbs */}
       <div className="flex items-center gap-3">
         <button
+          type="button"
           onClick={toggleSidebar}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer border shadow-sm ${
+          className={`md:hidden p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
             isSidebarOpen
-              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
-              : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white border-slate-700/70'
+              ? 'bg-indigo-500/20 text-indigo-300'
+              : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
           }`}
-          title={isSidebarOpen ? "Ẩn menu sang trái (Esc)" : "Mở Menu phân hệ & chức năng (phím M)"}
+          title="Mở menu"
+          aria-label="Mở menu"
         >
-          <Menu className="w-4 h-4 text-cyan-400" />
-          <span className="font-semibold text-xs hidden sm:inline">
-            {isSidebarOpen ? 'Đóng Menu' : 'Menu'}
-          </span>
-          {isSidebarOpen ? (
-            <ChevronLeft className="w-3.5 h-3.5 text-cyan-400 hidden sm:inline" />
-          ) : (
-            <ChevronRight className="w-3.5 h-3.5 text-slate-400 hidden sm:inline" />
-          )}
+          <Menu className="w-4 h-4 text-indigo-400" />
         </button>
 
         <div className="flex items-center gap-2 overflow-hidden">

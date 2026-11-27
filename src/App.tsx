@@ -10,6 +10,7 @@ import { BackupRestore } from './components/common/BackupRestore';
 import { DepartmentTimekeepingMatrix } from './components/common/DepartmentTimekeepingMatrix';
 import { EmployeeProfile } from './components/hr/EmployeeProfile';
 import { AppQRModal } from './components/common/AppQRModal';
+import { AppDownloadModal } from './components/common/AppDownloadModal';
 import { AttendanceQRKiosk } from './components/common/AttendanceQRKiosk';
 import { AdminQRLoginScanner } from './components/common/AdminQRLoginScanner';
 import { QrcodeStationLoginGate } from './components/common/QrcodeStationLoginGate';
@@ -214,9 +215,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('home');
   const [activeItem, setActiveItem] = useState<string>('dashboard_home');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() =>
+    loadFromStorage('app_sidebar_collapsed', false)
+  );
   const [showAppQR, setShowAppQR] = useState(false);
-  const [autoHideMenu, setAutoHideMenu] = useState<boolean>(() => loadFromStorage('app_auto_hide_menu', true));
-  const [isMenuPinned, setIsMenuPinned] = useState<boolean>(() => loadFromStorage('app_menu_pinned', false));
+  const [showAppDownloadModal, setShowAppDownloadModal] = useState(false);
   const [language, setLanguage] = useState<Language>(() => loadFromStorage('app_lang', 'vi'));
   const [verifiedQrPins, setVerifiedQrPins] = useState<Record<string, boolean>>({});
 
@@ -867,7 +870,11 @@ export default function App() {
         return;
       }
       if (e.key === 'm' || e.key === 'M') {
-        setIsSidebarOpen((prev) => !prev);
+        if (window.innerWidth < 768) {
+          setIsSidebarOpen((prev) => !prev);
+        } else {
+          setIsSidebarCollapsed((prev) => !prev);
+        }
       } else if (e.key === 'Escape') {
         setIsSidebarOpen(false);
       }
@@ -877,12 +884,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('app_auto_hide_menu', JSON.stringify(autoHideMenu));
-  }, [autoHideMenu]);
-
-  useEffect(() => {
-    localStorage.setItem('app_menu_pinned', JSON.stringify(isMenuPinned));
-  }, [isMenuPinned]);
+    localStorage.setItem('app_sidebar_collapsed', JSON.stringify(isSidebarCollapsed));
+  }, [isSidebarCollapsed]);
 
   const handleUpdateStaffInfo = useCallback(
     (updatedStaff: StaffRecord) => {
@@ -1753,18 +1756,28 @@ export default function App() {
         userRole={currentUser?.role}
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
-        autoHide={autoHideMenu}
-        setAutoHide={setAutoHideMenu}
-        isPinned={isMenuPinned}
-        setIsPinned={setIsMenuPinned}
+        isCollapsed={isSidebarCollapsed}
+        setIsCollapsed={setIsSidebarCollapsed}
+        onOpenDownload={() => setShowAppDownloadModal(true)}
+        onLogout={() => window.location.reload()}
       />
       <div className="flex-1 flex flex-col h-full overflow-hidden w-full min-w-0">
         <TopBar
           currentUser={currentUser}
           activeTabLabel={currentTab ? translations[language][currentTab.label] || currentTab.label : ''}
           activeItemLabel={currentItem ? translations[language][currentItem.label] || currentItem.label : ''}
-          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          isSidebarOpen={isSidebarOpen}
+          toggleSidebar={() => {
+            if (typeof window !== 'undefined' && window.innerWidth < 768) {
+              setIsSidebarOpen((prev) => !prev);
+            } else {
+              setIsSidebarCollapsed((prev) => !prev);
+            }
+          }}
+          isSidebarOpen={
+            typeof window !== 'undefined' && window.innerWidth < 768
+              ? isSidebarOpen
+              : !isSidebarCollapsed
+          }
           isSyncing={isSyncing}
           onSync={() => performSync(true, { manual: true })}
           lastSyncTime={lastSyncTime}
@@ -1772,36 +1785,6 @@ export default function App() {
           syncDetail={syncDetail}
           onOpenQR={() => setShowAppQR(true)}
         />
-
-        {/* Horizontal Quick Sub-Nav Ribbon */}
-        {currentTab && currentTab.groups.length > 0 && (
-          <div className="h-10 bg-slate-950/80 border-b border-slate-800/80 px-4 flex items-center overflow-x-auto custom-scrollbar shrink-0 select-none">
-            <div className="flex items-center gap-1.5 mx-auto">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1 hidden sm:inline">
-                {translations[language][currentTab.label] || currentTab.label}:
-              </span>
-              {currentTab.groups
-                .flatMap((g) => g.items)
-                .map((item) => {
-                  const isItemActive = item.id === activeItem;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setActiveItem(item.id)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium shrink-0 transition-colors cursor-pointer ${
-                        isItemActive
-                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs font-semibold'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent'
-                      }`}
-                      title={translations[language][item.label] || item.label}
-                    >
-                      <span className="truncate">{translations[language][item.label] || item.label}</span>
-                    </button>
-                  );
-                })}
-            </div>
-          </div>
-        )}
 
         <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden relative bg-[#020617] custom-scrollbar">{renderContent()}</main>
         <AdminContactFooter variant="bar" />
@@ -1860,6 +1843,11 @@ export default function App() {
 
       <PWAPrompt installerLinks={installerLinks} />
       <AppQRModal isOpen={showAppQR} onClose={() => setShowAppQR(false)} />
+      <AppDownloadModal
+        isOpen={showAppDownloadModal}
+        onClose={() => setShowAppDownloadModal(false)}
+        links={installerLinks}
+      />
 
       {showSyncRepairModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">

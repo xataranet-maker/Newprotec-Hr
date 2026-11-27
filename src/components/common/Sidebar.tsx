@@ -1,10 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { RibbonTab, Language, UserRole } from '../../types';
 import { translations } from '../../data/locales';
-import { 
-  ChevronRight, ChevronLeft, X, LayoutGrid, Settings, 
-  Home, Factory, Users, ShieldAlert, ShieldCheck,
-  Pin, PinOff, Sparkles
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  X,
+  LayoutGrid,
+  Settings,
+  Home,
+  Factory,
+  Users,
+  ShieldAlert,
+  ShieldCheck,
+  Download,
+  LogOut,
 } from 'lucide-react';
 
 export interface SidebarProps {
@@ -17,24 +28,69 @@ export interface SidebarProps {
   userRole?: UserRole;
   isOpen: boolean;
   setIsOpen: (v: boolean) => void;
-  autoHide?: boolean;
-  setAutoHide?: (v: boolean) => void;
-  isPinned?: boolean;
-  setIsPinned?: (v: boolean) => void;
-  // Backward compatibility
-  isCollapsed?: boolean;
-  setCollapsed?: (v: boolean) => void;
-  isDrawerOpen?: boolean;
-  setDrawerOpen?: (v: boolean) => void;
+  isCollapsed: boolean;
+  setIsCollapsed: (v: boolean) => void;
+  onOpenDownload?: () => void;
+  onLogout?: () => void;
 }
 
-const TAB_ICONS: Record<string, any> = {
+const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   home: Home,
   Multi: Factory,
   hr_admin: Users,
   security: ShieldCheck,
-  admin: ShieldAlert
+  admin: ShieldAlert,
 };
+
+const PRESERVE_UPPERCASE_TOKENS = new Set([
+  'QR',
+  'HC',
+  'NS',
+  'DS',
+  'ĐK',
+  'HR',
+  'AI',
+  'MES',
+  'ADMIN',
+  'PC',
+  'PWA',
+]);
+
+function formatMenuLabel(raw: string): string {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return '';
+  if (trimmed === 'HC & NS') return 'HC & NS';
+  if (trimmed === 'MULTI AUTO') return 'Multi Auto';
+  if (trimmed === 'HR & ADMIN') return 'HR & Admin';
+
+  const lettersOnly = trimmed.replace(/[^a-zA-ZÀ-ỹ]/g, '');
+  const isAllCaps = lettersOnly.length > 0 && lettersOnly === lettersOnly.toUpperCase();
+  if (!isAllCaps) return trimmed;
+
+  const words = trimmed.toLowerCase().split(/\s+/);
+  return words
+    .map((word, index) => {
+      const bare = word.replace(/[^a-zA-ZÀ-ỹ]/g, '').toUpperCase();
+      if (PRESERVE_UPPERCASE_TOKENS.has(bare)) {
+        return word.toUpperCase();
+      }
+      if (index === 0) {
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      }
+      return word;
+    })
+    .join(' ');
+}
+
+function normalizeSearchText(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim();
+}
 
 export const Sidebar: React.FC<SidebarProps> = ({
   tabs,
@@ -43,257 +99,417 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onTabChange,
   onItemClick,
   language,
+  userRole,
   isOpen,
   setIsOpen,
-  autoHide = true,
-  setAutoHide,
-  isPinned = false,
-  setIsPinned
+  isCollapsed,
+  setIsCollapsed,
+  onOpenDownload,
+  onLogout,
 }) => {
-  // Tab being hovered / inspected inside the menu
-  const [selectedMenuTabId, setSelectedMenuTabId] = useState<string>(activeTabId);
+  const [expandedTabId, setExpandedTabId] = useState<string | null>(activeTabId || null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hoveredPointer, setHoveredPointer] = useState<{ x: number; y: number } | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    setSelectedMenuTabId(activeTabId);
+    if (activeTabId) {
+      setExpandedTabId(activeTabId);
+    }
   }, [activeTabId]);
 
   const tr = translations[language] || translations.vi;
-  const currentTab = tabs.find(t => t.id === selectedMenuTabId) || tabs.find(t => t.id === activeTabId) || tabs[0];
+  const normalizedQuery = normalizeSearchText(searchQuery);
+  const isSearching = normalizedQuery.length > 0;
 
-  const handleTabClick = (tab: RibbonTab) => {
-    onTabChange(tab.id);
-    setSelectedMenuTabId(tab.id);
-    if (tab.groups.length > 0 && tab.groups[0].items.length > 0) {
-      onItemClick(tab.groups[0].items[0].id);
+  const filteredTabs = useMemo(() => {
+    if (!isSearching) return tabs;
+    return tabs
+      .map((tab) => {
+        const rawTabLabel = tr[tab.label] || tab.label;
+        const tabMatches = normalizeSearchText(rawTabLabel).includes(normalizedQuery);
+        const matchedGroups = tab.groups
+          .map((grp) => {
+            const rawGrpLabel = tr[grp.label] || grp.label;
+            const grpMatches = normalizeSearchText(rawGrpLabel).includes(normalizedQuery);
+            const matchedItems = grp.items.filter((item) => {
+              const rawItemLabel = tr[item.label] || item.label;
+              return (
+                tabMatches ||
+                grpMatches ||
+                normalizeSearchText(rawItemLabel).includes(normalizedQuery)
+              );
+            });
+            return { ...grp, items: matchedItems };
+          })
+          .filter((grp) => grp.items.length > 0);
+
+        if (matchedGroups.length === 0) return null;
+        return { ...tab, groups: matchedGroups };
+      })
+      .filter((t): t is RibbonTab => t !== null);
+  }, [tabs, tr, isSearching, normalizedQuery]);
+
+  const handleToggleTabDropdown = (tab: RibbonTab) => {
+    if (isCollapsed) {
+      setIsCollapsed(false);
+      setExpandedTabId(tab.id);
+      return;
     }
-    // Tự động ẩn menu sang trái khi kích vào tab để mở rộng không gian trang
-    if (autoHide && !isPinned) {
-      setIsOpen(false);
-    }
+    setExpandedTabId((prev) => (prev === tab.id ? null : tab.id));
   };
 
-  const handleItemClick = (itemId: string, tabId: string) => {
+  // Auto-hide sidebar cleanly when clicking any leaf destination item ("tab cuối")
+  const handleSelectItem = (tabId: string, itemId: string) => {
     onTabChange(tabId);
     onItemClick(itemId);
-    // Tự động ẩn menu sang trái khi kích vào chức năng
-    if (autoHide && !isPinned) {
-      setIsOpen(false);
+    setExpandedTabId(tabId);
+    if (isSearching) {
+      setSearchQuery('');
     }
+    setIsOpen(false);
+    setIsCollapsed(true);
   };
+
+  const handleCollapsedSearchClick = () => {
+    setIsCollapsed(false);
+    window.setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 180);
+  };
+
+  const handleSidebarMouseMove = (e: React.MouseEvent<HTMLElement>) => {
+    const rect = asideRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setHoveredPointer({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+  };
+
+  const effectiveCollapsed = isCollapsed && !isOpen;
 
   return (
     <>
-      {/* Backdrop Overlay when Menu is open (non-pinned mode) */}
-      {isOpen && !isPinned && (
-        <div 
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs transition-opacity duration-300 animate-in fade-in"
+      {/* Mobile drawer backdrop */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/65 backdrop-blur-xs transition-opacity duration-300 md:hidden"
           onClick={() => setIsOpen(false)}
           aria-hidden="true"
         />
       )}
 
-      {/* 3. Main Slide-out Menu Panel (Slides out to the left) */}
-      <aside 
-        className={`fixed top-0 bottom-0 left-0 z-50 flex h-full bg-slate-950 border-r border-slate-800 shadow-2xl shadow-black/80 transition-transform duration-300 ease-in-out select-none ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${isPinned ? 'static z-20 shrink-0' : ''}`}
-        style={{ width: 'min(92vw, 560px)' }}
+      <aside
+        ref={asideRef}
+        onMouseMove={handleSidebarMouseMove}
+        onMouseLeave={() => setHoveredPointer(null)}
+        className={`fixed inset-y-0 left-0 z-50 md:static md:z-20 flex flex-col h-full bg-[#0b0f17] border-r border-slate-800/80 shadow-2xl md:shadow-none transition-[width,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none select-none shrink-0 overflow-hidden relative ${
+          isOpen ? 'translate-x-0 w-[264px]' : '-translate-x-full md:translate-x-0'
+        } ${effectiveCollapsed ? 'md:w-[72px]' : 'md:w-[260px]'}`}
+        style={{
+          backgroundImage: hoveredPointer
+            ? `radial-gradient(240px circle at ${hoveredPointer.x}px ${hoveredPointer.y}px, rgba(99, 102, 241, 0.14), transparent 70%), radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.09) 0%, rgba(11, 15, 23, 0) 48%)`
+            : 'radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.10) 0%, rgba(11, 15, 23, 0) 48%)',
+        }}
       >
-        {/* Left Sub-Column: Tabs List */}
-        <div className="w-48 sm:w-56 h-full flex flex-col border-r border-slate-800/80 bg-slate-950 shrink-0">
-          {/* Header */}
-          <div className="h-14 flex items-center px-3.5 border-b border-slate-800/80 justify-between shrink-0">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <div className="w-7 h-7 rounded-lg bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center shrink-0 text-cyan-400 font-black text-xs">
-                NP
-              </div>
-              <div className="flex flex-col overflow-hidden">
-                <span className="font-bold text-slate-100 text-xs tracking-tight truncate">
-                  NEWPROTEC VINA
-                </span>
-                <span className="text-[9px] text-cyan-400 font-mono tracking-widest uppercase">
-                  MES V2.0
-                </span>
-              </div>
+        {/* Header: Brand + Collapse toggle */}
+        <div
+          className={`h-14 flex items-center shrink-0 border-b border-slate-800/70 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            effectiveCollapsed ? 'justify-center px-2' : 'justify-between px-4'
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => setIsCollapsed(!effectiveCollapsed)}
+            className="group flex items-center gap-2.5 min-w-0 cursor-pointer focus:outline-none"
+            title={effectiveCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}
+          >
+            <div className="w-8 h-8 rounded-full bg-white text-slate-950 flex items-center justify-center shrink-0 shadow-sm font-extrabold text-xs tracking-tighter transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 group-active:scale-95">
+              NP
             </div>
-          </div>
-
-          {/* Tab Selection List */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 flex items-center justify-between">
-              <span>HỆ THỐNG PHÂN HỆ</span>
-              <span className="text-[9px] text-cyan-400 font-mono">{tabs.length} TABS</span>
-            </div>
-            {tabs.map(tab => {
-              const Icon = TAB_ICONS[tab.id] || LayoutGrid;
-              const isCurrentActive = tab.id === activeTabId;
-              const isInspected = tab.id === selectedMenuTabId;
-              const label = tr[tab.label] || tab.label;
-
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => handleTabClick(tab)}
-                  onMouseEnter={() => setSelectedMenuTabId(tab.id)}
-                  className={`w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer text-left ${
-                    isInspected
-                      ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-500/40 shadow-sm'
-                      : isCurrentActive
-                      ? 'bg-slate-900 text-cyan-400 border border-slate-700/50'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 border border-transparent'
-                  }`}
-                  title={`${label} (Kích để vào phân hệ và tự động ẩn menu sang trái)`}
-                >
-                  <Icon className={`w-4 h-4 shrink-0 ${isInspected || isCurrentActive ? 'text-cyan-400' : 'text-slate-400'}`} />
-                  <span className="truncate flex-1 font-semibold tracking-wide">
-                    {label}
-                  </span>
-                  {isCurrentActive && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" title="Tab đang hoạt động" />
-                  )}
-                  <ChevronRight className={`w-3.5 h-3.5 shrink-0 transition-transform ${isInspected ? 'text-cyan-400 translate-x-0.5' : 'text-slate-400'}`} />
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Footer Controls */}
-          <div className="p-3 border-t border-slate-800/80 text-[10px] space-y-2 bg-slate-950/80">
-            {/* Auto-hide toggle badge */}
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-cyan-400" />
-                <span>Tự động ẩn:</span>
+            {!effectiveCollapsed && (
+              <span className="font-bold text-slate-100 text-sm tracking-tight whitespace-nowrap truncate transition-transform duration-200 group-hover:translate-x-0.5">
+                Newprotec
               </span>
-              {setAutoHide && (
+            )}
+          </button>
+
+          {/* Desktop collapse button */}
+          {!effectiveCollapsed && (
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(true)}
+              className="hidden md:flex w-7 h-7 rounded-full bg-slate-800/90 hover:bg-indigo-500/25 border border-slate-700/70 hover:border-indigo-400/50 text-slate-300 hover:text-white items-center justify-center transition-all duration-200 hover:scale-105 active:scale-90 cursor-pointer shrink-0"
+              title="Thu gọn menu (phím M)"
+              aria-label="Thu gọn menu"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Mobile close button */}
+          <button
+            type="button"
+            onClick={() => setIsOpen(false)}
+            className="md:hidden w-7 h-7 rounded-full bg-slate-800/90 hover:bg-slate-700 border border-slate-700/70 text-slate-300 hover:text-white flex items-center justify-center transition-all duration-200 active:scale-90 cursor-pointer shrink-0"
+            aria-label="Đóng menu"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Expand button when collapsed on desktop */}
+        {effectiveCollapsed && (
+          <div className="hidden md:flex justify-center pt-2.5 pb-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(false)}
+              className="w-10 h-8 rounded-lg bg-slate-900/90 hover:bg-indigo-500/20 border border-slate-800 hover:border-indigo-500/40 text-slate-300 hover:text-indigo-200 flex items-center justify-center transition-all duration-200 hover:scale-105 hover:shadow-[0_0_16px_rgba(99,102,241,0.22)] active:scale-95 cursor-pointer"
+              title="Mở rộng menu (phím M)"
+              aria-label="Mở rộng menu"
+            >
+              <ChevronRight className="w-4 h-4 transition-transform duration-200 hover:translate-x-0.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Search Input */}
+        <div
+          className={`shrink-0 ${
+            effectiveCollapsed ? 'px-3 py-2 flex justify-center' : 'px-3 pt-3 pb-2'
+          }`}
+        >
+          {effectiveCollapsed ? (
+            <button
+              type="button"
+              onClick={handleCollapsedSearchClick}
+              className="w-10 h-10 rounded-lg bg-[#060911] hover:bg-indigo-500/15 border border-slate-800/90 hover:border-indigo-500/40 text-slate-400 hover:text-indigo-200 flex items-center justify-center transition-all duration-200 hover:scale-105 hover:shadow-[0_0_14px_rgba(99,102,241,0.2)] active:scale-95 cursor-pointer"
+              title="Tìm kiếm chức năng"
+              aria-label="Tìm kiếm chức năng"
+            >
+              <Search className="w-4 h-4" />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#060911] border border-slate-800/90 focus-within:border-indigo-500/60 focus-within:shadow-[0_0_14px_rgba(99,102,241,0.16)] transition-all duration-200">
+              <Search className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Tìm kiếm..."
+                className="w-full bg-transparent text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none min-w-0"
+              />
+              {searchQuery && (
                 <button
-                  onClick={() => setAutoHide(!autoHide)}
-                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-colors ${
-                    autoHide ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'bg-slate-800 text-slate-400'
-                  }`}
-                  title="Tự động ẩn menu sang trái khi kích chọn tab"
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="text-slate-500 hover:text-slate-200 transition-transform duration-150 hover:scale-110 active:scale-90 cursor-pointer shrink-0"
+                  aria-label="Xóa tìm kiếm"
                 >
-                  {autoHide ? 'BẬT' : 'TẮT'}
+                  <X className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
+          )}
+        </div>
 
-            {/* Pin menu toggle */}
-            {setIsPinned && (
-              <div className="flex items-center justify-between text-slate-400">
-                <span className="flex items-center gap-1">
-                  {isPinned ? <Pin className="w-3 h-3 text-amber-400" /> : <PinOff className="w-3 h-3 text-slate-400" />}
-                  <span>Ghim menu:</span>
-                </span>
-                <button
-                  onClick={() => setIsPinned(!isPinned)}
-                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-colors ${
-                    isPinned ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-slate-800 text-slate-400'
-                  }`}
-                  title={isPinned ? 'Bỏ ghim menu' : 'Ghim cố định menu'}
-                >
-                  {isPinned ? 'ĐÃ GHIM' : 'CHƯA GHIM'}
-                </button>
+        {/* Section Heading */}
+        {!effectiveCollapsed && (
+          <div className="px-4 pt-1.5 pb-1 text-[11px] font-medium text-slate-500 shrink-0">
+            Menu
+          </div>
+        )}
+
+        {/* Scrollable Accordion Navigation */}
+        <nav className="flex-1 overflow-y-auto custom-scrollbar px-2.5 py-1 space-y-1">
+          {filteredTabs.length === 0 ? (
+            !effectiveCollapsed && (
+              <div className="px-3 py-6 text-center text-xs text-slate-500">
+                Không tìm thấy chức năng phù hợp.
               </div>
+            )
+          ) : (
+            filteredTabs.map((tab) => {
+              const Icon = TAB_ICONS[tab.id] || LayoutGrid;
+              const isTabActive = tab.id === activeTabId;
+              const isDropdownOpen = !effectiveCollapsed && (isSearching || expandedTabId === tab.id);
+              const tabLabel = formatMenuLabel(tr[tab.label] || tab.label);
+              const hasMultipleGroups = tab.groups.length > 1;
+              const highlightParentRow = isTabActive && (!isDropdownOpen || effectiveCollapsed);
+
+              return (
+                <div key={tab.id} className="space-y-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleTabDropdown(tab)}
+                    className={`group relative w-full min-h-[40px] flex items-center rounded-lg text-[13px] font-medium transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] cursor-pointer ${
+                      effectiveCollapsed
+                        ? 'justify-center px-2 py-2 hover:scale-105 hover:shadow-[0_0_16px_rgba(99,102,241,0.2)]'
+                        : 'justify-between px-3 py-2'
+                    } ${
+                      highlightParentRow
+                        ? 'bg-indigo-500/15 text-white shadow-[inset_0_0_0_1px_rgba(129,140,248,0.22)]'
+                        : isDropdownOpen
+                        ? 'bg-slate-800/55 text-slate-100'
+                        : isTabActive
+                        ? 'text-indigo-200 hover:bg-slate-800/50'
+                        : 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.04]'
+                    }`}
+                    title={effectiveCollapsed ? tabLabel : undefined}
+                    aria-expanded={!effectiveCollapsed ? isDropdownOpen : undefined}
+                  >
+                    <span
+                      className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-full bg-indigo-400 shadow-[0_0_12px_rgba(129,140,248,0.85)] transition-all duration-200 ${
+                        highlightParentRow ? 'h-5 opacity-100 scale-y-100' : 'h-3 opacity-0 scale-y-50 group-hover:opacity-45 group-hover:scale-y-75'
+                      }`}
+                      aria-hidden="true"
+                    />
+
+                    <span className="flex items-center gap-3 min-w-0">
+                      <Icon
+                        className={`w-4 h-4 shrink-0 transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-110 ${
+                          isTabActive || isDropdownOpen
+                            ? 'text-indigo-400'
+                            : 'text-slate-400 group-hover:text-indigo-300'
+                        }`}
+                      />
+                      {!effectiveCollapsed && (
+                        <span className="truncate whitespace-nowrap transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:translate-x-0.5">
+                          {tabLabel}
+                        </span>
+                      )}
+                    </span>
+
+                    {!effectiveCollapsed && (
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                          isDropdownOpen
+                            ? 'rotate-180 text-indigo-300'
+                            : 'text-slate-500 group-hover:text-slate-200 group-hover:translate-y-0.5'
+                        }`}
+                      />
+                    )}
+                  </button>
+
+                  {/* Smooth Accordion Dropdown per Tab */}
+                  {!effectiveCollapsed && (
+                    <div
+                      className={`grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+                        isDropdownOpen
+                          ? 'grid-rows-[1fr] opacity-100'
+                          : 'grid-rows-[0fr] opacity-0 pointer-events-none'
+                      }`}
+                    >
+                      <div className="overflow-hidden">
+                        <div className="relative pl-4 pr-0.5 py-1 space-y-1">
+                          <span
+                            className="absolute left-[22px] top-1.5 bottom-1.5 w-px bg-slate-800/90"
+                            aria-hidden="true"
+                          />
+                          {tab.groups.map((group) => (
+                            <div key={group.id} className="space-y-0.5">
+                              {hasMultipleGroups && (
+                                <div className="pl-5 pr-2 pt-1.5 pb-0.5 text-[11px] font-medium text-slate-500 whitespace-nowrap truncate">
+                                  {formatMenuLabel(tr[group.label] || group.label)}
+                                </div>
+                              )}
+                              {group.items.map((item) => {
+                                const ItemIcon = item.icon || Settings;
+                                const isItemActive = item.id === activeItemId && isTabActive;
+                                const itemLabel = formatMenuLabel(tr[item.label] || item.label);
+
+                                return (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => handleSelectItem(tab.id, item.id)}
+                                    className={`group/item relative w-full min-h-[36px] flex items-center gap-2.5 pl-5 pr-2.5 py-1.5 rounded-lg text-[12.5px] transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] cursor-pointer text-left ${
+                                      isItemActive
+                                        ? 'bg-indigo-500/15 text-white font-semibold shadow-[inset_0_0_0_1px_rgba(129,140,248,0.2)]'
+                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.04] font-medium'
+                                    }`}
+                                    title={itemLabel}
+                                  >
+                                    <span
+                                      className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-full bg-indigo-400 shadow-[0_0_10px_rgba(129,140,248,0.85)] transition-all duration-200 ${
+                                        isItemActive
+                                          ? 'h-4 opacity-100 scale-y-100'
+                                          : 'h-2.5 opacity-0 scale-y-50 group-hover/item:opacity-50 group-hover/item:scale-y-75'
+                                      }`}
+                                      aria-hidden="true"
+                                    />
+                                    <ItemIcon
+                                      className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/item:scale-110 ${
+                                        isItemActive
+                                          ? 'text-indigo-300'
+                                          : item.color || 'text-slate-400'
+                                      }`}
+                                    />
+                                    <span className="truncate whitespace-nowrap transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/item:translate-x-1">
+                                      {itemLabel}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </nav>
+
+        {/* Bottom Utility Actions */}
+        {(onOpenDownload || (onLogout && userRole !== 'qrcode')) && (
+          <div className="p-2.5 border-t border-slate-800/80 space-y-1 shrink-0 bg-[#090d14]">
+            {onOpenDownload && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  setIsCollapsed(true);
+                  onOpenDownload();
+                }}
+                className={`group w-full min-h-[38px] flex items-center rounded-lg text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.05] transition-all duration-200 active:scale-[0.98] cursor-pointer ${
+                  effectiveCollapsed ? 'justify-center px-2 hover:scale-105' : 'gap-3 px-3'
+                }`}
+                title="Tải ứng dụng (Windows / Android / Apple)"
+              >
+                <Download className="w-4 h-4 text-cyan-400 shrink-0 transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:scale-110" />
+                {!effectiveCollapsed && (
+                  <span className="truncate whitespace-nowrap transition-transform duration-200 group-hover:translate-x-0.5">
+                    Tải ứng dụng
+                  </span>
+                )}
+              </button>
+            )}
+
+            {onLogout && userRole !== 'qrcode' && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className={`group w-full min-h-[38px] flex items-center rounded-lg text-xs font-medium text-slate-400 hover:text-rose-300 hover:bg-rose-950/35 transition-all duration-200 active:scale-[0.98] cursor-pointer ${
+                  effectiveCollapsed ? 'justify-center px-2 hover:scale-105' : 'gap-3 px-3'
+                }`}
+                title="Đăng xuất"
+              >
+                <LogOut className="w-4 h-4 text-rose-400/90 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:scale-110" />
+                {!effectiveCollapsed && (
+                  <span className="truncate whitespace-nowrap transition-transform duration-200 group-hover:translate-x-0.5">
+                    Đăng xuất
+                  </span>
+                )}
+              </button>
             )}
           </div>
-        </div>
-
-        {/* Right Sub-Column: Feature Groups & Items of Selected Tab */}
-        <div className="flex-1 h-full flex flex-col bg-slate-900/95 overflow-hidden">
-          {/* Top action bar */}
-          <div className="h-14 px-3 flex items-center justify-between border-b border-slate-800 shrink-0">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <span className="text-xs font-bold text-slate-200 uppercase tracking-wider truncate">
-                {tr[currentTab?.label || ''] || currentTab?.label || 'CHỨC NĂNG'}
-              </span>
-              <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
-                ({currentTab?.groups.reduce((acc, g) => acc + g.items.length, 0) || 0} chức năng)
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1">
-              {/* Button to collapse to the left */}
-              <button
-                onClick={() => setIsOpen(false)}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60 transition-colors cursor-pointer"
-                title="Ẩn menu sang trái (Esc)"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                <span>Ẩn menu</span>
-              </button>
-
-              <button
-                onClick={() => setIsOpen(false)}
-                className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer sm:hidden"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Notice banner */}
-          <div className="px-3 py-1.5 bg-cyan-950/30 border-b border-cyan-800/30 text-[11px] text-cyan-300/80 flex items-center gap-1.5 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span>Kích vào bất kỳ mục nào để chuyển trang & tự động mở rộng màn hình</span>
-          </div>
-
-          {/* Items List grouped by Categories */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4">
-            {currentTab?.groups.map(group => (
-              <div key={group.id} className="space-y-1.5">
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-0.5 border-b border-slate-800/60">
-                  {tr[group.label] || group.label}
-                </div>
-                <div className="grid grid-cols-1 gap-1">
-                  {group.items.map(item => {
-                    const ItemIcon = item.icon || Settings;
-                    const isItemActive = item.id === activeItemId && currentTab.id === activeTabId;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => handleItemClick(item.id, currentTab.id)}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                          isItemActive
-                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-xs'
-                            : 'text-slate-300 hover:bg-slate-800 hover:text-white border border-transparent'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <ItemIcon className={`w-4 h-4 shrink-0 ${item.color || 'text-slate-400'}`} />
-                          <span className="truncate text-left font-medium">
-                            {tr[item.label] || item.label}
-                          </span>
-                        </div>
-                        {isItemActive ? (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/30 text-cyan-300 font-mono shrink-0">
-                            ĐANG MỞ
-                          </span>
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Quick Tab Action Button */}
-          <div className="p-3 border-t border-slate-800 bg-slate-950/50 shrink-0 flex items-center justify-between">
-            <span className="text-[11px] text-slate-400">
-              Vào thẳng trang tổng hợp:
-            </span>
-            <button
-              onClick={() => handleTabClick(currentTab)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs shadow-md transition-all cursor-pointer"
-            >
-              <span>Mở {tr[currentTab?.label || ''] || currentTab?.label}</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
+        )}
       </aside>
     </>
   );
