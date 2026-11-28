@@ -194,6 +194,17 @@ export interface MachineSetup {
   staffNight?: string;
 }
 
+export type FacePoseAngle = 'FRONT' | 'LEFT' | 'RIGHT' | 'UP' | 'DOWN';
+
+export interface FacePoseSample {
+  angle: FacePoseAngle;
+  descriptor: number[];
+  qualityScore: number;
+  yaw?: number;
+  pitch?: number;
+  capturedAt?: string;
+}
+
 export interface StaffRecord {
   id: number;
   fullName: string;
@@ -221,6 +232,7 @@ export interface StaffRecord {
   qrAccessToken?: string;
   faceAccessEnabled?: boolean;
   faceDescriptor?: number[];
+  facePoseTemplates?: FacePoseSample[];
   facePhotoUrl?: string;
   faceUpdatedAt?: string;
   badgeIssued?: boolean;

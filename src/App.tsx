@@ -1440,6 +1440,7 @@ export default function App() {
             isStandaloneAccount={false}
             onLogout={() => setCurrentUser(null)}
             allStaff={allStaff}
+            onUpdateStaff={handleUpdateStaffInfo}
           />
         );
       case 'admin_qr_login_scanner':
@@ -1747,52 +1748,58 @@ export default function App() {
     }
   }
 
+  const isQrcodeKioskAccount = currentUser.role === 'qrcode';
+
   return (
     <div className="flex h-dvh bg-[#020617] overflow-hidden text-slate-100 relative">
-      <Sidebar
-        tabs={visibleTabs}
-        activeTabId={activeTab}
-        activeItemId={activeItem}
-        onTabChange={(id) => {
-          setActiveTab(id);
-        }}
-        onItemClick={(id) => {
-          setActiveItem(id);
-        }}
-        language={language}
-        userRole={currentUser?.role}
-        isOpen={isSidebarOpen}
-        setIsOpen={setIsSidebarOpen}
-        isCollapsed={isSidebarCollapsed}
-        setIsCollapsed={setIsSidebarCollapsed}
-        onOpenDownload={() => setShowAppDownloadModal(true)}
-        onLogout={() => window.location.reload()}
-      />
-      <div className="flex-1 flex flex-col h-full overflow-hidden w-full min-w-0">
-        <TopBar
-          currentUser={currentUser}
-          activeTabLabel={currentTab ? translations[language][currentTab.label] || currentTab.label : ''}
-          activeItemLabel={currentItem ? translations[language][currentItem.label] || currentItem.label : ''}
-          toggleSidebar={() => {
-            if (typeof window !== 'undefined' && window.innerWidth < 768) {
-              setIsSidebarOpen((prev) => !prev);
-            } else {
-              setIsSidebarCollapsed((prev) => !prev);
-            }
+      {!isQrcodeKioskAccount && (
+        <Sidebar
+          tabs={visibleTabs}
+          activeTabId={activeTab}
+          activeItemId={activeItem}
+          onTabChange={(id) => {
+            setActiveTab(id);
           }}
-          isSidebarOpen={
-            typeof window !== 'undefined' && window.innerWidth < 768
-              ? isSidebarOpen
-              : !isSidebarCollapsed
-          }
-          isSyncing={isSyncing}
-          onSync={() => performSync(true, { manual: true })}
-          lastSyncTime={lastSyncTime}
-          syncStatus={syncStatus}
-          syncDetail={syncDetail}
-          onOpenQR={() => setShowAppQR(true)}
-          hideOnMobile={currentUser.role === 'staff' && activeItem.toLowerCase() !== 'home_announcements'}
+          onItemClick={(id) => {
+            setActiveItem(id);
+          }}
+          language={language}
+          userRole={currentUser?.role}
+          isOpen={isSidebarOpen}
+          setIsOpen={setIsSidebarOpen}
+          isCollapsed={isSidebarCollapsed}
+          setIsCollapsed={setIsSidebarCollapsed}
+          onOpenDownload={() => setShowAppDownloadModal(true)}
+          onLogout={() => window.location.reload()}
         />
+      )}
+      <div className="flex-1 flex flex-col h-full overflow-hidden w-full min-w-0">
+        {!isQrcodeKioskAccount && (
+          <TopBar
+            currentUser={currentUser}
+            activeTabLabel={currentTab ? translations[language][currentTab.label] || currentTab.label : ''}
+            activeItemLabel={currentItem ? translations[language][currentItem.label] || currentItem.label : ''}
+            toggleSidebar={() => {
+              if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                setIsSidebarOpen((prev) => !prev);
+              } else {
+                setIsSidebarCollapsed((prev) => !prev);
+              }
+            }}
+            isSidebarOpen={
+              typeof window !== 'undefined' && window.innerWidth < 768
+                ? isSidebarOpen
+                : !isSidebarCollapsed
+            }
+            isSyncing={isSyncing}
+            onSync={() => performSync(true, { manual: true })}
+            lastSyncTime={lastSyncTime}
+            syncStatus={syncStatus}
+            syncDetail={syncDetail}
+            onOpenQR={() => setShowAppQR(true)}
+            hideOnMobile={currentUser.role === 'staff' && activeItem.toLowerCase() !== 'home_announcements'}
+          />
+        )}
 
         <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden relative bg-[#020617] custom-scrollbar">{renderContent()}</main>
         <AdminContactFooter variant="bar" />

@@ -96,6 +96,22 @@ export default defineConfig(() => {
             /^\/sitemap\.xml$/,
             /^\/app-version\.json$/,
           ],
+          runtimeCaching: [
+            {
+              urlPattern: /\/models\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'face-ai-models-v1',
+                expiration: {
+                  maxEntries: 16,
+                  maxAgeSeconds: 60 * 60 * 24 * 90,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+          ],
         },
         devOptions: {
           enabled: true,

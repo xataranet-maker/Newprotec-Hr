@@ -4,8 +4,6 @@ import {
   QrCode,
   Clock,
   CalendarDays,
-  Download,
-  Printer,
   Maximize2,
   Minimize2,
   ScanLine,
@@ -19,8 +17,9 @@ import {
   Users,
   AlertCircle,
   Moon,
+  Sparkles,
 } from 'lucide-react';
-import { MachineSwipeRecord, StaffRecord } from '../../types';
+import { FacePoseAngle, MachineSwipeRecord, StaffRecord } from '../../types';
 import {
   ATTENDANCE_QR_PAYLOAD,
   AttendancePunchResult,
@@ -28,9 +27,12 @@ import {
   recordEmployeeFacePunch,
 } from '../../lib/attendanceQr';
 import {
-  FaceBoundingBox,
+  ensureFaceModelsLoaded,
   extractFaceFromImageUrl,
   extractFaceFromMediaSource,
+  FACE_POSE_META,
+  getStaffPoseTemplates,
+  isFaceModelsLoaded,
   isStaffFaceEnabled,
   matchFaceDescriptorAgainstStaff,
 } from '../../lib/faceRecognition';
@@ -38,6 +40,7 @@ import { MATRIX_UPDATED_EVENT } from '../../lib/matrixTimekeeping';
 import { getDefaultAvatarForEmployee } from '../../lib/avatarUtils';
 import { KioskCircuitScreensaver } from './KioskCircuitScreensaver';
 import { KioskRemoteLoginModal } from './KioskRemoteLoginModal';
+import { EmployeeFaceSettingsModal } from './EmployeeFaceSettingsModal';
 
 const KIOSK_IDLE_TIMEOUT_MS = 60_000; // 1 phút không có nhận diện người chấm công
 
@@ -45,6 +48,7 @@ interface AttendanceQRKioskProps {
   isStandaloneAccount?: boolean;
   onLogout?: () => void;
   allStaff?: StaffRecord[];
+  onUpdateStaff?: (updated: StaffRecord) => void;
 }
 
 type KioskMode = 'QR' | 'FACE';
@@ -55,6 +59,7 @@ interface RecognizedBannerState {
   punch: AttendancePunchResult;
   capturedPhotoUrl: string;
   confidencePercent: number;
+  matchedAngle?: FacePoseAngle;
   recordedAtText: string;
 }
 
@@ -62,6 +67,7 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
   isStandaloneAccount = false,
   onLogout,
   allStaff = [],
+  onUpdateStaff,
 }) => {
   const [kioskMode, setKioskMode] = useState<KioskMode>('QR');
   const [now, setNow] = useState<Date>(() => new Date());
@@ -76,17 +82,29 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
   const [faceCameraError, setFaceCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [facePunchMode, setFacePunchMode] = useState<FacePunchModeOption>('AUTO');
+  const [faceModelsReady, setFaceModelsReady] = useState<boolean>(isFaceModelsLoaded());
   const [trackedBox, setTrackedBox] = useState<{
-    box: FaceBoundingBox;
+    box: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      confidence: number;
+      detector: 'native' | 'heuristic' | 'guide';
+    };
     frameW: number;
     frameH: number;
     matched: boolean;
+    poseLabel?: string;
+    meshPoints?: { x: number; y: number }[];
   } | null>(null);
   const [recognizedState, setRecognizedState] = useState<RecognizedBannerState | null>(null);
   const [faceScanHint, setFaceScanHint] = useState<string>(
     'Đang chờ nhận diện khuôn mặt...'
   );
   const [todayFacePunches, setTodayFacePunches] = useState<MachineSwipeRecord[]>([]);
+  const [enrollingStaff, setEnrollingStaff] = useState<StaffRecord | null>(null);
+  const [selectedEnrollId, setSelectedEnrollId] = useState<string>('');
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -276,9 +294,18 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
     [facingMode, stopFaceCamera, enrolledFaceStaff.length]
   );
 
-  // Stop camera automatically when switching back to QR tab, entering screensaver, or unmounting
+  const hasLegacyFaceProfiles = useMemo(
+    () =>
+      enrolledFaceStaff.some((s) =>
+        getStaffPoseTemplates(s).some((t) => t.descriptor.length === 96)
+      ),
+    [enrolledFaceStaff]
+  );
+
+  // Stop camera automatically when switching back to QR tab, opening enrollment modal, entering screensaver, or unmounting
   useEffect(() => {
-    if (kioskMode === 'FACE' && !isIdleScreensaver) {
+    if (kioskMode === 'FACE' && !isIdleScreensaver && !enrollingStaff) {
+      ensureFaceModelsLoaded().then((ok) => setFaceModelsReady(ok));
       startFaceCamera(facingMode);
     } else {
       stopFaceCamera();
@@ -286,14 +313,15 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
     return () => {
       stopFaceCamera();
     };
-  }, [kioskMode, facingMode, isIdleScreensaver, startFaceCamera, stopFaceCamera]);
+  }, [kioskMode, facingMode, isIdleScreensaver, enrollingStaff, startFaceCamera, stopFaceCamera]);
 
   const applyMatchedEmployeePunch = useCallback(
     (
       matchedStaff: StaffRecord,
       confidencePercent: number,
       capturedPhotoUrl: string,
-      forceNoCooldown = false
+      forceNoCooldown = false,
+      matchedAngle?: FacePoseAngle
     ) => {
       const nowMs = Date.now();
       const empKey = matchedStaff.employeeId.trim().toLowerCase();
@@ -319,6 +347,7 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
           punch: result,
           capturedPhotoUrl,
           confidencePercent,
+          matchedAngle,
           recordedAtText: nowStr,
         });
         setFaceScanHint(
@@ -333,80 +362,103 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
     [allStaff, facePunchMode, refreshTodayFacePunches, markKioskActivity]
   );
 
-  // Live face tracking & matching loop
+  // Live 3D multi-angle face tracking & instant matching loop
   useEffect(() => {
-    if (kioskMode !== 'FACE' || !faceCameraActive || isIdleScreensaver) return;
+    if (kioskMode !== 'FACE' || !faceCameraActive || isIdleScreensaver || enrollingStaff) return;
 
-    const timer = window.setInterval(async () => {
-      if (isAnalyzingRef.current) return;
+    let cancelled = false;
+    let timerId: number | null = null;
+
+    const scanFrame = async () => {
+      if (cancelled) return;
       const video = videoRef.current;
-      if (!video || video.readyState < 2 || video.videoWidth < 32) return;
+      if (video && video.readyState >= 2 && video.videoWidth >= 32 && !isAnalyzingRef.current) {
+        isAnalyzingRef.current = true;
+        try {
+          const extraction = await extractFaceFromMediaSource(video, {
+            requireDetectedFace: true,
+            mirrored: facingMode === 'user',
+            computeLegacyFallback: hasLegacyFaceProfiles,
+          });
 
-      isAnalyzingRef.current = true;
-      try {
-        const extraction = await extractFaceFromMediaSource(video, {
-          requireDetectedFace: false,
-        });
+          if (cancelled) return;
 
-        const maxDim = 480;
-        const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));
-        const frameW = Math.max(48, Math.round(video.videoWidth * scale));
-        const frameH = Math.max(48, Math.round(video.videoHeight * scale));
+          const frameW = extraction.frameW || 448;
+          const frameH = extraction.frameH || 448;
 
-        if (!extraction.hasFace) {
-          setTrackedBox(null);
-          setFaceScanHint(
-            enrolledFaceStaff.length > 0
-              ? 'Đưa khuôn mặt vào chính giữa khung camera...'
-              : 'Chưa có nhân viên nào cài đặt khuôn mặt.'
-          );
-          return;
-        }
+          if (!extraction.hasFace) {
+            setTrackedBox(null);
+            setFaceScanHint(
+              enrolledFaceStaff.length > 0
+                ? 'Đưa khuôn mặt vào khung hình (hỗ trợ nhiều góc quay)...'
+                : 'Chưa có nhân viên nào cài đặt khuôn mặt.'
+            );
+          } else {
+            const match = matchFaceDescriptorAgainstStaff(
+              extraction.descriptor,
+              extraction.box,
+              extraction.photoDataUrl,
+              enrolledFaceStaff,
+              {
+                legacyDescriptor: extraction.legacyDescriptor,
+              }
+            );
 
-        const match = matchFaceDescriptorAgainstStaff(
-          extraction.descriptor,
-          extraction.box,
-          extraction.photoDataUrl,
-          enrolledFaceStaff
-        );
+            setTrackedBox({
+              box: extraction.box,
+              frameW,
+              frameH,
+              matched: Boolean(match),
+              poseLabel: extraction.pose?.labelVi,
+              meshPoints: extraction.pose?.meshPoints,
+            });
 
-        setTrackedBox({
-          box: extraction.box,
-          frameW,
-          frameH,
-          matched: Boolean(match),
-        });
-
-        if (match) {
-          markKioskActivity(false);
-          applyMatchedEmployeePunch(
-            match.staff,
-            match.confidencePercent,
-            match.capturedPhotoUrl || match.staff.facePhotoUrl || ''
-          );
-        } else {
-          const hasRealPerson =
-            extraction.box.detector === 'native' ||
-            (extraction.box.detector === 'heuristic' && extraction.box.confidence >= 0.55);
-          if (hasRealPerson) {
-            markKioskActivity(false);
+            if (match) {
+              markKioskActivity(false);
+              applyMatchedEmployeePunch(
+                match.staff,
+                match.confidencePercent,
+                match.capturedPhotoUrl || match.staff.facePhotoUrl || '',
+                false,
+                match.matchedAngle
+              );
+            } else {
+              const hasRealPerson =
+                extraction.box.detector === 'native' ||
+                (extraction.box.detector === 'heuristic' && extraction.box.confidence >= 0.55);
+              if (hasRealPerson) {
+                markKioskActivity(false);
+              }
+              setFaceScanHint(
+                enrolledFaceStaff.length > 0
+                  ? `Đang nhận diện (${extraction.pose?.labelVi || 'Đa góc 3D'}) — Giữ khuôn mặt trong vùng sáng...`
+                  : 'Vui lòng cài đặt khuôn mặt cho nhân viên trong tab Danh sách nhân viên.'
+              );
+            }
           }
-          setFaceScanHint(
-            enrolledFaceStaff.length > 0
-              ? 'Đã phát hiện khuôn mặt — Đang đối chiếu với danh sách nhân viên...'
-              : 'Vui lòng cài đặt khuôn mặt cho nhân viên trong tab Danh sách nhân viên.'
-          );
+        } finally {
+          isAnalyzingRef.current = false;
         }
-      } finally {
-        isAnalyzingRef.current = false;
       }
-    }, 450);
 
-    return () => window.clearInterval(timer);
+      if (!cancelled) {
+        timerId = window.setTimeout(scanFrame, 120);
+      }
+    };
+
+    timerId = window.setTimeout(scanFrame, 160);
+
+    return () => {
+      cancelled = true;
+      if (timerId !== null) window.clearTimeout(timerId);
+    };
   }, [
     kioskMode,
     faceCameraActive,
     isIdleScreensaver,
+    enrollingStaff,
+    facingMode,
+    hasLegacyFaceProfiles,
     enrolledFaceStaff,
     applyMatchedEmployeePunch,
     markKioskActivity,
@@ -435,7 +487,11 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
       extraction.box,
       extraction.photoDataUrl || dataUrl,
       enrolledFaceStaff,
-      0.74
+      {
+        legacyDescriptor: extraction.legacyDescriptor,
+        maxEuclideanDistance: 0.54,
+        minSimilarity: 0.72,
+      }
     );
 
     if (match) {
@@ -443,7 +499,8 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
         match.staff,
         match.confidencePercent,
         match.capturedPhotoUrl || dataUrl,
-        true
+        true,
+        match.matchedAngle
       );
     } else {
       setFaceScanHint('Không khớp với nhân viên nào đã cài đặt khuôn mặt.');
@@ -465,108 +522,6 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
       // Mobile browsers (especially iOS Safari) & iframes block native requestFullscreen;
       // the fixed inset-0 z-[95] overlay keeps true edge-to-edge fullscreen active.
     }
-  };
-
-  const handleDownloadQr = () => {
-    if (!qrDataUrl) return;
-    const canvas = document.createElement('canvas');
-    const w = 680;
-    const h = 820;
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.fillStyle = '#070e1c';
-    ctx.fillRect(0, 0, w, h);
-
-    ctx.fillStyle = '#10b981';
-    ctx.fillRect(0, 0, w, 10);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 28px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('NEWPROTEC VINA', w / 2, 64);
-
-    ctx.fillStyle = '#34d399';
-    ctx.font = 'bold 20px sans-serif';
-    ctx.fillText('MÃ QR CHẤM CÔNG NHÂN VIÊN', w / 2, 100);
-
-    const img = new window.Image();
-    img.onload = () => {
-      const boxSize = 480;
-      const boxX = (w - boxSize) / 2;
-      const boxY = 135;
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.roundRect(boxX, boxY, boxSize, boxSize, 24);
-      ctx.fill();
-      ctx.drawImage(img, boxX + 20, boxY + 20, boxSize - 40, boxSize - 40);
-
-      ctx.fillStyle = '#e2e8f0';
-      ctx.font = '600 18px sans-serif';
-      ctx.fillText('Quét mã bằng nút "CHẤM CÔNG QR" trong Hồ Sơ Nhân Viên', w / 2, 668);
-
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '15px monospace';
-      ctx.fillText('Tự động ghi Giờ Vào / Giờ Ra vào Bảng Chấm Công phòng ban', w / 2, 704);
-
-      const link = document.createElement('a');
-      link.download = 'Ma_QR_Cham_Cong_Newprotec.png';
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-    };
-    img.src = qrDataUrl;
-  };
-
-  const handlePrint = () => {
-    if (!qrDataUrl) return;
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-    const doc = iframe.contentWindow?.document;
-    if (!doc) {
-      document.body.removeChild(iframe);
-      return;
-    }
-    doc.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <title>Mã QR Chấm Công - Newprotec Vina</title>
-          <style>
-            body { font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fff; color: #0f172a; }
-            .card { text-align: center; border: 2px solid #0f172a; border-radius: 20px; padding: 36px 40px; max-width: 460px; }
-            h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: 0.04em; }
-            h2 { margin: 0 0 20px; font-size: 16px; color: #059669; text-transform: uppercase; }
-            img { width: 340px; height: 340px; display: block; margin: 0 auto 18px; }
-            p { font-size: 13px; color: #334155; line-height: 1.5; margin: 4px 0; }
-          </style>
-        </head>
-        <body>
-          <div class="card">
-            <h1>NEWPROTEC VINA</h1>
-            <h2>Mã QR Chấm Công Nhân Viên</h2>
-            <img src="${qrDataUrl}" alt="QR Chấm Công" />
-            <p><strong>Hướng dẫn:</strong> Đăng nhập bằng Mã Nhân Viên → Hồ Sơ → Nhấn <strong>Chấm Công QR</strong> để quét mã này.</p>
-            <p>Hệ thống sẽ tự động ghi Giờ Vào / Giờ Ra theo phòng ban của bạn.</p>
-          </div>
-        </body>
-      </html>
-    `);
-    doc.close();
-    window.setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      window.setTimeout(() => {
-        if (document.body.contains(iframe)) document.body.removeChild(iframe);
-      }, 1000);
-    }, 250);
   };
 
   const timeString = now.toLocaleTimeString('vi-VN', { hour12: false });
@@ -646,61 +601,49 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.12),transparent_55%)]" />
 
       <div
-        className={`relative z-10 w-full ${
-          isFullscreen ? 'max-w-5xl space-y-3 sm:space-y-4 my-auto' : 'max-w-6xl space-y-4'
+        className={`relative z-10 w-full max-w-6xl space-y-4 ${
+          isFullscreen ? 'my-auto' : ''
         }`}
       >
-        {/* Top Kiosk Header Bar: In Fullscreen mode, hide all page/admin menus and keep ONLY scan-mode switch + minimize */}
-        <div
-          className={`flex flex-wrap items-center justify-between gap-2.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl ${
-            isFullscreen ? 'px-3 py-2' : 'px-4 py-3 gap-3'
-          }`}
-        >
-          {!isFullscreen && (
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
-                  kioskMode === 'FACE'
-                    ? 'bg-sky-500/15 border-sky-500/40 text-sky-400'
-                    : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
-                }`}
-              >
-                {kioskMode === 'FACE' ? (
-                  <ScanFace className="w-5 h-5" />
-                ) : (
-                  <QrCode className="w-5 h-5" />
-                )}
+        {/* Top Kiosk Header Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                kioskMode === 'FACE'
+                  ? 'bg-sky-500/15 border-sky-500/40 text-sky-400'
+                  : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+              }`}
+            >
+              {kioskMode === 'FACE' ? (
+                <ScanFace className="w-5 h-5" />
+              ) : (
+                <QrCode className="w-5 h-5" />
+              )}
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-extrabold text-white tracking-wider uppercase">
+                {kioskMode === 'FACE'
+                  ? 'NEWPROTEC VINA · CHẤM CÔNG KHUÔN MẶT'
+                  : 'NEWPROTEC VINA · TRẠM QR CHẤM CÔNG'}
               </div>
-              <div>
-                <div className="text-xs sm:text-sm font-extrabold text-white tracking-wider uppercase">
+              <div className="text-[11px] text-emerald-400 font-mono flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>
                   {kioskMode === 'FACE'
-                    ? 'NEWPROTEC VINA · CHẤM CÔNG KHUÔN MẶT'
-                    : 'NEWPROTEC VINA · TRẠM QR CHẤM CÔNG'}
-                </div>
-                <div className="text-[11px] text-emerald-400 font-mono flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>
-                    {kioskMode === 'FACE'
-                      ? `Đã đồng bộ ${enrolledFaceStaff.length}/${allStaff.length} khuôn mặt nhân viên`
-                      : 'Tài khoản điểm chấm công: QRCODE'}
-                  </span>
-                </div>
+                    ? `Đã đồng bộ ${enrolledFaceStaff.length}/${allStaff.length} khuôn mặt nhân viên`
+                    : 'Tài khoản điểm chấm công: QRCODE'}
+                </span>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Mode Toggle Segmented Switch */}
-          <div
-            className={`flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800 ${
-              isFullscreen ? 'flex-1 sm:flex-initial justify-center' : ''
-            }`}
-          >
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
             <button
               type="button"
               onClick={() => setKioskMode('QR')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                isFullscreen ? 'flex-1 sm:flex-initial' : ''
-              } ${
                 kioskMode === 'QR'
                   ? 'bg-emerald-600 text-white shadow-md shadow-emerald-950/50'
                   : 'text-slate-400 hover:text-white'
@@ -713,8 +656,6 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
               type="button"
               onClick={() => setKioskMode('FACE')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                isFullscreen ? 'flex-1 sm:flex-initial' : ''
-              } ${
                 kioskMode === 'FACE'
                   ? 'bg-sky-600 text-white shadow-md shadow-sky-950/50'
                   : 'text-slate-400 hover:text-white'
@@ -725,47 +666,19 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
-            {!isFullscreen && kioskMode === 'QR' && (
-              <>
-                <button
-                  type="button"
-                  onClick={handleDownloadQr}
-                  disabled={!qrDataUrl}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
-                  title="Tải ảnh Mã QR chấm công"
-                >
-                  <Download className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="hidden sm:inline">Tải QR</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handlePrint}
-                  disabled={!qrDataUrl}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
-                  title="In áp phích QR chấm công"
-                >
-                  <Printer className="w-3.5 h-3.5 text-cyan-400" />
-                  <span className="hidden sm:inline">In QR</span>
-                </button>
-              </>
-            )}
-
-            {!isFullscreen && (
-              <button
-                type="button"
-                onClick={() => setIsIdleScreensaver(true)}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-cyan-500/40 text-cyan-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
-                title="Chuyển sang màn hình nghỉ ngay (Tự động bật sau 60 giây không có người chấm công)"
-              >
-                <Moon className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="hidden sm:inline">Màn hình nghỉ</span>
-                <span className="text-[10px] font-mono text-cyan-300/90 tabular-nums">
-                  ({idleSecondsLeft}s)
-                </span>
-              </button>
-            )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setIsIdleScreensaver(true)}
+              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-cyan-500/40 text-cyan-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+              title="Chuyển sang màn hình nghỉ ngay (Tự động bật sau 60 giây không có người chấm công)"
+            >
+              <Moon className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Màn hình nghỉ</span>
+              <span className="text-[10px] font-mono text-cyan-300/90 tabular-nums">
+                ({idleSecondsLeft}s)
+              </span>
+            </button>
 
             <button
               type="button"
@@ -787,7 +700,7 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
               </span>
             </button>
 
-            {!isFullscreen && (isStandaloneAccount || onLogout) && (
+            {(isStandaloneAccount || onLogout) && (
               <button
                 type="button"
                 onClick={() => setShowRemoteLoginModal(true)}
@@ -852,41 +765,39 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                 </div>
               </div>
 
-              {!isFullscreen && (
-                <div className="space-y-2.5 text-xs">
-                  <div className="font-bold text-slate-200 uppercase tracking-wider text-[11px]">
-                    Quy Trình Chấm Công Bằng QR
-                  </div>
-
-                  <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                    <span className="w-5 h-5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-bold text-[11px] flex items-center justify-center shrink-0">
-                      1
-                    </span>
-                    <p className="text-slate-300 leading-relaxed">
-                      Nhân viên đăng nhập vào hệ thống bằng <strong className="text-white">Mã Nhân Viên</strong> hoặc <strong className="text-white">QR Hồ Sơ</strong>.
-                    </p>
-                  </div>
-
-                  <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                    <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] flex items-center justify-center shrink-0">
-                      2
-                    </span>
-                    <p className="text-slate-300 leading-relaxed">
-                      Tại thẻ <strong className="text-cyan-300">MÃ QR HỒ SƠ</strong>, nhấn nút{' '}
-                      <strong className="text-emerald-300">CHẤM CÔNG QR</strong> và hướng camera vào mã QR bên cạnh.
-                    </p>
-                  </div>
-
-                  <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-                    <p className="text-slate-300 leading-relaxed">
-                      Hệ thống tự động ghi nhận <strong className="text-white">Giờ Vào</strong> (lần quét đầu) hoặc{' '}
-                      <strong className="text-white">Giờ Ra</strong> (lần quét tiếp theo) vào mục{' '}
-                      <strong className="text-emerald-300">Chấm công QR</strong> theo phòng ban để đối chiếu với bảng chấm công.
-                    </p>
-                  </div>
+              <div className="space-y-2.5 text-xs">
+                <div className="font-bold text-slate-200 uppercase tracking-wider text-[11px]">
+                  Quy Trình Chấm Công Bằng QR
                 </div>
-              )}
+
+                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                  <span className="w-5 h-5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-bold text-[11px] flex items-center justify-center shrink-0">
+                    1
+                  </span>
+                  <p className="text-slate-300 leading-relaxed">
+                    Nhân viên đăng nhập vào hệ thống bằng <strong className="text-white">Mã Nhân Viên</strong> hoặc <strong className="text-white">QR Hồ Sơ</strong>.
+                  </p>
+                </div>
+
+                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                  <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] flex items-center justify-center shrink-0">
+                    2
+                  </span>
+                  <p className="text-slate-300 leading-relaxed">
+                    Tại thẻ <strong className="text-cyan-300">MÃ QR HỒ SƠ</strong>, nhấn nút{' '}
+                    <strong className="text-emerald-300">CHẤM CÔNG QR</strong> và hướng camera vào mã QR bên cạnh.
+                  </p>
+                </div>
+
+                <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                  <p className="text-slate-300 leading-relaxed">
+                    Hệ thống tự động ghi nhận <strong className="text-white">Giờ Vào</strong> (lần quét đầu) hoặc{' '}
+                    <strong className="text-white">Giờ Ra</strong> (lần quét tiếp theo) vào mục{' '}
+                    <strong className="text-emerald-300">Chấm công QR</strong> theo phòng ban để đối chiếu với bảng chấm công.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -926,10 +837,30 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                   </div>
                 )}
 
+                {/* Live 3D Face Mesh Constellation Dots */}
+                {faceCameraActive && trackedBox?.meshPoints && trackedBox.meshPoints.length > 0 && (
+                  <svg
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                    className="pointer-events-none absolute inset-0 w-full h-full z-10"
+                  >
+                    {trackedBox.meshPoints.map((pt, idx) => (
+                      <circle
+                        key={idx}
+                        cx={pt.x * 100}
+                        cy={pt.y * 100}
+                        r="1.0"
+                        fill={trackedBox.matched ? '#34d399' : '#38bdf8'}
+                        opacity="0.82"
+                      />
+                    ))}
+                  </svg>
+                )}
+
                 {/* Dynamic Face Tracking Corner Brackets */}
                 {faceCameraActive && bracketStyle && (
                   <div
-                    className="pointer-events-none absolute transition-all duration-150"
+                    className="pointer-events-none absolute transition-all duration-150 z-10"
                     style={{
                       left: bracketStyle.left,
                       top: bracketStyle.top,
@@ -937,24 +868,29 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                       height: bracketStyle.height,
                     }}
                   >
+                    {trackedBox?.poseLabel && (
+                      <span className="absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-slate-950/85 border border-cyan-500/40 text-cyan-200 text-[10px] font-bold whitespace-nowrap">
+                        {trackedBox.poseLabel}
+                      </span>
+                    )}
                     <span
                       className={`absolute top-0 left-0 w-6 h-6 border-t-[3px] border-l-[3px] ${
-                        bracketStyle.matched ? 'border-emerald-400' : 'border-rose-400'
+                        bracketStyle.matched ? 'border-emerald-400' : 'border-cyan-400'
                       }`}
                     />
                     <span
                       className={`absolute top-0 right-0 w-6 h-6 border-t-[3px] border-r-[3px] ${
-                        bracketStyle.matched ? 'border-emerald-400' : 'border-rose-400'
+                        bracketStyle.matched ? 'border-emerald-400' : 'border-cyan-400'
                       }`}
                     />
                     <span
                       className={`absolute bottom-0 left-0 w-6 h-6 border-b-[3px] border-l-[3px] ${
-                        bracketStyle.matched ? 'border-emerald-400' : 'border-rose-400'
+                        bracketStyle.matched ? 'border-emerald-400' : 'border-cyan-400'
                       }`}
                     />
                     <span
                       className={`absolute bottom-0 right-0 w-6 h-6 border-b-[3px] border-r-[3px] ${
-                        bracketStyle.matched ? 'border-emerald-400' : 'border-rose-400'
+                        bracketStyle.matched ? 'border-emerald-400' : 'border-cyan-400'
                       }`}
                     />
                   </div>
@@ -1033,10 +969,21 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
               {/* Controls Bar */}
               <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-sky-300 flex items-center gap-1.5">
-                    <ScanFace className="w-4 h-4" />
-                    <span>Điều Khiển Thiết Bị Khuôn Mặt</span>
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold uppercase tracking-wider text-sky-300 flex items-center gap-1.5">
+                      <ScanFace className="w-4 h-4" />
+                      <span>Điều Khiển Thiết Bị Khuôn Mặt</span>
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                        faceModelsReady
+                          ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                          : 'bg-amber-950/60 border-amber-500/40 text-amber-300'
+                      }`}
+                    >
+                      {faceModelsReady ? 'AI 3D Đa Góc Sẵn Sàng' : 'Đang nạp AI 3D...'}
+                    </span>
+                  </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -1121,33 +1068,64 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                   </div>
                 </div>
 
-                {/* Quick Manual Employee Select Override (hidden in fullscreen kiosk mode) */}
-                {!isFullscreen && (
-                  <div className="pt-2 border-t border-slate-800/80">
+                {/* Quick 3D Face Enrollment inside Face Terminal (Admin/HR View) */}
+                {onUpdateStaff && !isStandaloneAccount && (
+                  <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row gap-2">
                     <select
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        if (!id) return;
-                        const st = allStaff.find((s) => s.employeeId === id);
-                        if (st) {
-                          applyMatchedEmployeePunch(st, 98, st.facePhotoUrl || st.avatarUrl || '');
-                          e.target.value = '';
-                        }
-                      }}
-                      defaultValue=""
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 cursor-pointer"
+                      value={selectedEnrollId}
+                      onChange={(e) => setSelectedEnrollId(e.target.value)}
+                      className="flex-1 bg-slate-900 border border-cyan-500/40 rounded-xl px-3 py-2 text-xs text-slate-100 cursor-pointer"
                     >
-                      <option value="" disabled>
-                        Hoặc chọn nhanh nhân viên chấm công khuôn mặt thủ công...
-                      </option>
-                      {allStaff.map((st) => (
-                        <option key={st.employeeId} value={st.employeeId}>
-                          {st.fullName} ({st.employeeId}) - {st.department || 'MULTI'}
-                        </option>
-                      ))}
+                      <option value="">Chọn nhân viên để lấy khuôn mặt đa hướng 3D...</option>
+                      {allStaff.map((st) => {
+                        const cnt = getStaffPoseTemplates(st).length;
+                        return (
+                          <option key={st.employeeId} value={st.employeeId}>
+                            {st.fullName} ({st.employeeId}) {cnt > 0 ? `· Đã lưu ${cnt} góc` : '· Chưa lấy mẫu'}
+                          </option>
+                        );
+                      })}
                     </select>
+                    <button
+                      type="button"
+                      disabled={!selectedEnrollId}
+                      onClick={() => {
+                        const target = allStaff.find((s) => s.employeeId === selectedEnrollId);
+                        if (target) setEnrollingStaff(target);
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-sky-600 hover:from-cyan-500 hover:to-sky-500 disabled:opacity-45 disabled:cursor-not-allowed text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Quét Lấy Khuôn Mặt 3D</span>
+                    </button>
                   </div>
                 )}
+
+                {/* Quick Manual Employee Select Override */}
+                <div className="pt-2 border-t border-slate-800/80">
+                  <select
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      if (!id) return;
+                      const st = allStaff.find((s) => s.employeeId === id);
+                      if (st) {
+                        applyMatchedEmployeePunch(st, 98, st.facePhotoUrl || st.avatarUrl || '');
+                        e.target.value = '';
+                      }
+                    }}
+                    defaultValue=""
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 cursor-pointer"
+                  >
+                    <option value="" disabled>
+                      Hoặc chọn nhanh nhân viên chấm công khuôn mặt thủ công...
+                    </option>
+                    {allStaff.map((st) => (
+                      <option key={st.employeeId} value={st.employeeId}>
+                        {st.fullName} ({st.employeeId}) - {st.department || 'MULTI'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Latest Recognized Result Card */}
@@ -1160,12 +1138,15 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                       className="w-14 h-14 rounded-xl object-cover border-2 border-emerald-400/70 shrink-0"
                     />
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm sm:text-base font-extrabold text-white truncate">
                           {recognizedState.staff.fullName}
                         </span>
                         <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
                           Khớp {recognizedState.confidencePercent}%
+                          {recognizedState.matchedAngle
+                            ? ` · ${FACE_POSE_META[recognizedState.matchedAngle].label}`
+                            : ''}
                         </span>
                       </div>
                       <div className="text-xs text-slate-300 mt-0.5 font-mono">
@@ -1204,18 +1185,16 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
                         ? `Sẵn sàng nhận diện ${enrolledFaceStaff.length} nhân viên đã đồng bộ.`
                         : 'Chưa có nhân viên nào cài đặt khuôn mặt.'}
                     </div>
-                    {!isFullscreen && (
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        Cài đặt khuôn mặt từng nhân viên tại mục{' '}
-                        <strong className="text-cyan-300">Danh sách nhân viên → Cài đặt khuôn mặt</strong>.
-                        Giờ Vào / Ra sẽ tự động cập nhật vào cột Khuôn mặt trong Dữ liệu công.
-                      </div>
-                    )}
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Cài đặt khuôn mặt từng nhân viên tại mục{' '}
+                      <strong className="text-cyan-300">Danh sách nhân viên → Cài đặt khuôn mặt</strong>.
+                      Giờ Vào / Ra sẽ tự động cập nhật vào cột Khuôn mặt trong Dữ liệu công.
+                    </div>
                   </div>
                 </div>
               )}
 
-              {!isFullscreen && enrolledFaceStaff.length === 0 && (
+              {enrolledFaceStaff.length === 0 && (
                 <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                   <span>
@@ -1268,6 +1247,24 @@ export const AttendanceQRKiosk: React.FC<AttendanceQRKioskProps> = ({
           </div>
         )}
       </div>
+
+      {enrollingStaff && (
+        <EmployeeFaceSettingsModal
+          staff={
+            allStaff.find((s) => s.employeeId === enrollingStaff.employeeId) || enrollingStaff
+          }
+          onClose={() => setEnrollingStaff(null)}
+          onSave={(updated) => {
+            onUpdateStaff?.(updated);
+            setEnrollingStaff(null);
+            setFaceScanHint(
+              `Đã cập nhật mẫu khuôn mặt 3D cho ${updated.fullName} (${
+                getStaffPoseTemplates(updated).length
+              } hướng). Sẵn sàng chấm công ngay!`
+            );
+          }}
+        />
+      )}
     </div>
   );
 };

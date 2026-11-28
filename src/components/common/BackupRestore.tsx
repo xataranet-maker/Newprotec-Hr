@@ -72,6 +72,7 @@ export const STAFF_BACKUP_HEADERS = [
   'facePhotoUrl',
   'faceUpdatedAt',
   'faceDescriptor',
+  'facePoseTemplates',
   'badgeIssued',
   'badgeIssuedAt',
   'badgeIssuedBy',
@@ -382,6 +383,20 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
       Array.isArray(rawFaceDescriptor) && rawFaceDescriptor.every((n) => typeof n === 'number')
         ? (rawFaceDescriptor as number[])
         : undefined;
+    const rawPoseTemplates = pickField(norm, 'faceposetemplates');
+    let facePoseTemplates: StaffRecord['facePoseTemplates'];
+    if (Array.isArray(rawPoseTemplates)) {
+      facePoseTemplates = rawPoseTemplates as StaffRecord['facePoseTemplates'];
+    } else if (typeof rawPoseTemplates === 'string' && rawPoseTemplates.trim().startsWith('[')) {
+      try {
+        const parsedPoses = JSON.parse(rawPoseTemplates);
+        if (Array.isArray(parsedPoses)) {
+          facePoseTemplates = parsedPoses;
+        }
+      } catch {
+        // ignore invalid JSON
+      }
+    }
     const badgeIssued = parseBooleanOptional(norm['badgeissued']);
     const badgeIssuedAt = String(pickField(norm, 'badgeissuedat') || '').trim() || undefined;
     const badgeIssuedBy = String(pickField(norm, 'badgeissuedby') || '').trim() || undefined;
@@ -410,6 +425,7 @@ function normalizeStaffRowsForRestore(rawRows: Record<string, any>[]): {
       ...(qrAccessToken ? { qrAccessToken } : {}),
       ...(faceAccessEnabled !== undefined ? { faceAccessEnabled } : {}),
       ...(faceDescriptor ? { faceDescriptor } : {}),
+      ...(facePoseTemplates && facePoseTemplates.length > 0 ? { facePoseTemplates } : {}),
       ...(facePhotoUrl ? { facePhotoUrl } : {}),
       ...(faceUpdatedAt ? { faceUpdatedAt } : {}),
       ...(badgeIssued !== undefined ? { badgeIssued } : {}),
@@ -457,6 +473,10 @@ function buildStaffExportRows(allStaff: StaffRecord[]): Record<string, any>[] {
       facePhotoUrl: s.facePhotoUrl || '',
       faceUpdatedAt: s.faceUpdatedAt || '',
       faceDescriptor: Array.isArray(s.faceDescriptor) ? s.faceDescriptor : '',
+      facePoseTemplates:
+        Array.isArray(s.facePoseTemplates) && s.facePoseTemplates.length > 0
+          ? JSON.stringify(s.facePoseTemplates)
+          : '',
       badgeIssued: s.badgeIssued === undefined ? '' : s.badgeIssued,
       badgeIssuedAt: s.badgeIssuedAt || '',
       badgeIssuedBy: s.badgeIssuedBy || '',
