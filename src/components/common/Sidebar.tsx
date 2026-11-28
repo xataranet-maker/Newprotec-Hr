@@ -205,8 +205,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ref={asideRef}
         onMouseMove={handleSidebarMouseMove}
         onMouseLeave={() => setHoveredPointer(null)}
-        className={`fixed inset-y-0 left-0 z-50 md:static md:z-20 flex flex-col h-full bg-[#0b0f17] border-r border-slate-800/80 shadow-2xl md:shadow-none transition-[width,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none select-none shrink-0 overflow-hidden relative ${
-          isOpen ? 'translate-x-0 w-[264px]' : '-translate-x-full md:translate-x-0'
+        className={`fixed inset-y-0 left-0 z-50 md:relative md:inset-auto md:z-20 flex flex-col h-full w-[264px] bg-[#0b0f17] border-r border-slate-800/80 shadow-2xl md:shadow-none transition-[width,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none select-none shrink-0 overflow-hidden ${
+          isOpen
+            ? 'translate-x-0 pointer-events-auto'
+            : '-translate-x-full pointer-events-none md:pointer-events-auto md:translate-x-0'
         } ${effectiveCollapsed ? 'md:w-[72px]' : 'md:w-[260px]'}`}
         style={{
           backgroundImage: hoveredPointer

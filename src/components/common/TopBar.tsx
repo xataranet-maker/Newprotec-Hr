@@ -58,7 +58,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   return (
     <header className="h-14 bg-slate-900/90 border-b border-slate-800 backdrop-blur-md px-4 flex items-center justify-between text-xs font-medium z-30 select-none shrink-0">
       {/* Zone 1: Mobile Menu Trigger & Context Breadcrumbs */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pr-2">
         <button
           type="button"
           onClick={toggleSidebar}
@@ -132,7 +132,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Zone 3: User Info & Actions */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
         {onOpenQR && (
           <button
             type="button"
