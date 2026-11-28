@@ -1401,9 +1401,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
 
                 <div className="w-full overflow-x-auto overflow-y-auto custom-scrollbar max-h-[58vh] sm:max-h-[52vh]">
                   <table className="w-full min-w-[1100px] text-left text-xs border-collapse">
-                    <thead className="bg-[#080f1d] text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800 sticky top-0 z-10 whitespace-nowrap">
+                    <thead className="bg-[#080f1d] text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800 sticky top-0 z-20 whitespace-nowrap">
                       <tr>
-                        <th className="py-2.5 px-3">NGÀY</th>
+                        <th className="py-2.5 px-3 sticky left-0 z-30 bg-[#080f1d] border-r border-slate-800/80 shadow-[4px_0_10px_-4px_rgba(2,6,23,0.9)]">
+                          NGÀY
+                        </th>
                         <th className="py-2.5 px-3 text-center">GIỜ VÀO (BC)</th>
                         <th className="py-2.5 px-3 text-center">GIỜ RA (BC)</th>
                         <th className="py-2.5 px-3 text-center text-cyan-300">QUÉT QR (VÀO - RA)</th>
@@ -1423,11 +1425,19 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                       {dayRows.map((row) => (
                         <tr
                           key={row.day}
-                          className={`hover:bg-slate-800/40 transition-colors ${
+                          className={`group hover:bg-slate-800/40 transition-colors ${
                             row.isHoliday ? 'bg-red-950/15' : row.isSunday ? 'bg-rose-950/10' : ''
                           }`}
                         >
-                          <td className="py-2.5 px-3 font-semibold text-slate-200 whitespace-nowrap">
+                          <td
+                            className={`py-2.5 px-3 font-semibold text-slate-200 whitespace-nowrap sticky left-0 z-10 border-r border-slate-800/80 shadow-[4px_0_10px_-4px_rgba(2,6,23,0.9)] transition-colors ${
+                              row.isHoliday
+                                ? 'bg-[#1f1018]'
+                                : row.isSunday
+                                ? 'bg-[#19111c]'
+                                : 'bg-[#0a1222]'
+                            } group-hover:bg-[#1a2438]`}
+                          >
                             <span>{row.dateIso}</span>
                             {row.isHoliday ? (
                               <span className="ml-1.5 text-[10px] text-red-400 font-bold">LỄ</span>
@@ -2921,9 +2931,11 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                 ) : (
                   <div className="w-full overflow-x-auto overflow-y-auto custom-scrollbar max-h-72 rounded-lg border border-slate-800">
                     <table className="w-full min-w-[780px] text-left border-collapse font-mono text-[11px]">
-                      <thead className="bg-slate-950 text-[10px] text-slate-400 uppercase border-b border-slate-800 sticky top-0 whitespace-nowrap">
+                      <thead className="bg-slate-950 text-[10px] text-slate-400 uppercase border-b border-slate-800 sticky top-0 z-20 whitespace-nowrap">
                         <tr>
-                          <th className="py-2 px-3">Ngày</th>
+                          <th className="py-2 px-3 sticky left-0 z-30 bg-slate-950 border-r border-slate-800/80 whitespace-nowrap shadow-[4px_0_10px_-4px_rgba(2,6,23,0.9)]">
+                            Ngày
+                          </th>
                           <th className="py-2 px-3 text-center">Vào - Ra</th>
                           <th className="py-2 px-3 text-center text-amber-400">TC Ngày</th>
                           <th className="py-2 px-3 text-center text-purple-300">TC Đêm</th>
@@ -2936,13 +2948,13 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
                       </thead>
                       <tbody className="divide-y divide-slate-800/60">
                         {myMatrixOvertimeDays.map((r) => (
-                          <tr key={r.day} className="hover:bg-slate-800/40">
-                            <td className="py-2 px-3 text-slate-200 font-semibold">
+                          <tr key={r.day} className="group hover:bg-slate-800/40 transition-colors">
+                            <td className="py-2 px-3 text-slate-200 font-semibold whitespace-nowrap sticky left-0 z-10 bg-slate-900 group-hover:bg-[#1a2438] border-r border-slate-800/80 shadow-[4px_0_10px_-4px_rgba(2,6,23,0.9)] transition-colors">
                               {r.dateIso}
                               {r.isHoliday && <span className="ml-1.5 text-[9px] text-red-400">LỄ</span>}
                               {!r.isHoliday && r.isSunday && <span className="ml-1.5 text-[9px] text-rose-400">CN</span>}
                             </td>
-                            <td className="py-2 px-3 text-center text-cyan-400">
+                            <td className="py-2 px-3 text-center text-cyan-400 whitespace-nowrap">
                               {r.inTime} - {r.outTime}
                             </td>
                             <td className="py-2 px-3 text-center text-amber-400 font-bold">
