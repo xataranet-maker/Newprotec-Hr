@@ -1207,38 +1207,40 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowAttendanceQrScanner(true)}
-            className="w-full py-2.5 px-3 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-200 hover:text-white text-[11px] font-extrabold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm shadow-emerald-950/30"
-            title="Mở camera quét mã QR chấm công hoặc điền thời gian thủ công"
-          >
-            <ScanLine className="w-3.5 h-3.5 text-emerald-300" />
-            <span>CHẤM CÔNG QR</span>
-          </button>
-
-          {/* Sửa Thông Tin Button */}
-          {staffInfo && (
+          <div className="flex items-stretch gap-1.5 w-full">
             <button
               type="button"
-              onClick={() => setIsEditingInfo(true)}
-              className="w-full py-2.5 px-3 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 hover:text-white text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              onClick={() => setShowAttendanceQrScanner(true)}
+              className="flex-1 min-w-0 py-2.5 px-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/50 text-emerald-200 hover:text-white text-[10px] font-extrabold uppercase tracking-tight flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-sm shadow-emerald-950/30 whitespace-nowrap"
+              title="Mở camera quét mã QR chấm công hoặc điền thời gian thủ công"
             >
-              <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
-              <span>SỬA THÔNG TIN</span>
+              <ScanLine className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+              <span className="truncate">CHẤM CÔNG QR</span>
             </button>
-          )}
 
-          {!isModal && currentUser.role === 'staff' && onLogout && (
-            <button
-              type="button"
-              onClick={onLogout}
-              className="md:hidden w-full py-2.5 px-3 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 text-rose-300 hover:text-white text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>ĐĂNG XUẤT</span>
-            </button>
-          )}
+            {/* Sửa Thông Tin Button */}
+            {staffInfo && (
+              <button
+                type="button"
+                onClick={() => setIsEditingInfo(true)}
+                className="flex-1 min-w-0 py-2.5 px-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 hover:text-white text-[10px] font-bold uppercase tracking-tight flex items-center justify-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span className="truncate">SỬA THÔNG TIN</span>
+              </button>
+            )}
+
+            {!isModal && currentUser.role === 'staff' && onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="md:hidden flex-1 min-w-0 py-2.5 px-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 text-rose-300 hover:text-white text-[10px] font-bold uppercase tracking-tight flex items-center justify-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <LogOut className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">ĐĂNG XUẤT</span>
+              </button>
+            )}
+          </div>
 
         </div>
 
