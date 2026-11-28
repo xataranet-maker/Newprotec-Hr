@@ -15,9 +15,9 @@ on:
           - android
           - ios
       api_base_url:
-        description: 'https://newprotechr.vercel.app/'
+        description: 'URL máy chủ Web đang chạy (tự động đồng bộ API & kiểm tra cập nhật)'
         required: false
-        default: ''
+        default: 'https://newprotechr.vercel.app'
         type: string
   push:
     tags:
@@ -50,7 +50,7 @@ jobs:
 
       - name: Build Windows Installer (.exe + portable)
         env:
-          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
+          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL || 'https://newprotechr.vercel.app' }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run pack:win
 
@@ -60,7 +60,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist-zips | Out-Null
           $portableDir = Join-Path "release" "Newprotec Vina HRM-win32-x64"
           if (Test-Path $portableDir) {
-            Compress-Archive -Path $portableDir -DestinationPath "release/Newprotec-Vina-HRM-Portable-2.1.0-win-x64.zip" -Force
+            Compress-Archive -Path $portableDir -DestinationPath "release/Newprotec-Vina-HRM-Portable-2.2.0-win-x64.zip" -Force
           }
           $files = Get-ChildItem -Path release -File | Where-Object { $_.Extension -in '.exe', '.zip' }
           if ($files.Count -gt 0) {
@@ -98,7 +98,7 @@ jobs:
 
       - name: Build macOS Installer (.dmg + .zip)
         env:
-          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
+          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL || 'https://newprotechr.vercel.app' }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run pack:mac
 
@@ -160,7 +160,7 @@ jobs:
 
       - name: Build Android APK
         env:
-          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
+          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL || 'https://newprotechr.vercel.app' }}
         run: npm run pack:android
 
       - name: Compress Android APK
@@ -197,7 +197,7 @@ jobs:
 
       - name: Build iOS Package (.ipa + Xcode archive)
         env:
-          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
+          VITE_API_BASE_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL || 'https://newprotechr.vercel.app' }}
         run: npm run pack:ios
 
       - name: Compress iOS Package

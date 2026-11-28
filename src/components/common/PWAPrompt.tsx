@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Download, X, Smartphone, Monitor, Share, PlusSquare, HardDriveDownload } from 'lucide-react';
 import { AppDownloadModal } from './AppDownloadModal';
+import { AppUpdateNotifier } from './AppUpdateNotifier';
 import { InstallerDownloadLinks } from '../../lib/installerLinks';
 import { isPackagedAppShell } from '../../lib/apiBase';
 
@@ -21,7 +22,6 @@ export const PWAPrompt: React.FC<PWAPromptProps> = ({ installerLinks }) => {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
-  const [platform, setPlatform] = useState<'desktop' | 'android' | 'ios' | 'other'>('other');
 
   useEffect(() => {
     // Check if running in standalone mode or packaged desktop/mobile shell
@@ -38,16 +38,8 @@ export const PWAPrompt: React.FC<PWAPromptProps> = ({ installerLinks }) => {
     // Detect device type & OS
     const ua = navigator.userAgent.toLowerCase();
     const isIOSDevice = /iphone|ipad|ipod/.test(ua);
-    const isAndroidDevice = /android/.test(ua);
 
     setIsIOS(isIOSDevice);
-    if (isIOSDevice) {
-      setPlatform('ios');
-    } else if (isAndroidDevice) {
-      setPlatform('android');
-    } else {
-      setPlatform('desktop');
-    }
 
     // Check if user previously dismissed prompt in this session
     const dismissed = sessionStorage.getItem('pwa_prompt_dismissed');
@@ -105,12 +97,12 @@ export const PWAPrompt: React.FC<PWAPromptProps> = ({ installerLinks }) => {
     sessionStorage.setItem('pwa_prompt_dismissed', 'true');
   };
 
-  if (isInstalled) return null;
-
   return (
     <>
+      <AppUpdateNotifier installerLinks={installerLinks} />
+
       {/* Floating Bottom PWA Banner */}
-      {showBanner && (
+      {!isInstalled && showBanner && (
         <div className="fixed bottom-5 right-5 z-50 bg-slate-900/95 backdrop-blur-md border border-cyan-500/30 p-4 rounded-2xl shadow-2xl shadow-cyan-950/50 flex flex-col sm:flex-row items-start sm:items-center gap-4 text-xs max-w-md w-[calc(100vw-2.5rem)] text-slate-200 animate-in fade-in slide-in-from-bottom-5 duration-300">
           <img
             src="/app-logo.png"
@@ -170,9 +162,11 @@ export const PWAPrompt: React.FC<PWAPromptProps> = ({ installerLinks }) => {
             </button>
 
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-                <Smartphone className="w-6 h-6" />
-              </div>
+              <img
+                src="/app-logo.png"
+                alt="Newprotec Smart MES V2.0"
+                className="w-11 h-11 object-contain drop-shadow-md shrink-0"
+              />
               <div>
                 <h3 className="text-lg font-bold text-white">Hướng dẫn cài đặt trên iPhone / iPad</h3>
                 <p className="text-xs text-slate-400">Trình duyệt Safari trên iOS</p>
@@ -227,9 +221,11 @@ export const PWAPrompt: React.FC<PWAPromptProps> = ({ installerLinks }) => {
             </button>
 
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-                <Monitor className="w-6 h-6" />
-              </div>
+              <img
+                src="/app-logo.png"
+                alt="Newprotec Smart MES V2.0"
+                className="w-11 h-11 object-contain drop-shadow-md shrink-0"
+              />
               <div>
                 <h3 className="text-lg font-bold text-white">Hướng Dẫn Cài Đặt Ứng Dụng</h3>
                 <p className="text-xs text-slate-400">Tất cả thiết bị Máy tính & Điện thoại</p>

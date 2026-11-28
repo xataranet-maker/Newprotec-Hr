@@ -1264,55 +1264,61 @@ export default function App() {
 
     if (isQrcodeGateOpen) {
       return (
-        <QrcodeStationLoginGate
-          onApprovedQrcodeLogin={() => {
-            updateQrcodeGateUrl(false);
-            setIsQrcodeGateOpen(false);
-            handleLogin(QRCODE_STATION_ACCOUNT);
-          }}
-          onBackToLogin={() => {
-            updateQrcodeGateUrl(false);
-            setIsQrcodeGateOpen(false);
-          }}
-        />
+        <>
+          <QrcodeStationLoginGate
+            onApprovedQrcodeLogin={() => {
+              updateQrcodeGateUrl(false);
+              setIsQrcodeGateOpen(false);
+              handleLogin(QRCODE_STATION_ACCOUNT);
+            }}
+            onBackToLogin={() => {
+              updateQrcodeGateUrl(false);
+              setIsQrcodeGateOpen(false);
+            }}
+          />
+          <PWAPrompt installerLinks={installerLinks} />
+        </>
       );
     }
 
     return (
-      <Login
-        users={userAccounts}
-        allStaff={allStaff}
-        onLogin={(user) => {
-          updatePublicCatalogUrl(false);
-          updateQrcodeGateUrl(false);
-          setIsPublicCatalogOpen(false);
-          setIsQrcodeGateOpen(false);
-          handleLogin(user);
-        }}
-        onQrQuickAccess={({ employeeId, token }) => {
-          updatePublicCatalogUrl(false);
-          updateQrcodeGateUrl(false);
-          setIsPublicCatalogOpen(false);
-          setIsQrcodeGateOpen(false);
-          setStaffQrParamsInUrl(employeeId, token);
-          setQrRouteParams({ employeeId, token });
-        }}
-        language={language}
-        onLanguageChange={setLanguage}
-        onOpenCatalog={() => {
-          updateQrcodeGateUrl(false);
-          setIsQrcodeGateOpen(false);
-          updatePublicCatalogUrl(true);
-          setIsPublicCatalogOpen(true);
-        }}
-        onOpenQrcodeGate={() => {
-          updatePublicCatalogUrl(false);
-          setIsPublicCatalogOpen(false);
-          updateQrcodeGateUrl(true);
-          setIsQrcodeGateOpen(true);
-        }}
-        installerLinks={installerLinks}
-      />
+      <>
+        <Login
+          users={userAccounts}
+          allStaff={allStaff}
+          onLogin={(user) => {
+            updatePublicCatalogUrl(false);
+            updateQrcodeGateUrl(false);
+            setIsPublicCatalogOpen(false);
+            setIsQrcodeGateOpen(false);
+            handleLogin(user);
+          }}
+          onQrQuickAccess={({ employeeId, token }) => {
+            updatePublicCatalogUrl(false);
+            updateQrcodeGateUrl(false);
+            setIsPublicCatalogOpen(false);
+            setIsQrcodeGateOpen(false);
+            setStaffQrParamsInUrl(employeeId, token);
+            setQrRouteParams({ employeeId, token });
+          }}
+          language={language}
+          onLanguageChange={setLanguage}
+          onOpenCatalog={() => {
+            updateQrcodeGateUrl(false);
+            setIsQrcodeGateOpen(false);
+            updatePublicCatalogUrl(true);
+            setIsPublicCatalogOpen(true);
+          }}
+          onOpenQrcodeGate={() => {
+            updatePublicCatalogUrl(false);
+            setIsPublicCatalogOpen(false);
+            updateQrcodeGateUrl(true);
+            setIsQrcodeGateOpen(true);
+          }}
+          installerLinks={installerLinks}
+        />
+        <PWAPrompt installerLinks={installerLinks} />
+      </>
     );
   }
 

@@ -138,15 +138,26 @@ function patchAndroidProject() {
   }
 
   const iconSrc = path.join(ROOT, 'public', 'pwa-512x512.png');
+  const adaptiveFgSrc = path.join(ROOT, 'public', 'pwa-maskable-512x512.png');
   const resDir = path.join(ROOT, 'android', 'app', 'src', 'main', 'res');
   if (fs.existsSync(iconSrc) && fs.existsSync(resDir)) {
+    const bgColorXml = path.join(resDir, 'values', 'ic_launcher_background.xml');
+    if (fs.existsSync(bgColorXml)) {
+      let xml = fs.readFileSync(bgColorXml, 'utf8');
+      xml = xml.replace(/#[0-9a-fA-F]{6,8}/g, '#020617');
+      fs.writeFileSync(bgColorXml, xml, 'utf8');
+    }
     for (const entry of fs.readdirSync(resDir)) {
       if (entry.startsWith('mipmap-')) {
         const mipmapDir = path.join(resDir, entry);
         for (const iconName of ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png']) {
           const dest = path.join(mipmapDir, iconName);
           if (fs.existsSync(dest)) {
-            fs.copyFileSync(iconSrc, dest);
+            const srcFile =
+              iconName === 'ic_launcher_foreground.png' && fs.existsSync(adaptiveFgSrc)
+                ? adaptiveFgSrc
+                : iconSrc;
+            fs.copyFileSync(srcFile, dest);
           }
         }
       }
@@ -174,7 +185,10 @@ function patchIosProject() {
     fs.writeFileSync(plistPath, plist, 'utf8');
   }
 
-  const iconSrc = path.join(ROOT, 'public', 'pwa-512x512.png');
+  const iosOpaqueSrc = path.join(ROOT, 'public', 'pwa-maskable-512x512.png');
+  const iconSrc = fs.existsSync(iosOpaqueSrc)
+    ? iosOpaqueSrc
+    : path.join(ROOT, 'public', 'pwa-512x512.png');
   const iosIconDest = path.join(
     ROOT,
     'ios',

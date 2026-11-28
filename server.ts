@@ -224,6 +224,16 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
+    app.get('/app-version.json', (_req, res) => {
+      const versionFile = path.join(distDir, 'app-version.json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      if (fs.existsSync(versionFile)) {
+        res.sendFile(versionFile);
+      } else {
+        res.status(404).json({ error: 'Version file not found' });
+      }
+    });
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
       const indexHtml = path.join(distDir, 'index.html');
