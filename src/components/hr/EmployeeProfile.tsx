@@ -89,6 +89,7 @@ import {
   ShieldOff,
   ScanLine,
   BadgeCheck,
+  LogOut,
 } from 'lucide-react';
 import {
   buildStaffQrUrl,
@@ -127,6 +128,7 @@ export interface EmployeeProfileProps {
   isQrDirectAccess?: boolean;
   canManageQr?: boolean;
   canManualAttendance?: boolean;
+  onLogout?: () => void;
 }
 
 type ProfileTab = 'overview' | 'confirm' | 'leave' | 'salary' | 'overtime' | 'contract';
@@ -165,6 +167,7 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
   isQrDirectAccess = false,
   canManageQr,
   canManualAttendance,
+  onLogout,
 }) => {
   const now = new Date();
   const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
@@ -1223,6 +1226,17 @@ export const EmployeeProfile: React.FC<EmployeeProfileProps> = ({
             >
               <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
               <span>SỬA THÔNG TIN</span>
+            </button>
+          )}
+
+          {!isModal && currentUser.role === 'staff' && onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="md:hidden w-full py-2.5 px-3 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/50 text-rose-300 hover:text-white text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>ĐĂNG XUẤT</span>
             </button>
           )}
 

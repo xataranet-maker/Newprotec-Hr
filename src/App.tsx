@@ -1371,6 +1371,7 @@ export default function App() {
           onUpdateAvatar={handleUpdateAvatar}
           viewerHasSalaryAccess={true}
           canManualAttendance={false}
+          onLogout={() => window.location.reload()}
         />
       );
     }
@@ -1790,6 +1791,7 @@ export default function App() {
           syncStatus={syncStatus}
           syncDetail={syncDetail}
           onOpenQR={() => setShowAppQR(true)}
+          hideOnMobile={currentUser.role === 'staff' && activeItem.toLowerCase() !== 'home_announcements'}
         />
 
         <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden relative bg-[#020617] custom-scrollbar">{renderContent()}</main>

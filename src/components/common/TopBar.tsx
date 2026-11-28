@@ -19,6 +19,7 @@ interface TopBarProps {
   syncStatus?: SyncStatusKind;
   syncDetail?: string | null;
   onOpenQR?: () => void;
+  hideOnMobile?: boolean;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -32,7 +33,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   lastSyncTime,
   syncStatus = 'idle',
   syncDetail = null,
-  onOpenQR
+  onOpenQR,
+  hideOnMobile = false,
 }) => {
   const [time, setTime] = useState<string>('');
   const [currentShift, setCurrentShift] = useState<'Ca Ngày' | 'Ca Đêm'>('Ca Ngày');
@@ -56,7 +58,11 @@ export const TopBar: React.FC<TopBarProps> = ({
     'Đồng bộ dữ liệu với Vercel Turso Database (database-newprotec)';
 
   return (
-    <header className="h-14 bg-slate-900/90 border-b border-slate-800 backdrop-blur-md px-4 flex items-center justify-between text-xs font-medium z-30 select-none shrink-0">
+    <header
+      className={`${
+        hideOnMobile ? 'hidden md:flex' : 'flex'
+      } h-14 bg-slate-900/90 border-b border-slate-800 backdrop-blur-md px-4 items-center justify-between text-xs font-medium z-30 select-none shrink-0`}
+    >
       {/* Zone 1: Mobile Menu Trigger & Context Breadcrumbs */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 pr-2">
         <button
