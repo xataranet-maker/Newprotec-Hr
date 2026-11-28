@@ -197,4 +197,87 @@ input[type="month"] {
   animation: pcbNodePulse 4s ease-in-out infinite;
 }
 
+/* Glassy Login V3 Liquid Metal Waves & Chamfered Glass Card */
+@keyframes glassyWaveDriftA {
+  0%, 100% {
+    transform: translate3d(-3%, -2%, 0) scale(1.03) rotate(-1.5deg);
+  }
+  50% {
+    transform: translate3d(3.5%, 2.5%, 0) scale(1.08) rotate(1.8deg);
+  }
+}
+
+@keyframes glassyWaveDriftB {
+  0%, 100% {
+    transform: translate3d(3%, 2%, 0) scale(1.06) rotate(1.2deg);
+  }
+  50% {
+    transform: translate3d(-4%, -2.5%, 0) scale(1.02) rotate(-1.6deg);
+  }
+}
+
+@keyframes glassyOrbFloat {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate3d(24px, -18px, 0) scale(1.12);
+    opacity: 0.82;
+  }
+}
+
+@keyframes glassySheenSweep {
+  0% {
+    transform: translateX(-140%) skewX(-20deg);
+  }
+  38%, 100% {
+    transform: translateX(260%) skewX(-20deg);
+  }
+}
+
+.animate-glassy-wave-a {
+  animation: glassyWaveDriftA 16s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-glassy-wave-b {
+  animation: glassyWaveDriftB 22s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-glassy-orb {
+  animation: glassyOrbFloat 14s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.animate-glassy-sheen {
+  animation: glassySheenSweep 5.5s ease-in-out infinite;
+}
+
+.glassy-chamfer-clip {
+  clip-path: polygon(
+    36px 0,
+    calc(100% - 18px) 0,
+    calc(100% - 7px) 4px,
+    calc(100% - 2px) 10px,
+    100% 18px,
+    100% calc(100% - 36px),
+    calc(100% - 36px) 100%,
+    18px 100%,
+    7px calc(100% - 4px),
+    2px calc(100% - 10px),
+    0 calc(100% - 18px),
+    0 36px
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-glassy-wave-a,
+  .animate-glassy-wave-b,
+  .animate-glassy-orb,
+  .animate-glassy-sheen {
+    animation: none !important;
+  }
+}
 
